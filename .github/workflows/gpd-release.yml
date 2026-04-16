@@ -131,41 +131,26 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           OPENCODE_CLI_ARTIFACT: opencode-cli
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Build GPD sidecar (PyInstaller)
+      - name: Download uv binary
         shell: bash
         run: |
-          if [ "${{ needs.resolve-version.outputs.source }}" = "github" ]; then
-            pip install "get-physics-done[arxiv] @ git+https://github.com/psi-oss/get-physics-done.git@main" pyinstaller
+          UV_VERSION="0.7.3"
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin)      UV_PLATFORM="aarch64-apple-darwin" ;;
+            x86_64-apple-darwin)       UV_PLATFORM="x86_64-apple-darwin" ;;
+            x86_64-pc-windows-msvc)    UV_PLATFORM="x86_64-pc-windows-msvc" ;;
+            x86_64-unknown-linux-gnu)  UV_PLATFORM="x86_64-unknown-linux-gnu" ;;
+          esac
+          mkdir -p packages/desktop/src-tauri/uv-bundle
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_PLATFORM}.zip" -o /tmp/uv.zip
+            unzip /tmp/uv.zip -d packages/desktop/src-tauri/uv-bundle
           else
-            pip install "get-physics-done[arxiv]" pyinstaller
+            curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_PLATFORM}.tar.gz" \
+              | tar xz -C packages/desktop/src-tauri/uv-bundle --strip-components=1
           fi
-          cd /tmp
-          PYTHONPATH=$(python -c "import gpd; import os; print(os.path.dirname(os.path.dirname(gpd.__file__)))")
-          python $PYTHONPATH/gpd/../../../scripts/gpd/generate_pyinstaller_imports.py > /tmp/hidden-imports.txt 2>/dev/null || true
-          pyinstaller --onedir --name gpd-sidecar --console \
-            --add-data "$(python -c 'import gpd; import os; print(os.path.dirname(gpd.__file__))'):gpd" \
-            --copy-metadata mcp \
-            --hidden-import=diskcache \
-            --hidden-import=mcp --hidden-import=mcp.server --hidden-import=mcp.server.fastmcp \
-            --hidden-import=pydantic --hidden-import=yaml --hidden-import=jinja2 \
-            --hidden-import=typer --hidden-import=rich \
-            --hidden-import=gpd.mcp.servers.conventions_server \
-            --hidden-import=gpd.mcp.servers.errors_mcp \
-            --hidden-import=gpd.mcp.servers.patterns_server \
-            --hidden-import=gpd.mcp.servers.protocols_server \
-            --hidden-import=gpd.mcp.servers.skills_server \
-            --hidden-import=gpd.mcp.servers.state_server \
-            --hidden-import=gpd.mcp.servers.verification_server \
-            --hidden-import=gpd.mcp.servers.arxiv_bridge \
-            --hidden-import=gpd.adapters.opencode \
-            $(python -c "import gpd.cli; print(gpd.cli.__file__)")
-          # Copy to Tauri resources
-          cp -R /tmp/dist/gpd-sidecar $GITHUB_WORKSPACE/packages/desktop/src-tauri/gpd-sidecar-bundle/
-          echo "GPD sidecar built: $(du -sh /tmp/dist/gpd-sidecar | cut -f1)"
+          chmod +x packages/desktop/src-tauri/uv-bundle/uv 2>/dev/null || true
+          echo "uv binary staged: $(du -sh packages/desktop/src-tauri/uv-bundle | cut -f1)"
 
       # Linux AppImage workaround (same as upstream publish.yml)
       - name: Resolve tauri portable SHA
