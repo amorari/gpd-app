@@ -189,7 +189,7 @@ jobs:
           tagName: gpd-desktop-v${{ needs.resolve-version.outputs.version }}
           releaseName: "GPD v${{ needs.resolve-version.outputs.version }}"
           releaseBody: "GPD Desktop App v${{ needs.resolve-version.outputs.version }} — Physics Research Workspace by PSI"
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           updaterJsonPreferNsis: true
         env:
@@ -197,23 +197,3 @@ jobs:
           TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: true
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-  update-download-page:
-    needs: [resolve-version, build-desktop]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-
-      - name: Update version in download page
-        run: |
-          sed -i "s/const VERSION = '[^']*'/const VERSION = '${{ needs.resolve-version.outputs.version }}'/" index.html
-
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          git diff --cached --quiet || git commit -m "Update download page to v${{ needs.resolve-version.outputs.version }}"
-          git push
