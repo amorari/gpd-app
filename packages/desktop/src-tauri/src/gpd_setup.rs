@@ -285,7 +285,7 @@ async fn run_gpd_install(config: &Path) -> Result<(), String> {
     let output = timeout(
         Duration::from_secs(60),
         Command::new(&python)
-            .args(["-m", "gpd", "install", "opencode", "--global", "--skip-readiness-check"])
+            .args(["-m", "gpd.cli", "install", "opencode", "--global", "--skip-readiness-check"])
             .env("OPENCODE_CONFIG_DIR", config)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
