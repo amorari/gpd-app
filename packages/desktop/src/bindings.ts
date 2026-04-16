@@ -28,7 +28,7 @@ export const events = {
 };
 
 /* Types */
-export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "done" };
+export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "gpd_setup" } | { phase: "done" };
 
 export type LinuxDisplayBackend = "wayland" | "auto";
 
