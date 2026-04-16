@@ -250,7 +250,7 @@ async fn ensure_gpd_installed(uv: &Path, python: &Path) -> Result<(), String> {
         Command::new(uv)
             .args([
                 "pip", "install",
-                "get-physics-done[arxiv]",
+                "get-physics-done[arxiv] @ git+https://github.com/psi-oss/get-physics-done.git@main",
                 "-p", &gpd_python().to_string_lossy(),
                 "--quiet",
             ])
