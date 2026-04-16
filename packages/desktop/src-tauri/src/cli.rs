@@ -555,15 +555,19 @@ pub fn serve(
     hostname: &str,
     port: u32,
     password: &str,
+    extra_serve_env: &[(&str, String)],
 ) -> (CommandChild, oneshot::Receiver<TerminatedPayload>) {
     let (exit_tx, exit_rx) = oneshot::channel::<TerminatedPayload>();
 
     tracing::info!(port, "Spawning sidecar");
 
-    let envs = [
+    let mut envs = vec![
         ("OPENCODE_SERVER_USERNAME", "opencode".to_string()),
         ("OPENCODE_SERVER_PASSWORD", password.to_string()),
     ];
+    for (k, v) in extra_serve_env {
+        envs.push((k, v.clone()));
+    }
 
     let (events, child) = spawn_command(
         app,

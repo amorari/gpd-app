@@ -29,7 +29,7 @@ import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
-import { GlobalSDKProvider } from "@/context/global-sdk"
+import { GlobalSDKProvider, useGlobalSDK } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
@@ -44,6 +44,7 @@ import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
+import { WelcomeScreen } from "./components/welcome-screen"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
@@ -274,6 +275,39 @@ function ServerKey(props: ParentProps) {
   )
 }
 
+function SetupGate(props: ParentProps) {
+  const globalSDK = useGlobalSDK()
+
+  // Track whether the provider list has loaded at least once.
+  // provider.all starts empty and gets populated on first sync.
+  const [hasKey, setHasKey] = createSignal(
+    localStorage.getItem("gpd.key.saved") === "true"
+  )
+
+  async function handleApiKeySaved(apiKey: string) {
+    await globalSDK.client.auth.set({
+      providerID: "gpd",
+      auth: { type: "api", key: apiKey },
+    })
+    localStorage.setItem("gpd.key.saved", "true")
+    setHasKey(true)
+    await globalSDK.client.global.dispose()
+  }
+
+  // Expose reset function globally so users can change their key
+  // Usage: type `gpd-reset-key` in the command palette or run in console
+  ;(window as any).__GPD_RESET_KEY__ = () => {
+    localStorage.removeItem("gpd.key.saved")
+    setHasKey(false)
+  }
+
+  return (
+    <Show when={hasKey()} fallback={<WelcomeScreen onComplete={handleApiKeySaved} />}>
+      {props.children}
+    </Show>
+  )
+}
+
 export function AppInterface(props: {
   children?: JSX.Element
   defaultServer: ServerConnection.Key
@@ -291,16 +325,18 @@ export function AppInterface(props: {
         <ServerKey>
           <GlobalSDKProvider>
             <GlobalSyncProvider>
-              <Dynamic
-                component={props.router ?? Router}
-                root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
-              >
-                <Route path="/" component={HomeRoute} />
-                <Route path="/:dir" component={DirectoryLayout}>
-                  <Route path="/" component={SessionIndexRoute} />
-                  <Route path="/session/:id?" component={SessionRoute} />
-                </Route>
-              </Dynamic>
+              <SetupGate>
+                <Dynamic
+                  component={props.router ?? Router}
+                  root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
+                >
+                  <Route path="/" component={HomeRoute} />
+                  <Route path="/:dir" component={DirectoryLayout}>
+                    <Route path="/" component={SessionIndexRoute} />
+                    <Route path="/session/:id?" component={SessionRoute} />
+                  </Route>
+                </Dynamic>
+              </SetupGate>
             </GlobalSyncProvider>
           </GlobalSDKProvider>
         </ServerKey>

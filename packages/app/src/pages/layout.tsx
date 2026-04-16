@@ -1059,6 +1059,15 @@ export default function Layout(props: ParentProps) {
         onSelect: () => openSettings(),
       },
       {
+        id: "gpd.resetKey",
+        title: "Change GPD API Key",
+        category: language.t("command.category.settings"),
+        onSelect: () => {
+          localStorage.removeItem("gpd.key.saved")
+          window.location.reload()
+        },
+      },
+      {
         id: "session.previous",
         title: language.t("command.session.previous"),
         category: language.t("command.category.session"),
@@ -2347,6 +2356,10 @@ export default function Layout(props: ParentProps) {
       onOpenSettings={openSettings}
       helpLabel={() => language.t("sidebar.help")}
       onOpenHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+      onResetKey={() => {
+        localStorage.removeItem("gpd.key.saved")
+        window.location.reload()
+      }}
       renderPanel={() =>
         mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
       }
