@@ -1,5 +1,6 @@
 mod cli;
 mod constants;
+mod gpd_setup;
 #[cfg(target_os = "linux")]
 pub mod linux_display;
 #[cfg(target_os = "linux")]
@@ -47,6 +48,7 @@ struct ServerReadyData {
 enum InitStep {
     ServerWaiting,
     SqliteWaiting,
+    GpdSetup,
     Done,
 }
 
@@ -429,9 +431,25 @@ async fn initialize(app: AppHandle) {
     let url = format!("http://{hostname}:{port}");
     let password = uuid::Uuid::new_v4().to_string();
 
+    // Use GPD-specific config directory to avoid colliding with personal OpenCode installs
+    let gpd_config = gpd_setup::config_dir();
+    let needs_gpd_setup = !gpd_setup::is_initialized();
+    if needs_gpd_setup {
+        tracing::info!("GPD first-run detected — will run setup after health check");
+    }
+
     tracing::info!("Spawning sidecar on {url}");
-    let (child, health_check) =
-        server::spawn_local_server(app.clone(), hostname.to_string(), port, password.clone());
+    let gpd_config_str = gpd_config.to_string_lossy().to_string();
+    let (child, health_check) = server::spawn_local_server(
+        app.clone(),
+        hostname.to_string(),
+        port,
+        password.clone(),
+        &[
+            ("OPENCODE_CONFIG_DIR", gpd_config_str),
+            ("OPENCODE_CONFIG_CONTENT", gpd_setup::build_config_json(&app)),
+        ],
+    );
 
     // Make sidecar credentials available immediately (before health check completes)
     let (ready_tx, ready_rx) = oneshot::channel();
@@ -480,6 +498,8 @@ async fn initialize(app: AppHandle) {
     // The loading task waits for SQLite migration (if needed) then for the sidecar health check.
     // This is only used to drive the loading window progress - the main window is shown immediately.
     let loading_task = tokio::spawn({
+        let app_clone = app.clone();
+        let init_tx_clone = init_tx.clone();
         async move {
             if let Some(sqlite_done_rx) = sqlite_done {
                 let _ = sqlite_done_rx.await;
@@ -492,6 +512,16 @@ async fn initialize(app: AppHandle) {
                 Ok(Ok(Err(e))) => tracing::error!("Sidecar health check failed: {e}"),
                 Ok(Err(e)) => tracing::error!("Sidecar health check task failed: {e}"),
                 Err(_) => tracing::error!("Sidecar health check timed out"),
+            }
+
+            // GPD first-run setup (after server is healthy)
+            if needs_gpd_setup {
+                let _ = init_tx_clone.send(InitStep::GpdSetup);
+                match gpd_setup::run_first_setup(app_clone).await {
+                    Ok(()) => tracing::info!("GPD first-run setup completed"),
+                    Err(e) => tracing::error!("GPD first-run setup failed: {e}"),
+                    // Non-fatal: marker not written on failure, retries next launch
+                }
             }
 
             tracing::info!("Loading task finished");
