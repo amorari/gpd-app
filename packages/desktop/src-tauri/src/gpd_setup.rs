@@ -109,12 +109,12 @@ pub async fn run_first_setup(app: AppHandle) -> Result<(), String> {
 }
 
 async fn run_sidecar_install(sidecar: &PathBuf, config: &PathBuf) -> Result<(), String> {
-    tracing::info!("Running gpd-sidecar install opencode --global");
+    tracing::info!("Running gpd-sidecar install opencode --global --skip-readiness-check");
 
     let output = timeout(
         Duration::from_secs(60),
         Command::new(sidecar)
-            .args(["install", "opencode", "--global"])
+            .args(["install", "opencode", "--global", "--skip-readiness-check"])
             .env("OPENCODE_CONFIG_DIR", config)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
