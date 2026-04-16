@@ -6,65 +6,20 @@
   <title>Download GPD — Physics Research Workspace</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0a0a0a;
-      color: #e5e5e5;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
-    }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #e5e5e5; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; }
     .container { max-width: 480px; text-align: center; }
-    .logo {
-      width: 80px;
-      height: 80px;
-      margin: 0 auto 1.5rem;
-      color: #e5e5e5;
-    }
+    .logo { width: 80px; height: 80px; margin: 0 auto 1.5rem; color: #e5e5e5; }
     h1 { font-size: 2rem; font-weight: 600; margin-bottom: 0.5rem; }
     .subtitle { color: #888; font-size: 1rem; margin-bottom: 2.5rem; }
-    .download-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: #fff;
-      color: #0a0a0a;
-      font-size: 1rem;
-      font-weight: 600;
-      padding: 0.875rem 2rem;
-      border-radius: 8px;
-      text-decoration: none;
-      transition: opacity 0.15s;
-    }
+    .download-btn { display: inline-flex; align-items: center; gap: 0.5rem; background: #fff; color: #0a0a0a; font-size: 1rem; font-weight: 600; padding: 0.875rem 2rem; border-radius: 8px; text-decoration: none; transition: opacity 0.15s; }
     .download-btn:hover { opacity: 0.85; }
     .platform-info { color: #666; font-size: 0.8rem; margin-top: 0.75rem; }
-    .other-platforms {
-      margin-top: 2rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid #222;
-    }
+    .other-platforms { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #222; }
     .other-platforms h3 { font-size: 0.85rem; color: #888; margin-bottom: 1rem; font-weight: 500; }
     .platform-links { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
-    .platform-links a {
-      color: #888;
-      font-size: 0.85rem;
-      text-decoration: none;
-      padding: 0.5rem 1rem;
-      border: 1px solid #333;
-      border-radius: 6px;
-      transition: border-color 0.15s, color 0.15s;
-    }
+    .platform-links a { color: #888; font-size: 0.85rem; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #333; border-radius: 6px; transition: border-color 0.15s, color 0.15s; }
     .platform-links a:hover { border-color: #555; color: #ccc; }
-    .setup-steps {
-      margin-top: 2.5rem;
-      text-align: left;
-      background: #111;
-      border-radius: 8px;
-      padding: 1.25rem 1.5rem;
-    }
+    .setup-steps { margin-top: 2.5rem; text-align: left; background: #111; border-radius: 8px; padding: 1.25rem 1.5rem; }
     .setup-steps h3 { font-size: 0.85rem; color: #888; margin-bottom: 0.75rem; font-weight: 500; }
     .setup-steps ol { padding-left: 1.25rem; }
     .setup-steps li { color: #aaa; font-size: 0.85rem; line-height: 1.8; }
@@ -79,15 +34,10 @@
     <svg class="logo" viewBox="55 60 106 104" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M156.244 65.456V98.672C156.244 104.133 155.412 109.083 153.748 113.52C152.084 117.915 149.609 121.712 146.324 124.912C143.038 128.112 138.942 130.651 134.036 132.528C129.129 134.405 123.454 135.493 117.012 135.792V158H99.7315V135.792C93.2888 135.451 87.6355 134.341 82.7715 132.464C77.9075 130.587 73.8328 128.048 70.5475 124.848C67.3048 121.648 64.8515 117.851 63.1875 113.456C61.5235 109.019 60.6915 104.091 60.6915 98.672V65.456H72.2115C74.0462 65.456 75.4542 66.0107 76.4355 67.12C77.4595 68.2293 77.9715 69.5947 77.9715 71.216V98.672C77.9715 102.256 78.3342 105.456 79.0595 108.272C79.8275 111.045 81.0648 113.413 82.7715 115.376C84.4782 117.296 86.7182 118.832 89.4915 119.984C92.2648 121.093 95.6782 121.776 99.7315 122.032V65.456H117.012V122.032C121.108 121.776 124.542 121.093 127.316 119.984C130.132 118.875 132.393 117.36 134.1 115.44C135.849 113.477 137.086 111.109 137.812 108.336C138.58 105.52 138.964 102.299 138.964 98.672V71.216C138.964 69.5947 139.454 68.2293 140.436 67.12C141.46 66.0107 142.889 65.456 144.724 65.456H156.244Z" fill="currentColor"/>
     </svg>
-
     <h1>GPD</h1>
     <p class="subtitle">Physics Research Workspace by PSI</p>
-
-    <a id="main-download" class="download-btn" href="#">
-      <span id="btn-text">Download for your platform</span>
-    </a>
+    <a id="main-download" class="download-btn" href="#"><span id="btn-text">Download</span></a>
     <p id="platform-note" class="platform-info"></p>
-
     <div class="other-platforms">
       <h3>All platforms</h3>
       <div class="platform-links">
@@ -97,7 +47,6 @@
         <a id="link-linux" href="#">Linux</a>
       </div>
     </div>
-
     <div class="setup-steps">
       <h3>Getting started</h3>
       <ol>
@@ -106,48 +55,28 @@
         <li>Type <code>/gpd-new-project</code> to start</li>
       </ol>
     </div>
-
-    <footer>
-      <a href="https://psi.inc">Physical Superintelligence</a>
-    </footer>
+    <footer><a href="https://psi.inc">Physical Superintelligence</a></footer>
   </div>
-
   <script>
     const REPO = 'physicalsuperintelligence/opencode';
-    const TAG = 'gpd-desktop-v1.4.9'; // Update on each release
-
+    const VERSION = '1.4.9';
+    const TAG = 'gpd-desktop-v' + VERSION;
     const assets = {
-      'mac-arm':   `https://github.com/${REPO}/releases/download/${TAG}/GPD_1.4.9_aarch64.dmg`,
-      'mac-intel': `https://github.com/${REPO}/releases/download/${TAG}/GPD_1.4.9_x64.dmg`,
-      'win':       `https://github.com/${REPO}/releases/download/${TAG}/GPD_1.4.9_x64-setup.exe`,
-      'linux':     `https://github.com/${REPO}/releases/download/${TAG}/GPD_1.4.9_amd64.deb`,
+      'mac-arm':   `https://github.com/${REPO}/releases/download/${TAG}/GPD_${VERSION}_aarch64.dmg`,
+      'mac-intel': `https://github.com/${REPO}/releases/download/${TAG}/GPD_${VERSION}_x64.dmg`,
+      'win':       `https://github.com/${REPO}/releases/download/${TAG}/GPD_${VERSION}_x64-setup.exe`,
+      'linux':     `https://github.com/${REPO}/releases/download/${TAG}/GPD_${VERSION}_amd64.deb`,
     };
-
-    // Detect platform
     const ua = navigator.userAgent.toLowerCase();
     const platform = navigator.platform?.toLowerCase() || '';
     let detected = 'mac-arm';
     if (ua.includes('win')) detected = 'win';
     else if (ua.includes('linux')) detected = 'linux';
-    else if (ua.includes('mac')) detected = platform.includes('arm') || ua.includes('arm') ? 'mac-arm' : 'mac-arm'; // Default to ARM for modern Macs
-
-    const labels = {
-      'mac-arm': 'Download for macOS',
-      'mac-intel': 'Download for macOS (Intel)',
-      'win': 'Download for Windows',
-      'linux': 'Download for Linux',
-    };
-    const notes = {
-      'mac-arm': 'Apple Silicon (M1/M2/M3/M4) — .dmg',
-      'mac-intel': 'Intel Mac — .dmg',
-      'win': 'Windows 10+ — .exe installer',
-      'linux': 'Linux x64 — .AppImage',
-    };
-
+    const labels = { 'mac-arm': 'Download for macOS', 'mac-intel': 'Download for macOS (Intel)', 'win': 'Download for Windows', 'linux': 'Download for Linux' };
+    const notes = { 'mac-arm': 'Apple Silicon (M1/M2/M3/M4) — .dmg', 'mac-intel': 'Intel Mac — .dmg', 'win': 'Windows 10+ — .exe', 'linux': 'Linux x64 — .deb' };
     document.getElementById('main-download').href = assets[detected];
     document.getElementById('btn-text').textContent = labels[detected];
     document.getElementById('platform-note').textContent = notes[detected];
-
     document.getElementById('link-mac-arm').href = assets['mac-arm'];
     document.getElementById('link-mac-intel').href = assets['mac-intel'];
     document.getElementById('link-win').href = assets['win'];
