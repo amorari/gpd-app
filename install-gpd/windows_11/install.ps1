@@ -1,0 +1,638 @@
+# GPD CLI installer for Windows 11
+#
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File install.ps1
+#   irm https://<url>/install/windows_11/install.ps1 | iex
+#
+# Installs: OpenCode CLI, Python 3.11+ (app-local), GPD package, gpd command.
+# Everything goes into $HOME\.gpd\ -- no system-wide changes except user PATH.
+# Does not require administrator privileges.
+
+#Requires -Version 5.1
+$ErrorActionPreference = "Stop"
+
+# ── Configuration ──────────────────────────────────────────────────────────
+
+$GpdHome      = if ($env:GPD_HOME) { $env:GPD_HOME } else { Join-Path $HOME ".gpd" }
+$GpdBinDir    = Join-Path $GpdHome "bin"
+$GpdPythonDir = Join-Path $GpdHome "python"
+$GpdVenvDir   = Join-Path $GpdHome "venv"
+$GpdConfigDir = Join-Path $GpdHome "config"
+
+$OpenCodeOrg         = "psi-oss"
+$OpenCodeRepo        = "opencode"
+$OpenCodeFallbackOrg = "anomalyco"
+$OpenCodeFallbackRepo = "opencode"
+
+$GpdPackageRepo   = "psi-oss/get-physics-done"
+$GpdPackageBranch = "main"
+
+$LiteLlmProxyUrl = "https://litellm-production-46bb.up.railway.app"
+
+# Python-build-standalone: portable, relocatable CPython builds from Astral.
+$PbsTag    = "20250409"
+$PbsPython = "3.13.3"
+$PbsBaseUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/$PbsTag"
+
+$RequiredPythonMajor = 3
+$RequiredPythonMinor = 11
+
+# ── Logging ────────────────────────────────────────────────────────────────
+
+function Write-Log {
+    param([string]$Message)
+    Write-Host "  i " -ForegroundColor Cyan -NoNewline
+    Write-Host $Message
+}
+
+function Write-Success {
+    param([string]$Message)
+    Write-Host "  + " -ForegroundColor Green -NoNewline
+    Write-Host $Message
+}
+
+function Write-Warn {
+    param([string]$Message)
+    Write-Host "  ! " -ForegroundColor Yellow -NoNewline
+    Write-Host $Message
+}
+
+function Write-Err {
+    param([string]$Message)
+    Write-Host "  x " -ForegroundColor Red -NoNewline
+    Write-Host $Message
+}
+
+function Stop-WithError {
+    param([string]$Message)
+    Write-Err $Message
+    exit 1
+}
+
+# ── Banner ─────────────────────────────────────────────────────────────────
+
+function Write-Banner {
+    Write-Host ""
+    Write-Host " ██████╗ ██████╗ ██████╗ " -ForegroundColor Cyan
+    Write-Host "██╔════╝ ██╔══██╗██╔══██╗" -ForegroundColor Cyan
+    Write-Host "██║  ███╗██████╔╝██║  ██║" -ForegroundColor Cyan
+    Write-Host "██║   ██║██╔═══╝ ██║  ██║" -ForegroundColor Cyan
+    Write-Host "╚██████╔╝██║     ██████╔╝" -ForegroundColor Cyan
+    Write-Host " ╚═════╝ ╚═╝     ╚═════╝ " -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host " Get Physics Done" -NoNewline -ForegroundColor White
+    Write-Host " -- CLI Installer" -ForegroundColor DarkGray
+    Write-Host " Open-source AI copilot for physics research" -ForegroundColor DarkGray
+    Write-Host ""
+}
+
+function Write-SuccessBanner {
+    Write-Host ""
+    Write-Success "GPD installed successfully!"
+    Write-Host ""
+    Write-Host "  Start a new session:  " -NoNewline
+    Write-Host "gpd" -ForegroundColor White
+    Write-Host "  Show help:            " -NoNewline
+    Write-Host "gpd --help" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Installation directory: $GpdHome" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Warn "Open a new terminal (or run 'refreshenv') to use the gpd command."
+    Write-Host ""
+}
+
+# ── Utilities ──────────────────────────────────────────────────────────────
+
+function Get-Arch {
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    switch ($arch) {
+        "X64"   { return "x64" }
+        "Arm64" { return "arm64" }
+        default { Stop-WithError "Unsupported architecture: $arch" }
+    }
+}
+
+function Test-UrlExists {
+    param([string]$Url)
+    try {
+        $request = [System.Net.WebRequest]::Create($Url)
+        $request.Method = "HEAD"
+        $request.AllowAutoRedirect = $true
+        $request.Timeout = 10000
+        $response = $request.GetResponse()
+        $statusCode = [int]$response.StatusCode
+        $response.Close()
+        return ($statusCode -ge 200 -and $statusCode -lt 400)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Invoke-Download {
+    param(
+        [string]$Url,
+        [string]$Destination
+    )
+    Write-Log "Downloading $(Split-Path $Destination -Leaf)..."
+    try {
+        # Use TLS 1.2+ for GitHub downloads
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+        $ProgressPreference = "SilentlyContinue"
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+    }
+    catch {
+        Stop-WithError "Download failed: $Url -- $_"
+    }
+}
+
+# ── OpenCode CLI ───────────────────────────────────────────────────────────
+
+function Install-OpenCode {
+    param([string]$Arch)
+
+    $dest = Join-Path $GpdBinDir "opencode.exe"
+
+    if (Test-Path $dest) {
+        Write-Success "OpenCode CLI already installed at $dest"
+        return
+    }
+
+    $asset = "opencode-windows-${Arch}.zip"
+    $gpdUrl      = "https://github.com/${OpenCodeOrg}/${OpenCodeRepo}/releases/latest/download/${asset}"
+    $fallbackUrl = "https://github.com/${OpenCodeFallbackOrg}/${OpenCodeFallbackRepo}/releases/latest/download/${asset}"
+
+    $url = $null
+    Write-Log "Checking for GPD-branded OpenCode CLI release..."
+    if (Test-UrlExists $gpdUrl) {
+        $url = $gpdUrl
+        Write-Log "Found GPD release"
+    }
+    else {
+        Write-Log "GPD CLI release not found, using upstream OpenCode"
+        if (Test-UrlExists $fallbackUrl) {
+            $url = $fallbackUrl
+        }
+        else {
+            Stop-WithError "Could not find OpenCode CLI binary for windows/${Arch}. Check network connectivity."
+        }
+    }
+
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "gpd-opencode-$(Get-Random)"
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+
+    try {
+        $archive = Join-Path $tmpDir $asset
+        Invoke-Download -Url $url -Destination $archive
+
+        Write-Log "Extracting OpenCode CLI..."
+        Expand-Archive -Path $archive -DestinationPath $tmpDir -Force
+
+        # Find the opencode.exe binary in the extracted files
+        $binary = Get-ChildItem -Path $tmpDir -Filter "opencode.exe" -Recurse -File |
+            Where-Object { $_.FullName -ne $archive } |
+            Select-Object -First 1
+
+        if (-not $binary) {
+            Stop-WithError "Could not find opencode.exe in downloaded archive"
+        }
+
+        Move-Item -Path $binary.FullName -Destination $dest -Force
+    }
+    finally {
+        Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Success "OpenCode CLI installed to $dest"
+}
+
+# ── Python ─────────────────────────────────────────────────────────────────
+
+function Test-PythonVersionOk {
+    param([string]$PythonPath)
+    try {
+        $output = & $PythonPath --version 2>&1
+        if ($output -match "Python (\d+)\.(\d+)") {
+            $major = [int]$Matches[1]
+            $minor = [int]$Matches[2]
+            return ($major -gt $RequiredPythonMajor -or
+                   ($major -eq $RequiredPythonMajor -and $minor -ge $RequiredPythonMinor))
+        }
+        return $false
+    }
+    catch {
+        return $false
+    }
+}
+
+function Find-SystemPython {
+    # Check common Python command names on Windows
+    foreach ($cmd in @("python3", "python")) {
+        $pythonPath = Get-Command $cmd -ErrorAction SilentlyContinue
+        if ($pythonPath -and (Test-PythonVersionOk $pythonPath.Source)) {
+            return $pythonPath.Source
+        }
+    }
+    return $null
+}
+
+function Install-LocalPython {
+    param([string]$Arch)
+
+    $pythonBin = Join-Path $GpdPythonDir "python.exe"
+
+    if ((Test-Path $pythonBin) -and (Test-PythonVersionOk $pythonBin)) {
+        Write-Success "App-local Python already installed at $GpdPythonDir"
+        return $pythonBin
+    }
+
+    # Map architecture to python-build-standalone triple
+    $triple = switch ($Arch) {
+        "x64"   { "x86_64-pc-windows-msvc" }
+        "arm64" { "aarch64-pc-windows-msvc" }
+        default { Stop-WithError "No python-build-standalone build for windows/${Arch}" }
+    }
+
+    $filename = "cpython-${PbsPython}+${PbsTag}-${triple}-install_only.tar.gz"
+    $url = "${PbsBaseUrl}/${filename}"
+
+    Write-Log "Downloading Python ${PbsPython} (app-local, not system-wide)..."
+
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "gpd-python-$(Get-Random)"
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+
+    try {
+        $archive = Join-Path $tmpDir $filename
+        Invoke-Download -Url $url -Destination $archive
+
+        Write-Log "Extracting Python to $GpdPythonDir..."
+
+        # Remove existing Python directory for clean extraction
+        if (Test-Path $GpdPythonDir) {
+            Remove-Item -Path $GpdPythonDir -Recurse -Force
+        }
+        New-Item -ItemType Directory -Path $GpdPythonDir -Force | Out-Null
+
+        # Use tar (available on Windows 10+) to extract .tar.gz
+        $tarAvailable = Get-Command "tar" -ErrorAction SilentlyContinue
+        if ($tarAvailable) {
+            & tar -xzf $archive -C $GpdPythonDir --strip-components=1
+            if ($LASTEXITCODE -ne 0) {
+                Stop-WithError "Failed to extract Python archive with tar"
+            }
+        }
+        else {
+            # Fallback: decompress gzip then extract tar using .NET
+            Write-Log "tar not found, using .NET extraction fallback..."
+
+            $tarFile = Join-Path $tmpDir "python.tar"
+
+            # Decompress gzip
+            $gzipStream = [System.IO.File]::OpenRead($archive)
+            $decompStream = New-Object System.IO.Compression.GZipStream($gzipStream, [System.IO.Compression.CompressionMode]::Decompress)
+            $tarStream = [System.IO.File]::Create($tarFile)
+            $decompStream.CopyTo($tarStream)
+            $tarStream.Close()
+            $decompStream.Close()
+            $gzipStream.Close()
+
+            # Extract tar -- minimal tar reader for install_only archives
+            # These archives have a single top-level directory (python/) that we strip
+            $stream = [System.IO.File]::OpenRead($tarFile)
+            $buffer = New-Object byte[] 512
+            while ($true) {
+                $read = $stream.Read($buffer, 0, 512)
+                if ($read -lt 512) { break }
+
+                # Check for end-of-archive (two 512-byte blocks of zeros)
+                $allZero = $true
+                for ($i = 0; $i -lt 512; $i++) {
+                    if ($buffer[$i] -ne 0) { $allZero = $false; break }
+                }
+                if ($allZero) { break }
+
+                # Parse header: name at offset 0 (100 bytes), size at offset 124 (12 bytes), typeflag at offset 156
+                $nameBytes = $buffer[0..99]
+                $nameEnd = [Array]::IndexOf($nameBytes, [byte]0)
+                if ($nameEnd -lt 0) { $nameEnd = 100 }
+                $name = [System.Text.Encoding]::ASCII.GetString($nameBytes, 0, $nameEnd).Trim()
+
+                $sizeStr = [System.Text.Encoding]::ASCII.GetString($buffer[124..135]).Trim().TrimEnd([char]0)
+                $size = if ($sizeStr) { [Convert]::ToInt64($sizeStr, 8) } else { 0 }
+
+                $typeFlag = [char]$buffer[156]
+
+                # Strip first path component (e.g., "python/")
+                $strippedName = $name
+                $slashIdx = $name.IndexOf("/")
+                if ($slashIdx -ge 0) {
+                    $strippedName = $name.Substring($slashIdx + 1)
+                }
+                else {
+                    # Top-level entry with no slash -- skip
+                    $blocks = [math]::Ceiling($size / 512)
+                    if ($blocks -gt 0) { [void]$stream.Seek($blocks * 512, [System.IO.SeekOrigin]::Current) }
+                    continue
+                }
+
+                if ([string]::IsNullOrWhiteSpace($strippedName)) {
+                    $blocks = [math]::Ceiling($size / 512)
+                    if ($blocks -gt 0) { [void]$stream.Seek($blocks * 512, [System.IO.SeekOrigin]::Current) }
+                    continue
+                }
+
+                $outPath = Join-Path $GpdPythonDir $strippedName.Replace("/", "\")
+
+                if ($typeFlag -eq "5" -or $name.EndsWith("/")) {
+                    # Directory
+                    New-Item -ItemType Directory -Path $outPath -Force | Out-Null
+                }
+                elseif ($typeFlag -eq "0" -or $typeFlag -eq [char]0) {
+                    # Regular file
+                    $parentDir = Split-Path $outPath -Parent
+                    if (-not (Test-Path $parentDir)) {
+                        New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+                    }
+
+                    $fileStream = [System.IO.File]::Create($outPath)
+                    $remaining = $size
+                    $readBuf = New-Object byte[] 65536
+                    while ($remaining -gt 0) {
+                        $toRead = [math]::Min($remaining, 65536)
+                        $bytesRead = $stream.Read($readBuf, 0, $toRead)
+                        $fileStream.Write($readBuf, 0, $bytesRead)
+                        $remaining -= $bytesRead
+                    }
+                    $fileStream.Close()
+
+                    # Skip padding to next 512-byte boundary
+                    $pad = (512 - ($size % 512)) % 512
+                    if ($pad -gt 0) { [void]$stream.Seek($pad, [System.IO.SeekOrigin]::Current) }
+                    continue
+                }
+
+                # Skip data blocks for this entry
+                $blocks = [math]::Ceiling($size / 512)
+                if ($blocks -gt 0) { [void]$stream.Seek($blocks * 512, [System.IO.SeekOrigin]::Current) }
+            }
+            $stream.Close()
+        }
+    }
+    finally {
+        Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    if (-not (Test-Path $pythonBin)) {
+        Stop-WithError "Python extraction failed -- $pythonBin not found"
+    }
+
+    Write-Success "Python ${PbsPython} installed to $GpdPythonDir"
+    return $pythonBin
+}
+
+function Get-Python {
+    param([string]$Arch)
+
+    # Prefer app-local Python if already installed
+    $localPython = Join-Path $GpdPythonDir "python.exe"
+    if ((Test-Path $localPython) -and (Test-PythonVersionOk $localPython)) {
+        Write-Success "Using app-local Python at $localPython"
+        return $localPython
+    }
+
+    # Check system Python
+    $sysPython = Find-SystemPython
+    if ($sysPython) {
+        $ver = & $sysPython --version 2>&1
+        Write-Success "Found system $ver"
+        return $sysPython
+    }
+
+    # Download standalone Python
+    Write-Log "No Python ${RequiredPythonMajor}.${RequiredPythonMinor}+ found -- installing app-local Python"
+    return (Install-LocalPython -Arch $Arch)
+}
+
+# ── Venv & GPD package ─────────────────────────────────────────────────────
+
+function New-GpdVenv {
+    param([string]$PythonPath)
+
+    $venvPython = Join-Path $GpdVenvDir "Scripts\python.exe"
+    if (Test-Path $venvPython) {
+        Write-Success "Python venv already exists at $GpdVenvDir"
+        return
+    }
+
+    Write-Log "Creating Python virtual environment..."
+    & $PythonPath -m venv $GpdVenvDir
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithError "Failed to create virtual environment"
+    }
+    Write-Success "Virtual environment created at $GpdVenvDir"
+}
+
+function Install-Gpd {
+    $venvPython = Join-Path $GpdVenvDir "Scripts\python.exe"
+    $venvPip    = Join-Path $GpdVenvDir "Scripts\pip.exe"
+
+    # Upgrade pip first
+    & $venvPython -m pip install --upgrade --quiet pip
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "pip upgrade returned non-zero exit code, continuing..."
+    }
+
+    $sourceUrl = "https://github.com/${GpdPackageRepo}/archive/refs/heads/${GpdPackageBranch}.tar.gz"
+
+    Write-Log "Installing get-physics-done from GitHub..."
+    & $venvPip install --upgrade --quiet $sourceUrl
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithError "Failed to install GPD package"
+    }
+
+    $gpdExe = Join-Path $GpdVenvDir "Scripts\gpd.exe"
+    if (Test-Path $gpdExe) {
+        Write-Success "GPD package installed"
+    }
+    else {
+        Stop-WithError "GPD package installation failed -- gpd.exe not found in venv"
+    }
+}
+
+# ── LiteLLM key ────────────────────────────────────────────────────────────
+
+function Read-LiteLlmKey {
+    $envFile = Join-Path $GpdConfigDir "litellm.env"
+
+    if (Test-Path $envFile) {
+        Write-Success "LiteLLM configuration already exists at $envFile"
+        return
+    }
+
+    Write-Host ""
+    Write-Host "  LiteLLM API Key Configuration" -ForegroundColor White
+    Write-Host "  Your LiteLLM virtual key connects GPD to AI models." -ForegroundColor DarkGray
+    Write-Host "  Get your key from your lab administrator." -ForegroundColor DarkGray
+    Write-Host ""
+
+    $key = ""
+    while ([string]::IsNullOrWhiteSpace($key)) {
+        $key = Read-Host "  Enter your LiteLLM key (sk-...)"
+        if ([string]::IsNullOrWhiteSpace($key)) {
+            Write-Warn "Key cannot be empty. Press Ctrl+C to skip and configure later."
+        }
+    }
+
+    $content = @"
+# GPD LiteLLM configuration -- generated by installer
+LITELLM_API_KEY=$key
+LITELLM_API_BASE=$LiteLlmProxyUrl
+"@
+
+    Set-Content -Path $envFile -Value $content -Encoding UTF8
+
+    # Restrict file permissions to current user only
+    try {
+        $acl = Get-Acl $envFile
+        $acl.SetAccessRuleProtection($true, $false)
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+            "FullControl",
+            "Allow"
+        )
+        $acl.SetAccessRule($rule)
+        Set-Acl -Path $envFile -AclObject $acl
+    }
+    catch {
+        Write-Warn "Could not restrict file permissions on $envFile"
+    }
+
+    Write-Success "LiteLLM key saved to $envFile"
+}
+
+# ── GPD wrappers ───────────────────────────────────────────────────────────
+
+function New-GpdWrappers {
+    # PowerShell wrapper: gpd.ps1
+    $ps1Wrapper = Join-Path $GpdBinDir "gpd.ps1"
+    $ps1Content = @'
+$GpdHome = if ($env:GPD_HOME) { $env:GPD_HOME } else { "$HOME\.gpd" }
+$envFile = Join-Path $GpdHome "config\litellm.env"
+if (Test-Path $envFile) {
+    Get-Content $envFile | ForEach-Object {
+        if ($_ -match '^([^#]\S+?)=(.*)$') {
+            [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+        }
+    }
+}
+$env:PATH = "$GpdHome\venv\Scripts;$GpdHome\bin;$env:PATH"
+& "$GpdHome\bin\opencode.exe" @args
+'@
+    Set-Content -Path $ps1Wrapper -Value $ps1Content -Encoding UTF8
+    Write-Success "PowerShell wrapper created at $ps1Wrapper"
+
+    # CMD wrapper: gpd.cmd
+    $cmdWrapper = Join-Path $GpdBinDir "gpd.cmd"
+    $cmdContent = @'
+@echo off
+set "GPD_HOME=%USERPROFILE%\.gpd"
+if exist "%GPD_HOME%\config\litellm.env" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%GPD_HOME%\config\litellm.env") do (
+        if not "%%a"=="" set "%%a=%%b"
+    )
+)
+set "PATH=%GPD_HOME%\venv\Scripts;%GPD_HOME%\bin;%PATH%"
+"%GPD_HOME%\bin\opencode.exe" %*
+'@
+    Set-Content -Path $cmdWrapper -Value $cmdContent -Encoding UTF8
+    Write-Success "CMD wrapper created at $cmdWrapper"
+}
+
+# ── PATH ───────────────────────────────────────────────────────────────────
+
+function Add-GpdToPath {
+    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+
+    # Check if already present
+    if ($currentPath -and $currentPath.Split(";") -contains $GpdBinDir) {
+        Write-Success "$GpdBinDir is already on PATH"
+        return
+    }
+
+    # Add to user PATH
+    $newPath = if ($currentPath) { "${GpdBinDir};${currentPath}" } else { $GpdBinDir }
+    [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+
+    # Also update current session
+    $env:PATH = "${GpdBinDir};${env:PATH}"
+
+    Write-Success "Added $GpdBinDir to user PATH"
+}
+
+# ── Main install orchestrator ──────────────────────────────────────────────
+
+function Invoke-GpdInstall {
+    $arch = Get-Arch
+
+    Write-Banner
+
+    Write-Log "Installing GPD to $GpdHome"
+    Write-Log "Platform: windows/${arch}"
+    Write-Host ""
+
+    # Create directory structure
+    foreach ($dir in @($GpdBinDir, $GpdPythonDir, $GpdVenvDir, $GpdConfigDir)) {
+        if (-not (Test-Path $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+    }
+
+    # Step 1: OpenCode CLI binary
+    Write-Log "Step 1/6: Installing OpenCode CLI..."
+    Install-OpenCode -Arch $arch
+    Write-Host ""
+
+    # Step 2: Python
+    Write-Log "Step 2/6: Ensuring Python ${RequiredPythonMajor}.${RequiredPythonMinor}+..."
+    $python = Get-Python -Arch $arch
+    Write-Host ""
+
+    # Step 3: Venv + GPD package
+    Write-Log "Step 3/6: Installing GPD package..."
+    New-GpdVenv -PythonPath $python
+    Install-Gpd
+    Write-Host ""
+
+    # Step 4: LiteLLM key
+    Write-Log "Step 4/6: Configuring LiteLLM..."
+    Read-LiteLlmKey
+    Write-Host ""
+
+    # Step 5: Wrapper scripts
+    Write-Log "Step 5/6: Creating gpd command..."
+    New-GpdWrappers
+    Write-Host ""
+
+    # Step 6: PATH
+    Write-Log "Step 6/6: Configuring PATH..."
+    Add-GpdToPath
+    Write-Host ""
+
+    # Run GPD install for OpenCode runtime configuration
+    $gpdExe = Join-Path $GpdVenvDir "Scripts\gpd.exe"
+    if (Test-Path $gpdExe) {
+        Write-Log "Configuring GPD for OpenCode runtime..."
+        try {
+            & $gpdExe install --opencode --global 2>$null
+        }
+        catch {
+            Write-Warn "GPD runtime configuration skipped (run 'gpd install --opencode --global' manually)"
+        }
+    }
+
+    Write-SuccessBanner
+}
+
+# ── Entry point ────────────────────────────────────────────────────────────
+
+Invoke-GpdInstall
