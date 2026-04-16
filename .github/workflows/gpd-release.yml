@@ -191,9 +191,12 @@ jobs:
           releaseBody: "GPD Desktop App v${{ needs.resolve-version.outputs.version }} — Physics Research Workspace by PSI"
           releaseDraft: false
           prerelease: false
+          updaterJsonPreferNsis: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: true
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
   update-download-page:
     needs: [resolve-version, build-desktop]
