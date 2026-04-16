@@ -447,7 +447,7 @@ async fn initialize(app: AppHandle) {
         password.clone(),
         &[
             ("OPENCODE_CONFIG_DIR", gpd_config_str),
-            ("OPENCODE_CONFIG_CONTENT", gpd_setup::build_config_json(&app)),
+            ("OPENCODE_CONFIG_CONTENT", gpd_setup::build_config_json()),
         ],
     );
 

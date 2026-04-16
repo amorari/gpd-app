@@ -1,10 +1,16 @@
 //! GPD first-run orchestration.
 //!
-//! On first launch, runs the GPD sidecar to install commands, agents,
-//! MCP servers, and LiteLLM provider config into the GPD config directory.
-//! Subsequent launches skip this entirely (marker file check).
+//! On first launch:
+//! 1. Provisions Python via bundled `uv` (or finds system Python >= 3.11)
+//! 2. Creates a GPD venv and installs `get-physics-done[arxiv]`
+//! 3. Runs `gpd install opencode --global` to deploy commands, agents, docs
+//! 4. Injects LiteLLM provider config into opencode.json
+//! 5. Writes .gpd-initialized marker
+//!
+//! MCP servers run locally via real Python from the venv.
+//! Subsequent launches skip all of this (marker file check).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
@@ -20,24 +26,26 @@ const GPD_INIT_MARKER: &str = ".gpd-initialized";
 /// LiteLLM proxy URL
 const LITELLM_URL: &str = "https://litellm-production-46bb.up.railway.app/v1";
 
-/// Builds the OPENCODE_CONFIG_CONTENT JSON with both provider config and
-/// MCP server definitions pointing to the bundled sidecar binary.
-pub fn build_config_json(app: &tauri::AppHandle) -> String {
-    let sidecar = sidecar_path(app).unwrap_or_default();
-    let sidecar_str = sidecar.to_string_lossy();
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
-    // MCP servers - each launched via the sidecar's install subcommand
-    // The sidecar binary contains all MCP server modules via PyInstaller
+/// Builds the OPENCODE_CONFIG_CONTENT JSON with provider config and
+/// MCP server definitions pointing to the venv Python interpreter.
+pub fn build_config_json() -> String {
+    let python = gpd_python();
+    let p = python.to_string_lossy();
+
     let mcp_servers = format!(r#"{{
-        "gpd-conventions": {{"type":"local","command":["{s}","mcp-serve","conventions"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
-        "gpd-errors": {{"type":"local","command":["{s}","mcp-serve","errors"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
-        "gpd-patterns": {{"type":"local","command":["{s}","mcp-serve","patterns"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
-        "gpd-protocols": {{"type":"local","command":["{s}","mcp-serve","protocols"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
-        "gpd-skills": {{"type":"local","command":["{s}","mcp-serve","skills"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
-        "gpd-state": {{"type":"local","command":["{s}","mcp-serve","state"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
-        "gpd-verification": {{"type":"local","command":["{s}","mcp-serve","verification"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
-        "gpd-arxiv": {{"type":"local","command":["{s}","mcp-serve","arxiv"],"enabled":true}}
-    }}"#, s = sidecar_str);
+        "gpd-conventions": {{"type":"local","command":["{p}","-m","gpd.mcp.servers.conventions_server"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
+        "gpd-errors": {{"type":"local","command":["{p}","-m","gpd.mcp.servers.errors_mcp"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
+        "gpd-patterns": {{"type":"local","command":["{p}","-m","gpd.mcp.servers.patterns_server"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
+        "gpd-protocols": {{"type":"local","command":["{p}","-m","gpd.mcp.servers.protocols_server"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
+        "gpd-skills": {{"type":"local","command":["{p}","-m","gpd.mcp.servers.skills_server"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
+        "gpd-state": {{"type":"local","command":["{p}","-m","gpd.mcp.servers.state_server"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
+        "gpd-verification": {{"type":"local","command":["{p}","-m","gpd.mcp.servers.verification_server"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
+        "gpd-arxiv": {{"type":"local","command":["{p}","-m","gpd.mcp.servers.arxiv_bridge"],"enabled":true}}
+    }}"#);
 
     format!(r#"{{"provider":{{"gpd":{{"name":"GPD (PSI)","api":"{url}","env":["GPD_API_KEY"],"models":{{"claude-opus-4-6":{{"name":"Claude Opus 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,"limit":{{"context":1000000,"output":131072}}}},"claude-sonnet-4-6":{{"name":"Claude Sonnet 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,"limit":{{"context":1000000,"output":65536}}}},"claude-haiku-4-5":{{"name":"Claude Haiku 4.5","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,"limit":{{"context":200000,"output":65536}}}},"gpt-5.4":{{"name":"GPT-5.4","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-mini":{{"name":"GPT-5.4 mini","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-nano":{{"name":"GPT-5.4 nano","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-pro":{{"name":"GPT-5.4 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,"limit":{{"context":1050000,"output":131072}}}},"gpt-5.3-codex":{{"name":"GPT-5.3 Codex","tool_call":true,"attachment":true,"temperature":true,"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1":{{"name":"GPT-4.1","tool_call":true,"attachment":true,"temperature":true,"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1-mini":{{"name":"GPT-4.1 mini","tool_call":true,"attachment":true,"temperature":true,"limit":{{"context":1000000,"output":32768}}}},"o4-mini":{{"name":"o4-mini (reasoning)","tool_call":true,"reasoning":true,"temperature":true,"limit":{{"context":200000,"output":100000}}}},"gemini-3.1-pro-preview":{{"name":"Gemini 3.1 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,"limit":{{"context":1000000,"output":65536}}}},"gemini-3-flash-preview":{{"name":"Gemini 3 Flash","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,"limit":{{"context":1000000,"output":65536}}}},"gemini-3.1-flash-lite-preview":{{"name":"Gemini 3.1 Flash-Lite","tool_call":true,"attachment":true,"temperature":true,"limit":{{"context":1000000,"output":65536}}}}}}}}}},"model":"gpd/claude-sonnet-4-6","enabled_providers":["gpd"],"mcp":{mcp}}}"#,
         url = LITELLM_URL,
@@ -63,21 +71,14 @@ pub fn is_initialized() -> bool {
     config_dir().join(GPD_INIT_MARKER).exists()
 }
 
-/// Returns the path to the gpd-sidecar binary in the app's resources
-fn sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .resolve("gpd-sidecar-bundle/gpd-sidecar", tauri::path::BaseDirectory::Resource)
-        .map_err(|e| format!("Failed to resolve GPD sidecar path: {e}"))
-}
-
 /// Run the full GPD first-run setup. Non-fatal — errors are logged,
 /// and the marker file is only written on full success (retry next launch).
 pub async fn run_first_setup(app: AppHandle) -> Result<(), String> {
     let config = config_dir();
-    let sidecar = sidecar_path(&app)?;
+    let uv = uv_path(&app)?;
 
-    if !sidecar.exists() {
-        return Err(format!("GPD sidecar not found at {}", sidecar.display()));
+    if !uv.exists() {
+        return Err(format!("Bundled uv not found at {}", uv.display()));
     }
 
     std::fs::create_dir_all(&config)
@@ -85,21 +86,23 @@ pub async fn run_first_setup(app: AppHandle) -> Result<(), String> {
 
     tracing::info!(
         config = %config.display(),
-        sidecar = %sidecar.display(),
+        uv = %uv.display(),
         "Starting GPD first-run setup"
     );
 
-    // Step 1: Install commands, agents, MCP server config
-    run_sidecar_install(&sidecar, &config).await?;
+    // Step 1: Ensure Python >= 3.11 is available
+    let python = ensure_python(&uv).await?;
 
-    // Step 2: Get MCP server config and merge into opencode.json
-    let servers_json = run_sidecar_list_servers(&sidecar).await?;
-    merge_mcp_config(&config, &servers_json)?;
+    // Step 2: Create GPD venv and install get-physics-done
+    ensure_gpd_installed(&uv, &python).await?;
 
-    // Step 3: Inject LiteLLM provider config
+    // Step 3: Install commands, agents, reference docs
+    run_gpd_install(&config).await?;
+
+    // Step 4: Inject LiteLLM provider config
     inject_provider_config(&config)?;
 
-    // Step 4: Mark as initialized
+    // Step 5: Mark as initialized
     let marker = config.join(GPD_INIT_MARKER);
     std::fs::write(&marker, "initialized")
         .map_err(|e| format!("Failed to write init marker: {e}"))?;
@@ -108,13 +111,181 @@ pub async fn run_first_setup(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-async fn run_sidecar_install(sidecar: &PathBuf, config: &PathBuf) -> Result<(), String> {
-    tracing::info!("Running gpd-sidecar install opencode --global --skip-readiness-check");
+// ---------------------------------------------------------------------------
+// Python provisioning
+// ---------------------------------------------------------------------------
+
+/// Returns the path to the bundled uv binary in the app's resources
+fn uv_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let bin_name = if cfg!(windows) { "uv.exe" } else { "uv" };
+    app.path()
+        .resolve(format!("uv-bundle/{bin_name}"), tauri::path::BaseDirectory::Resource)
+        .map_err(|e| format!("Failed to resolve uv path: {e}"))
+}
+
+/// GPD venv location: ~/.config/gpd/.venv/
+fn gpd_venv_dir() -> PathBuf {
+    config_dir().join(".venv")
+}
+
+/// The Python interpreter inside the GPD venv
+fn gpd_python() -> PathBuf {
+    let venv = gpd_venv_dir();
+    if cfg!(windows) {
+        venv.join("Scripts").join("python.exe")
+    } else {
+        venv.join("bin").join("python")
+    }
+}
+
+/// Ensure a Python >= 3.11 interpreter is available.
+/// First checks system Python. If none found, uses bundled uv to install one.
+async fn ensure_python(uv: &Path) -> Result<PathBuf, String> {
+    // Try system python3 first
+    let python_cmd = if cfg!(windows) { "python" } else { "python3" };
+    if let Ok(output) = Command::new(python_cmd)
+        .args(["--version"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .output()
+        .await
+    {
+        if output.status.success() {
+            let version = String::from_utf8_lossy(&output.stdout);
+            if is_python_3_11_or_later(&version) {
+                tracing::info!("Using system Python: {}", version.trim());
+                return Ok(PathBuf::from(python_cmd));
+            }
+        }
+    }
+
+    // No suitable system Python — install via uv
+    tracing::info!("No system Python >= 3.11 found, installing via uv");
+
+    let output = timeout(
+        Duration::from_secs(120),
+        Command::new(uv)
+            .args(["python", "install", "3.12", "--quiet"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null())
+            .output(),
+    )
+    .await
+    .map_err(|_| "uv python install timed out (120s)".to_string())?
+    .map_err(|e| format!("Failed to run uv python install: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("uv python install failed: {stderr}"));
+    }
+
+    // Locate the installed interpreter
+    let find_output = Command::new(uv)
+        .args(["python", "find", "3.12"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(|e| format!("uv python find failed: {e}"))?;
+
+    let python_path = String::from_utf8_lossy(&find_output.stdout).trim().to_string();
+    if python_path.is_empty() {
+        return Err("uv python find returned empty path".to_string());
+    }
+
+    tracing::info!("uv-provisioned Python at: {python_path}");
+    Ok(PathBuf::from(python_path))
+}
+
+fn is_python_3_11_or_later(version_output: &str) -> bool {
+    let trimmed = version_output.trim();
+    if let Some(rest) = trimmed.strip_prefix("Python ") {
+        let parts: Vec<&str> = rest.split('.').collect();
+        if parts.len() >= 2 {
+            if let (Ok(3), Ok(minor)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                return minor >= 11;
+            }
+        }
+    }
+    false
+}
+
+// ---------------------------------------------------------------------------
+// GPD package installation
+// ---------------------------------------------------------------------------
+
+/// Create a dedicated GPD venv and install get-physics-done into it.
+async fn ensure_gpd_installed(uv: &Path, python: &Path) -> Result<(), String> {
+    let venv = gpd_venv_dir();
+
+    if !venv.exists() {
+        tracing::info!("Creating GPD venv at {}", venv.display());
+
+        let output = timeout(
+            Duration::from_secs(30),
+            Command::new(uv)
+                .args(["venv", &venv.to_string_lossy(), "-p", &python.to_string_lossy()])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .stdin(Stdio::null())
+                .output(),
+        )
+        .await
+        .map_err(|_| "uv venv creation timed out (30s)".to_string())?
+        .map_err(|e| format!("Failed to create venv: {e}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("uv venv creation failed: {stderr}"));
+        }
+    }
+
+    tracing::info!("Installing get-physics-done[arxiv] into GPD venv");
+
+    let output = timeout(
+        Duration::from_secs(180),
+        Command::new(uv)
+            .args([
+                "pip", "install",
+                "get-physics-done[arxiv]",
+                "-p", &gpd_python().to_string_lossy(),
+                "--quiet",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null())
+            .output(),
+    )
+    .await
+    .map_err(|_| "GPD pip install timed out (180s)".to_string())?
+    .map_err(|e| format!("Failed to install get-physics-done: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("GPD pip install failed: {stderr}"));
+    }
+
+    tracing::info!("get-physics-done installed successfully");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// GPD command/agent installation
+// ---------------------------------------------------------------------------
+
+/// Run `gpd install opencode --global` using the venv Python.
+async fn run_gpd_install(config: &Path) -> Result<(), String> {
+    let python = gpd_python();
+
+    tracing::info!("Running gpd install opencode --global --skip-readiness-check");
 
     let output = timeout(
         Duration::from_secs(60),
-        Command::new(sidecar)
-            .args(["install", "opencode", "--global", "--skip-readiness-check"])
+        Command::new(&python)
+            .args(["-m", "gpd", "install", "opencode", "--global", "--skip-readiness-check"])
             .env("OPENCODE_CONFIG_DIR", config)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -122,79 +293,23 @@ async fn run_sidecar_install(sidecar: &PathBuf, config: &PathBuf) -> Result<(), 
             .output(),
     )
     .await
-    .map_err(|_| "gpd-sidecar install timed out (60s)".to_string())?
-    .map_err(|e| format!("Failed to run gpd-sidecar install: {e}"))?;
+    .map_err(|_| "gpd install timed out (60s)".to_string())?
+    .map_err(|e| format!("Failed to run gpd install: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("gpd-sidecar install failed: {stderr}"));
+        return Err(format!("gpd install opencode failed: {stderr}"));
     }
 
-    tracing::info!("gpd-sidecar install completed");
+    tracing::info!("gpd install opencode completed");
     Ok(())
 }
 
-async fn run_sidecar_list_servers(sidecar: &PathBuf) -> Result<String, String> {
-    tracing::info!("Running gpd-sidecar list-servers --json");
+// ---------------------------------------------------------------------------
+// Provider config injection
+// ---------------------------------------------------------------------------
 
-    let output = timeout(
-        Duration::from_secs(30),
-        Command::new(sidecar)
-            .args(["list-servers", "--json"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null())
-            .output(),
-    )
-    .await
-    .map_err(|_| "gpd-sidecar list-servers timed out (30s)".to_string())?
-    .map_err(|e| format!("Failed to run gpd-sidecar list-servers: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("gpd-sidecar list-servers failed: {stderr}"));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-fn merge_mcp_config(config: &PathBuf, servers_json: &str) -> Result<(), String> {
-    let path = config.join("opencode.json");
-
-    let servers: serde_json::Value = serde_json::from_str(servers_json)
-        .map_err(|e| format!("Failed to parse list-servers output: {e}"))?;
-
-    let mut config_val: serde_json::Value = if path.exists() {
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read opencode.json: {e}"))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse opencode.json: {e}"))?
-    } else {
-        serde_json::json!({})
-    };
-
-    // Merge MCP servers
-    if let Some(obj) = config_val.as_object_mut() {
-        if let serde_json::Value::Object(server_entries) = servers {
-            let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
-            if let Some(mcp_obj) = mcp.as_object_mut() {
-                for (name, server_config) in server_entries {
-                    mcp_obj.insert(name, server_config);
-                }
-            }
-        }
-    }
-
-    let json_str = serde_json::to_string_pretty(&config_val)
-        .map_err(|e| format!("Failed to serialize opencode.json: {e}"))?;
-    std::fs::write(&path, format!("{json_str}\n"))
-        .map_err(|e| format!("Failed to write opencode.json: {e}"))?;
-
-    tracing::info!(path = %path.display(), "Merged MCP server config");
-    Ok(())
-}
-
-fn inject_provider_config(config: &PathBuf) -> Result<(), String> {
+fn inject_provider_config(config: &Path) -> Result<(), String> {
     let path = config.join("opencode.json");
 
     let mut config_val: serde_json::Value = if path.exists() {
