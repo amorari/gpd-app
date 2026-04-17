@@ -361,11 +361,20 @@ configure_litellm_key() {
     fi
 
     ( umask 077; cat > "$env_file" <<EOF
-# GPD LiteLLM configuration
-LITELLM_API_KEY=${key}
+# GPD configuration — used by CLI wrapper and sourced into desktop app session
+GPD_API_KEY=${key}
 LITELLM_API_BASE=${LITELLM_PROXY_URL}
 EOF
     )
+
+    # Export GPD_API_KEY in login profile so the desktop app inherits it
+    local profile="$HOME/.profile"
+    [[ "$(basename "${SHELL:-bash}")" == "zsh" ]] && profile="${ZDOTDIR:-$HOME}/.zprofile"
+    local export_line="export GPD_API_KEY=\"${key}\""
+    if ! grep -qF "GPD_API_KEY" "$profile" 2>/dev/null; then
+        printf '\n# GPD API key for desktop app\n%s\n' "$export_line" >> "$profile"
+    fi
+
     success "LiteLLM key saved"
 }
 
