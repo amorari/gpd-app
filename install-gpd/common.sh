@@ -344,14 +344,21 @@ prompt_litellm_key() {
     printf " ${DIM}Get your key from your lab administrator.${RESET}\n"
     printf "\n"
 
-    local key=""
-    while [[ -z "$key" ]]; do
-        printf " Enter your LiteLLM key (sk-...): "
-        read -r key
-        if [[ -z "$key" ]]; then
-            warn "Key cannot be empty. Press Ctrl+C to skip and configure later."
+    local key="${GPD_API_KEY:-}"
+    if [[ -z "$key" ]]; then
+        if [[ ! -t 0 ]]; then
+            warn "No terminal and GPD_API_KEY not set — skipping key configuration."
+            warn "Set GPD_API_KEY and re-run, or run interactively to be prompted."
+            return 0
         fi
-    done
+        while [[ -z "$key" ]]; do
+            printf " Enter your LiteLLM key (sk-...): "
+            read -r key
+            if [[ -z "$key" ]]; then
+                warn "Key cannot be empty. Press Ctrl+C to skip and configure later."
+            fi
+        done
+    fi
 
     # Write with restrictive umask to avoid race where file is briefly world-readable
     ( umask 077; cat > "$env_file" <<EOF
