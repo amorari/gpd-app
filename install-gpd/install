@@ -131,7 +131,7 @@ detect_platform() {
 # ── Prerequisites ─────────────────────────────────────────────────────────
 
 check_prerequisites() {
-    for cmd in curl tar; do
+    for cmd in curl tar git; do
         command -v "$cmd" &>/dev/null || die "'$cmd' is required but not installed."
     done
     if [[ "$os" == "darwin" ]]; then
@@ -341,10 +341,11 @@ configure_litellm_key() {
     fi
 
     # Check for env var (non-interactive mode)
-    if [[ -n "${GPD_LITELLM_KEY:-}" ]]; then
-        local key="$GPD_LITELLM_KEY"
+    local key="${GPD_API_KEY:-${GPD_LITELLM_KEY:-}}"
+    if [[ -n "$key" ]]; then
+        : # key already set from env
     elif [[ ! -t 0 ]]; then
-        warn "Non-interactive mode: set GPD_LITELLM_KEY env var or run 'gpd config set-key' after install"
+        warn "Non-interactive mode: set GPD_API_KEY env var or run 'gpd config set-key' after install"
         return 0
     else
         printf "\n"

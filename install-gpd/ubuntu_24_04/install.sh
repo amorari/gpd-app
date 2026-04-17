@@ -25,7 +25,7 @@ source "$COMMON"
 
 install_system_deps() {
     local missing=()
-    for cmd in curl tar unzip; do
+    for cmd in curl tar unzip git; do
         if ! command_exists "$cmd"; then
             missing+=("$cmd")
         fi
