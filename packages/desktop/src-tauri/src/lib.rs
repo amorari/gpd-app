@@ -338,6 +338,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(crate::window_customizer::PinchZoomDisablePlugin)
         .plugin(tauri_plugin_decorum::init())
+        .plugin(tauri_plugin_mcp::init_with_config(
+            tauri_plugin_mcp::PluginConfig::new("GPD".to_string())
+                .start_socket_server(true),
+        ))
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -440,6 +444,19 @@ async fn initialize(app: AppHandle) {
 
     tracing::info!("Spawning sidecar on {url}");
     let gpd_config_str = gpd_config.to_string_lossy().to_string();
+
+    // Prepend GPD bin and venv bin to PATH so the agent can find `uv` (for
+    // per-project venv management) and the GPD venv Python.
+    let gpd_bin = gpd_config.join("bin");
+    let gpd_venv_bin = gpd_config.join(".venv").join("bin");
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let augmented_path = format!(
+        "{}:{}:{}",
+        gpd_bin.to_string_lossy(),
+        gpd_venv_bin.to_string_lossy(),
+        current_path,
+    );
+
     let (child, health_check) = server::spawn_local_server(
         app.clone(),
         hostname.to_string(),
@@ -448,6 +465,7 @@ async fn initialize(app: AppHandle) {
         &[
             ("OPENCODE_CONFIG_DIR", gpd_config_str),
             ("OPENCODE_CONFIG_CONTENT", gpd_setup::build_config_json()),
+            ("PATH", augmented_path),
         ],
     );
 

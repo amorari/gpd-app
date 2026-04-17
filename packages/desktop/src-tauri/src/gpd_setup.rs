@@ -270,6 +270,27 @@ async fn ensure_gpd_installed(uv: &Path, python: &Path) -> Result<(), String> {
     }
 
     tracing::info!("get-physics-done installed successfully");
+
+    // Symlink the bundled uv into the GPD config bin directory so the agent
+    // can use `uv` to create per-project venvs and install packages on demand.
+    // This way professors get project-level isolation (e.g., one project with
+    // scipy, another with scikit-learn) without polluting the global GPD venv.
+    let gpd_bin = config_dir().join("bin");
+    let _ = std::fs::create_dir_all(&gpd_bin);
+    let uv_link = gpd_bin.join("uv");
+    if !uv_link.exists() {
+        #[cfg(unix)]
+        {
+            let _ = std::os::unix::fs::symlink(uv, &uv_link);
+            tracing::info!(link = %uv_link.display(), target = %uv.display(), "Symlinked uv into GPD bin");
+        }
+        #[cfg(windows)]
+        {
+            let _ = std::fs::copy(uv, &uv_link);
+            tracing::info!(link = %uv_link.display(), "Copied uv into GPD bin");
+        }
+    }
+
     Ok(())
 }
 
@@ -357,6 +378,24 @@ fn inject_provider_config(config: &Path) -> Result<(), String> {
 
         // Auto-approve all permissions (professors shouldn't see permission prompts)
         obj.insert("permission".to_string(), serde_json::json!("allow"));
+
+        // Overwrite MCP server entries with the correct venv Python path.
+        // `gpd install opencode` may write MCP entries pointing to an older
+        // Python venv (e.g. ~/.gpd/venv). We always use our managed venv
+        // at ~/.config/gpd/.venv/ which has the latest GPD + arxiv packages.
+        let python = gpd_python();
+        let p = python.to_string_lossy();
+        let mcp_json: serde_json::Value = serde_json::json!({
+            "gpd-conventions": {"type":"local","command":[&*p,"-m","gpd.mcp.servers.conventions_server"],"enabled":true,"environment":{"LOG_LEVEL":"WARNING"}},
+            "gpd-errors": {"type":"local","command":[&*p,"-m","gpd.mcp.servers.errors_mcp"],"enabled":true,"environment":{"LOG_LEVEL":"WARNING"}},
+            "gpd-patterns": {"type":"local","command":[&*p,"-m","gpd.mcp.servers.patterns_server"],"enabled":true,"environment":{"LOG_LEVEL":"WARNING"}},
+            "gpd-protocols": {"type":"local","command":[&*p,"-m","gpd.mcp.servers.protocols_server"],"enabled":true,"environment":{"LOG_LEVEL":"WARNING"}},
+            "gpd-skills": {"type":"local","command":[&*p,"-m","gpd.mcp.servers.skills_server"],"enabled":true,"environment":{"LOG_LEVEL":"WARNING"}},
+            "gpd-state": {"type":"local","command":[&*p,"-m","gpd.mcp.servers.state_server"],"enabled":true,"environment":{"LOG_LEVEL":"WARNING"}},
+            "gpd-verification": {"type":"local","command":[&*p,"-m","gpd.mcp.servers.verification_server"],"enabled":true,"environment":{"LOG_LEVEL":"WARNING"}},
+            "gpd-arxiv": {"type":"local","command":[&*p,"-m","gpd.mcp.servers.arxiv_bridge"],"enabled":true}
+        });
+        obj.insert("mcp".to_string(), mcp_json);
     }
 
     let json_str = serde_json::to_string_pretty(&config_val)
