@@ -4,22 +4,34 @@ Platform-specific installers that set up the complete GPD terminal environment f
 
 ## Quick Start
 
-### Ubuntu 24.04+
+### Unified installer (Ubuntu + macOS)
 
 ```bash
-bash install/ubuntu_24_04/install.sh
+curl -fsSL https://download.gpd.psi.inc/install | bash
 ```
 
-### macOS (Tahoe / Apple Silicon + Intel)
+Or run locally:
 
 ```bash
-bash install/macos_26_tahoe/install.sh
+bash install
+```
+
+Options: `--skip-key` (skip LiteLLM prompt), `--no-modify-path`, `--version 1.0.180`.
+
+### Platform-specific installers
+
+```bash
+# Ubuntu 24.04+ (installs .deb desktop app if available)
+bash ubuntu_24_04/install.sh
+
+# macOS (Tahoe / Apple Silicon + Intel)
+bash macos_26_tahoe/install.sh
 ```
 
 ### Windows 11
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File install\windows_11\install.ps1
+powershell -ExecutionPolicy Bypass -File windows_11\install.ps1
 ```
 
 ## What Gets Installed
@@ -37,16 +49,25 @@ All files are installed to `~/.gpd/` (or `$HOME\.gpd\` on Windows):
     └── litellm.env   # LiteLLM API key (user-only permissions)
 ```
 
+## Prerequisites
+
+- **Ubuntu**: `curl`, `tar`, `git` (installer will `apt-get install` if missing)
+- **macOS**: `curl`, `unzip`, `tar` (ships with macOS; install Xcode CLT if missing)
+- **Windows**: PowerShell 5.1+, internet access
+
+No Python required -- the installer downloads a standalone build if system Python < 3.11.
+
 ## Installation Steps
 
 Each installer performs these steps:
 
-1. **OpenCode CLI** — Downloads the binary from GitHub releases (tries GPD fork first, falls back to upstream)
-2. **Python 3.11+** — Checks for system Python; if missing or too old, downloads a portable build from [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
-3. **GPD package** — Creates a Python venv and installs `get-physics-done` from GitHub
-4. **LiteLLM key** — Prompts for your virtual key (get it from your lab administrator)
-5. **`gpd` command** — Creates a wrapper script that launches OpenCode with GPD configuration
-6. **PATH** — Adds `~/.gpd/bin` to your shell PATH
+1. **OpenCode CLI** -- Downloads the binary from GitHub releases (tries GPD fork first, falls back to upstream)
+2. **Python 3.11+** -- Checks for system Python; if missing or too old, downloads a portable build from [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
+3. **GPD package** -- Creates a Python venv and installs `get-physics-done` from GitHub
+4. **LiteLLM key** -- Prompts for your virtual key (get it from your lab administrator)
+5. **`gpd` command** -- Creates a wrapper script that launches OpenCode with GPD configuration
+6. **PATH** -- Adds `~/.gpd/bin` to your shell PATH
+7. **GPD runtime** -- Configures OpenCode with GPD settings (`gpd install opencode --global`)
 
 ## Configuration
 
@@ -80,14 +101,19 @@ Installers are idempotent — they skip steps that are already complete. Safe to
 ## Uninstalling
 
 ```bash
-# Remove all GPD files
-rm -rf ~/.gpd
-
-# Remove PATH entry from your shell config
-# Edit ~/.bashrc, ~/.zshrc, or ~/.profile and remove the "# GPD CLI" lines
+bash uninstall.sh
 ```
 
-On Windows:
+The uninstall script removes everything the installer created:
+
+- `~/.gpd/` directory (bin, config, python, venv)
+- PATH entries from `~/.bashrc`, `~/.zshrc`, `~/.profile`
+- `GPD_API_KEY` exports from `~/.profile` / `~/.zprofile`
+- GPD `.deb` package on Ubuntu (if installed)
+
+Pass `--yes` to skip the confirmation prompt.
+
+On Windows (manual):
 ```powershell
 Remove-Item -Recurse -Force "$HOME\.gpd"
 # Remove from PATH via System > Environment Variables > User PATH
@@ -96,20 +122,19 @@ Remove-Item -Recurse -Force "$HOME\.gpd"
 ## File Structure
 
 ```
-install/
-├── README.md                     # This file
+install-gpd/
+├── install                       # Unified installer (Ubuntu + macOS)
+├── uninstall.sh                  # Uninstaller (all platforms except Windows)
 ├── common.sh                     # Shared bash functions (Ubuntu + macOS)
 ├── ubuntu_24_04/
-│   └── install.sh                # Ubuntu installer
+│   └── install.sh                # Ubuntu installer (adds .deb support)
 ├── macos_26_tahoe/
 │   └── install.sh                # macOS installer
 └── windows_11/
     └── install.ps1               # Windows PowerShell installer
 ```
 
-`common.sh` contains all shared logic (download, Python management, venv setup, key prompting, PATH configuration). The platform scripts source it and add OS-specific setup.
-
-The Windows installer is standalone PowerShell since it cannot source bash scripts.
+`install` is a self-contained unified installer (no dependency on `common.sh`) suitable for piping from curl. The platform-specific scripts source `common.sh` and add OS-specific setup. The Windows installer is standalone PowerShell.
 
 ## Troubleshooting
 
