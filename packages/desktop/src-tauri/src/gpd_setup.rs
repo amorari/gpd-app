@@ -246,7 +246,7 @@ async fn ensure_gpd_installed(uv: &Path, python: &Path) -> Result<(), String> {
     tracing::info!("Installing get-physics-done[arxiv] into GPD venv");
 
     let output = timeout(
-        Duration::from_secs(180),
+        Duration::from_secs(300),
         Command::new(uv)
             .args([
                 "pip", "install",
@@ -254,6 +254,7 @@ async fn ensure_gpd_installed(uv: &Path, python: &Path) -> Result<(), String> {
                 "-p", &gpd_python().to_string_lossy(),
                 "--quiet",
             ])
+            .env("UV_HTTP_TIMEOUT", "120")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .stdin(Stdio::null())
