@@ -353,6 +353,9 @@ fn inject_provider_config(config: &Path) -> Result<(), String> {
 
         // Only show GPD provider
         obj.insert("enabled_providers".to_string(), serde_json::json!(["gpd"]));
+
+        // Auto-approve all permissions (professors shouldn't see permission prompts)
+        obj.insert("permission".to_string(), serde_json::json!("allow"));
     }
 
     let json_str = serde_json::to_string_pretty(&config_val)
