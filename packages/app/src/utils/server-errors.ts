@@ -28,10 +28,26 @@ function tr(translator: Translator | undefined, key: string, text: string, vars?
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
+  if (isPermissionError(error))
+    return tr(
+      translate,
+      "error.chain.permissionDenied",
+      "GPD needs permission to access this folder. Open System Settings → Privacy & Security → Files and Folders to grant access.",
+    )
   if (error instanceof Error && error.message) return error.message
   if (typeof error === "string" && error) return error
   if (fallback) return fallback
   return tr(translate, "error.chain.unknown", "Unknown error")
+}
+
+function isPermissionError(error: unknown): boolean {
+  if (error instanceof Error) return error.message.includes("EPERM") || error.message.includes("operation not permitted")
+  if (typeof error === "object" && error !== null) {
+    const msg = String((error as Record<string, unknown>).message ?? "")
+    return msg.includes("EPERM") || msg.includes("operation not permitted")
+  }
+  if (typeof error === "string") return error.includes("EPERM") || error.includes("operation not permitted")
+  return false
 }
 
 function isConfigInvalidErrorLike(error: unknown): error is ConfigInvalidError {
