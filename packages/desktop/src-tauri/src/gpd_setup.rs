@@ -413,3 +413,102 @@ fn inject_provider_config(config: &Path) -> Result<(), String> {
     tracing::info!(path = %path.display(), "Injected LiteLLM provider config");
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Tests — run with `cargo test -p opencode-desktop`
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_config_json_is_valid_json() {
+        let json = build_config_json();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("build_config_json() produced invalid JSON");
+
+        // Verify top-level structure
+        let obj = parsed.as_object().expect("config should be an object");
+        assert!(obj.contains_key("provider"), "missing 'provider' key");
+        assert!(obj.contains_key("model"), "missing 'model' key");
+        assert!(obj.contains_key("enabled_providers"), "missing 'enabled_providers' key");
+        assert!(obj.contains_key("mcp"), "missing 'mcp' key");
+    }
+
+    #[test]
+    fn build_config_json_has_all_14_models() {
+        let json = build_config_json();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let models = parsed["provider"]["gpd"]["models"].as_object().unwrap();
+        assert_eq!(models.len(), 14, "expected 14 models, got {}", models.len());
+
+        let expected = [
+            "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5",
+            "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.4-pro",
+            "gpt-5.3-codex", "gpt-4.1", "gpt-4.1-mini", "o4-mini",
+            "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview",
+        ];
+        for name in &expected {
+            assert!(models.contains_key(*name), "missing model: {name}");
+        }
+    }
+
+    #[test]
+    fn build_config_json_has_8_mcp_servers() {
+        let json = build_config_json();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let mcp = parsed["mcp"].as_object().unwrap();
+        assert_eq!(mcp.len(), 8, "expected 8 MCP servers, got {}", mcp.len());
+
+        let expected = [
+            "gpd-conventions", "gpd-errors", "gpd-patterns", "gpd-protocols",
+            "gpd-skills", "gpd-state", "gpd-verification", "gpd-arxiv",
+        ];
+        for name in &expected {
+            assert!(mcp.contains_key(*name), "missing MCP server: {name}");
+        }
+    }
+
+    #[test]
+    fn build_config_json_mcp_paths_use_gpd_venv() {
+        let json = build_config_json();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let mcp = parsed["mcp"].as_object().unwrap();
+        let expected_python = gpd_python().to_string_lossy().to_string();
+
+        for (name, cfg) in mcp {
+            let cmd = cfg["command"].as_array()
+                .unwrap_or_else(|| panic!("MCP server {name} missing 'command' array"));
+            let python_path = cmd[0].as_str()
+                .unwrap_or_else(|| panic!("MCP server {name} command[0] is not a string"));
+            assert_eq!(python_path, expected_python,
+                "MCP server {name} uses wrong Python: {python_path}");
+        }
+    }
+
+    #[test]
+    fn build_config_json_provider_name_is_gpd() {
+        let json = build_config_json();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let name = parsed["provider"]["gpd"]["name"].as_str().unwrap();
+        assert_eq!(name, "GPD (PSI)");
+        assert!(!json.contains("OpenCode"), "config JSON must not contain 'OpenCode'");
+    }
+
+    #[test]
+    fn build_config_json_model_values_are_valid() {
+        // Verify every model has parseable nested objects (catches format string
+        // escaping bugs like {{"input":...}} which produce invalid JSON)
+        let json = build_config_json();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let models = parsed["provider"]["gpd"]["models"].as_object().unwrap();
+        for (name, model) in models {
+            assert!(model["name"].is_string(), "model {name} missing 'name'");
+            assert!(model["limit"].is_object(), "model {name} missing 'limit' object");
+            let limit = model["limit"].as_object().unwrap();
+            assert!(limit["context"].is_number(), "model {name} limit missing 'context'");
+            assert!(limit["output"].is_number(), "model {name} limit missing 'output'");
+        }
+    }
+}
