@@ -34,7 +34,11 @@ const LITELLM_URL: &str = "https://litellm-production-46bb.up.railway.app/v1";
 /// MCP server definitions pointing to the venv Python interpreter.
 pub fn build_config_json() -> String {
     let python = gpd_python();
-    let p = python.to_string_lossy();
+    // Escape backslashes for JSON string embedding (Windows paths contain `\`).
+    // Without this, `\U`, `\v`, `\S`, etc. in paths like
+    // `C:\Users\foo\.config\gpd\.venv\Scripts\python.exe` are parsed as invalid
+    // JSON escape sequences and the entire OPENCODE_CONFIG_CONTENT is rejected.
+    let p = python.to_string_lossy().replace('\\', "\\\\");
 
     let mcp_servers = format!(r#"{{
         "gpd-conventions": {{"type":"local","command":["{p}","-m","gpd.mcp.servers.conventions_server"],"enabled":true,"environment":{{"LOG_LEVEL":"WARNING"}}}},
