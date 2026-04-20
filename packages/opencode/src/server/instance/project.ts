@@ -9,6 +9,7 @@ import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { InstanceBootstrap } from "../../project/bootstrap"
 import { AppRuntime } from "@/effect/app-runtime"
+import { NotFoundError } from "../../storage/db"
 
 export const ProjectRoutes = lazy(() =>
   new Hono()
@@ -113,6 +114,31 @@ export const ProjectRoutes = lazy(() =>
         const body = c.req.valid("json")
         const project = await AppRuntime.runPromise(Project.Service.use((svc) => svc.update({ ...body, projectID })))
         return c.json(project)
+      },
+    )
+    .delete(
+      "/:projectID",
+      describeRoute({
+        summary: "Delete project",
+        description:
+          "Remove a project from GPD. Cascades to sessions, workspaces, and permissions. Does not touch files on disk.",
+        operationId: "project.delete",
+        responses: {
+          204: {
+            description: "Project deleted",
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ projectID: ProjectID.zod })),
+      async (c) => {
+        const projectID = c.req.valid("param").projectID
+        const existing = Project.get(projectID)
+        if (!existing) {
+          throw new NotFoundError({ message: `Project not found: ${projectID}` })
+        }
+        await AppRuntime.runPromise(Project.Service.use((svc) => svc.remove(projectID)))
+        return c.body(null, 204)
       },
     ),
 )

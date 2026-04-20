@@ -103,6 +103,39 @@ describe("applyGlobalEvent", () => {
     expect(refreshCount).toBe(0)
   })
 
+  test("removes project on project.deleted", () => {
+    let project = [{ id: "a" }, { id: "b" }, { id: "c" }] as Project[]
+    let refreshCount = 0
+    applyGlobalEvent({
+      event: { type: "project.deleted", properties: { id: "b" } },
+      project,
+      refresh: () => {
+        refreshCount += 1
+      },
+      setGlobalProject(next) {
+        if (typeof next === "function") next(project)
+      },
+    })
+
+    expect(project.map((x) => x.id)).toEqual(["a", "c"])
+    expect(refreshCount).toBe(0)
+  })
+
+  test("ignores project.deleted for unknown project", () => {
+    const project = [{ id: "a" }, { id: "c" }] as Project[]
+    let called = false
+    applyGlobalEvent({
+      event: { type: "project.deleted", properties: { id: "missing" } },
+      project,
+      refresh: () => {},
+      setGlobalProject() {
+        called = true
+      },
+    })
+    expect(project.map((x) => x.id)).toEqual(["a", "c"])
+    expect(called).toBe(false)
+  })
+
   test("handles global.disposed by triggering refresh", () => {
     let refreshCount = 0
     applyGlobalEvent({

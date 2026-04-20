@@ -401,6 +401,43 @@ describe("Project.update", () => {
   })
 })
 
+describe("Project.remove", () => {
+  test("removes project and returns info", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const { project } = await run((svc) => svc.fromDirectory(tmp.path))
+    expect(Project.get(project.id)).toBeDefined()
+
+    const removed = await run((svc) => svc.remove(project.id))
+    expect(removed.id).toBe(project.id)
+
+    expect(Project.get(project.id)).toBeUndefined()
+  })
+
+  test("emits project.deleted event on GlobalBus", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const { project } = await run((svc) => svc.fromDirectory(tmp.path))
+
+    const events: any[] = []
+    const on = (data: any) => events.push(data)
+    GlobalBus.on("event", on)
+
+    try {
+      await run((svc) => svc.remove(project.id))
+      const evt = events.find((e) => e.payload.type === Project.Event.Deleted.type)
+      expect(evt).toBeDefined()
+      expect(evt.payload.properties.id).toBe(project.id)
+    } finally {
+      GlobalBus.off("event", on)
+    }
+  })
+
+  test("throws when project not found", async () => {
+    await expect(run((svc) => svc.remove(ProjectID.make("missing-project-id")))).rejects.toThrow(
+      "Project not found: missing-project-id",
+    )
+  })
+})
+
 describe("Project.list and Project.get", () => {
   test("list returns all projects", async () => {
     await using tmp = await tmpdir({ git: true })

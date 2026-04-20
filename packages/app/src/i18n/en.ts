@@ -720,7 +720,13 @@ export const dict = {
   "sidebar.project.recentSessions": "Recent sessions",
   "sidebar.project.viewAllSessions": "View all sessions",
   "sidebar.project.clearNotifications": "Clear notifications",
+  "sidebar.project.delete": "Delete Project",
   "sidebar.project.path": "{{path}}",
+  "dialog.confirmDelete.title": "Delete {{name}}?",
+  "dialog.confirmDelete.description":
+    "Delete {{name}}? This removes the project from GPD. Files in the project folder are NOT deleted.",
+  "dialog.confirmDelete.confirm": "Delete",
+  "dialog.confirmDelete.cancel": "Cancel",
   "sidebar.empty.title": "No projects open",
   "sidebar.empty.description": "Open a project to get started",
   "sidebar.newProject": "New Project",

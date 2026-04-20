@@ -536,6 +536,27 @@ export default function Layout(props: ParentProps) {
   useUpdatePolling()
   useSDKNotificationToasts()
 
+  onMount(() => {
+    const unsub = globalSDK.event.listen((e) => {
+      if (e.name !== "global") return
+      if (e.details?.type !== "project.deleted") return
+      const props = e.details.properties as { id: string }
+      // UI-side list still holds the project until we close it below
+      const project = layout.projects.list().find((p) => p.id === props.id)
+      if (!project) return
+      // Remove from UI-side projects list so sidebar updates immediately
+      layout.projects.close(project.worktree)
+      // If the deleted project is currently open in this tab, navigate home
+      const dir = currentDir()
+      const active = dir && workspaceKey(dir) === workspaceKey(project.worktree)
+      const activeSandbox = project.sandboxes?.some((s) => workspaceKey(s) === workspaceKey(dir))
+      if (active || activeSandbox) {
+        navigate("/")
+      }
+    })
+    onCleanup(unsub)
+  })
+
   function scrollToSession(sessionId: string, sessionKey: string) {
     if (!scrollContainerRef) return
     if (state.scrollSessionKey === sessionKey) return
@@ -1465,6 +1486,21 @@ export default function Layout(props: ParentProps) {
     })
   }
 
+  const showDeleteProjectDialog = (project: LocalProject) => {
+    const run = ++dialogRun
+    void import("@/components/dialog-confirm-delete-project").then((x) => {
+      if (dialogDead || dialogRun !== run) return
+      dialog.show(() => (
+        <x.DialogConfirmDeleteProject
+          project={project}
+          onDeleted={(deleted) => {
+            closeProject(deleted.worktree)
+          }}
+        />
+      ))
+    })
+  }
+
   async function chooseProject() {
     function resolve(result: string | string[] | null) {
       if (Array.isArray(result)) {
@@ -2052,6 +2088,7 @@ export default function Layout(props: ParentProps) {
     openSidebar: () => layout.sidebar.open(),
     closeProject,
     showEditProjectDialog,
+    showDeleteProjectDialog,
     toggleProjectWorkspaces,
     workspacesEnabled: (project) => project.vcs === "git" && layout.sidebar.workspaces(project.worktree)(),
     workspaceIds,
@@ -2245,6 +2282,17 @@ export default function Layout(props: ParentProps) {
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.close")}</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        data-action="project-delete-menu"
+                        data-project={slug()}
+                        onSelect={() => {
+                          const item = project()
+                          if (!item) return
+                          showDeleteProjectDialog(item)
+                        }}
+                      >
+                        <DropdownMenu.ItemLabel>{language.t("sidebar.project.delete")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
