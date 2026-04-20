@@ -55,7 +55,7 @@ gpd-desktop-v<gpd-version>[-<redrop-counter>]
 
 A `1.1.0-1` tag means "first desktop redrop against the `get-physics-done` 1.1.0 sidecar". Use this when you need to re-ship desktop without a new sidecar release.
 
-⚠️ **Caveat on auto-updaters:** asset filenames DO include the `-N` suffix (`GPD_1.1.0-1_aarch64.dmg`), and the Tauri app's reported version matches the tag. However, per semver, `1.1.0-1` is a *pre-release* of `1.1.0` and so sorts *below* `1.1.0`. Users on `1.1.0` will not auto-update to `1.1.0-1`. This is acceptable in practice because updater signing is disabled in `tauri.prod.conf.json`, so auto-updates don't run regardless — users download manually from the download page. Use a real patch bump (e.g. `1.1.1`) if you need the updater to actually promote the new build.
+⚠️ **Caveat on auto-updaters:** asset filenames DO include the `-N` suffix (`GPD_1.1.0-1_aarch64.dmg`), and the app's reported version matches the tag. Auto-updates DO run — the updater plugin is registered whenever the CI build has `TAURI_SIGNING_PRIVATE_KEY` set (see `constants.rs:UPDATER_ENABLED`), and `latest.json` is signed and points at the newest release assets. What *doesn't* work is the promotion from `1.1.0` → `1.1.0-N`: semver treats `1.1.0-1` as a *pre-release* of `1.1.0` and sorts it *below* the base version, so a user already on `1.1.0` sees the update feed, decides `1.1.0-1` is older, and stays put. Use a real patch bump (e.g. `1.1.1`) if you need the updater to actually promote the new build. Treat `-N` suffixes as "fresh-install only" deliveries (download page, new machines).
 
 ---
 
