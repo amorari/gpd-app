@@ -45,7 +45,7 @@ The release workflow decides what tag to ship **in the `resolve-version` job**. 
    - `npm` — latest `get-physics-done` on npm
 3. **Collision handling** — if the chosen `gpd-desktop-v<base>` tag already exists:
    - If it's a **draft**, the workflow appends its assets to that draft.
-   - If it's **published**, the workflow increments a suffix: `1.1.0` → `1.1.0-1` → `1.1.0-2` → …, stopping at the first available slot (absent or draft). Hard cap is `-20` before the job fails.
+   - If it's **published**, the workflow increments a suffix: `1.1.0` → `1.1.0-1` → `1.1.0-2` → …, stopping at the first available slot (absent or draft). Hard cap is `-100` before the job fails.
 
 So the tag-to-version shape is:
 
@@ -176,7 +176,7 @@ The built `.dmg` lands in `packages/desktop/src-tauri/target/aarch64-apple-darwi
 ## Troubleshooting
 
 **Workflow fails at `resolve-version` with "Exhausted -N suffixes"**
-You have 20+ published releases against the same `get-physics-done` version. Bump the sidecar version; you should not be on a 21st desktop redrop of the same sidecar.
+You have 100+ published releases against the same `get-physics-done` version. Bump the sidecar version; you should not be on a 101st desktop redrop of the same sidecar.
 
 **Windows build times out / fails, but Mac+Linux are fine**
 Let the release finish with only three platforms — the draft will have Mac + Linux assets. Decide whether to publish as-is (Windows users re-download when Windows builds later) or fix Windows first. To re-run only Windows, dispatch the workflow again; the draft already has the other platforms, and the collision handler will append.
