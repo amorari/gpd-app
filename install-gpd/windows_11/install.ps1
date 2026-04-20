@@ -701,15 +701,27 @@ function Invoke-GpdInstall {
     Add-GpdToPath
     Write-Host ""
 
-    # Run GPD install for OpenCode runtime configuration
+    # Run GPD install for OpenCode runtime configuration.
+    # Switch to $HOME so gpd's checkout-root detection doesn't walk into
+    # system dirs and hit a permission error. "opencode" is a positional
+    # runtime arg, not a --opencode flag.
     $gpdExe = Join-Path $GpdVenvDir "Scripts\gpd.exe"
     if (Test-Path $gpdExe) {
         Write-Log "Configuring GPD for OpenCode runtime..."
+        Push-Location $HOME
         try {
-            & $gpdExe install --opencode --global 2>$null
+            & $gpdExe install opencode --global --skip-readiness-check
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "GPD runtime configuration failed. Run manually from your home dir:"
+                Write-Warn "  cd ~ && ~\.gpd\venv\Scripts\gpd.exe install opencode --global"
+            }
         }
         catch {
-            Write-Warn "GPD runtime configuration skipped (run 'gpd install --opencode --global' manually)"
+            Write-Warn "GPD runtime configuration failed: $_"
+            Write-Warn "Run manually: cd ~ && ~\.gpd\venv\Scripts\gpd.exe install opencode --global"
+        }
+        finally {
+            Pop-Location
         }
     }
 
