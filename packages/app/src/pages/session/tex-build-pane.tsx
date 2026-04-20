@@ -32,6 +32,10 @@ export function TexBuildPane(props: {
   texFile: string
   /** Focus a line in the editor in response to a clicked diagnostic. */
   onNavigateSource?: (file: string, line: number) => void
+  /** When `true`, the parent has hidden the source editor and the Build pane
+   * fills the entire tab.  The toggle button flips between states. */
+  maximized?: boolean
+  onToggleMaximized?: () => void
 }) {
   const language = useLanguage()
   const sdk = useSDK()
@@ -42,7 +46,8 @@ export function TexBuildPane(props: {
     projectId: () => sdk.directory,
   })
 
-  const entry = createMemo(() => tex.current(props.texFile))
+  const absTexFile = createMemo(() => toAbsolute(props.texFile, sdk.directory))
+  const entry = createMemo(() => tex.current(absTexFile()))
   const compiler = createMemo(() => tex.state.compiler)
   const running = createMemo(() => tex.state.running)
   const progress = createMemo(() => tex.state.progress)
@@ -67,7 +72,7 @@ export function TexBuildPane(props: {
   const doCompile = async () => {
     try {
       const result = await tex.compile({
-        texFile: toAbsolute(props.texFile, sdk.directory),
+        texFile: absTexFile(),
       })
       handleResult(result)
     } catch (e) {
@@ -165,6 +170,16 @@ export function TexBuildPane(props: {
           <Show when={entry()?.result.logPath}>
             <Button size="small" variant="secondary" onClick={() => void openLog()}>
               {language.t("tex.build.showLog")}
+            </Button>
+          </Show>
+          <Show when={props.onToggleMaximized}>
+            <Button
+              size="small"
+              variant="secondary"
+              onClick={() => props.onToggleMaximized?.()}
+              title={props.maximized ? language.t("tex.build.restoreSource") : language.t("tex.build.maximize")}
+            >
+              {props.maximized ? language.t("tex.build.restoreSource") : language.t("tex.build.maximize")}
             </Button>
           </Show>
         </div>

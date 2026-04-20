@@ -306,17 +306,17 @@ fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = make_specta_builder();
+    let specta_builder = make_specta_builder();
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds
-    export_types(&builder);
+    export_types(&specta_builder);
 
     #[cfg(all(target_os = "macos", not(debug_assertions)))]
     let _ = std::process::Command::new("killall")
         .arg("opencode-cli")
         .output();
 
-    let mut builder = tauri::Builder::default()
+    let tauri_builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Focus existing window when another instance is launched
             if let Some(window) = app.get_webview_window(MainWindow::LABEL) {
@@ -341,12 +341,20 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(crate::window_customizer::PinchZoomDisablePlugin)
-        .plugin(tauri_plugin_decorum::init())
-        .plugin(tauri_plugin_mcp::init_with_config(
-            tauri_plugin_mcp::PluginConfig::new("GPD".to_string())
-                .start_socket_server(true),
-        ))
-        .invoke_handler(builder.invoke_handler())
+        .plugin(tauri_plugin_decorum::init());
+
+    // tauri-plugin-mcp opens an unauthenticated local socket and exposes
+    // `execute_js` as an arbitrary-JS escape hatch. Per the plugin's own
+    // README it MUST be gated behind `debug_assertions`; shipping it in
+    // release builds would expose every user to a persistent unauthenticated
+    // local RCE surface.
+    #[cfg(debug_assertions)]
+    let tauri_builder = tauri_builder.plugin(tauri_plugin_mcp::init_with_config(
+        tauri_plugin_mcp::PluginConfig::new("GPD".to_string()).start_socket_server(true),
+    ));
+
+    let mut builder = tauri_builder
+        .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -361,7 +369,7 @@ pub fn run() {
             // click aborts an in-flight compile instead of racing it.
             handle.manage(tex_compiler::TexCompileState::new());
 
-            builder.mount_events(&handle);
+            specta_builder.mount_events(&handle);
             tauri::async_runtime::spawn(initialize(handle));
 
             Ok(())

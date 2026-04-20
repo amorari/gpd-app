@@ -499,8 +499,10 @@ export function FileTabContent(props: { tab: string }) {
     return !!p && p.toLowerCase().endsWith(".tex")
   })
   const [buildPaneOpen, setBuildPaneOpen] = createSignal(false)
+  const [buildPaneMaximized, setBuildPaneMaximized] = createSignal(false)
 
   const toggleBuildPane = () => setBuildPaneOpen((v) => !v)
+  const toggleBuildMaximized = () => setBuildPaneMaximized((v) => !v)
 
   const scrollToLine = (targetFile: string, line: number) => {
     // Only handle navigation within the currently active tab's file.
@@ -536,23 +538,38 @@ export function FileTabContent(props: { tab: string }) {
         }
       >
         {(absPath) => (
-          <div class="grid h-full" style={{ "grid-template-rows": "minmax(0,1fr) minmax(0,1fr)" }}>
-            <ScrollView class="min-h-0" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
-              <div class="px-3 py-1 flex items-center justify-end border-b border-border-weaker-base">
-                <Button size="small" variant="secondary" onClick={toggleBuildPane}>
-                  {language.t("common.close")}
-                </Button>
-              </div>
-              <Switch>
-                <Match when={state()?.loaded}>{renderFile(contents())}</Match>
-                <Match when={state()?.loading}>
-                  <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
-                </Match>
-                <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
-              </Switch>
-            </ScrollView>
-            <div class="min-h-0 border-t border-border-weaker-base">
-              <TexBuildPane texFile={absPath()} onNavigateSource={scrollToLine} />
+          <div
+            class="grid h-full"
+            style={{
+              "grid-template-rows": buildPaneMaximized() ? "minmax(0,1fr)" : "minmax(0,1fr) minmax(0,1fr)",
+            }}
+          >
+            <Show when={!buildPaneMaximized()}>
+              <ScrollView class="min-h-0" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
+                <div class="px-3 py-1 flex items-center justify-end border-b border-border-weaker-base">
+                  <Button size="small" variant="secondary" onClick={toggleBuildPane}>
+                    {language.t("common.close")}
+                  </Button>
+                </div>
+                <Switch>
+                  <Match when={state()?.loaded}>{renderFile(contents())}</Match>
+                  <Match when={state()?.loading}>
+                    <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+                  </Match>
+                  <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+                </Switch>
+              </ScrollView>
+            </Show>
+            <div
+              class="min-h-0"
+              classList={{ "border-t border-border-weaker-base": !buildPaneMaximized() }}
+            >
+              <TexBuildPane
+                texFile={absPath()}
+                onNavigateSource={scrollToLine}
+                maximized={buildPaneMaximized()}
+                onToggleMaximized={toggleBuildMaximized}
+              />
             </div>
           </div>
         )}

@@ -924,6 +924,8 @@ export const dict = {
   "tex.build.compile": "Compile",
   "tex.build.recompile": "Recompile",
   "tex.build.showLog": "Show log",
+  "tex.build.maximize": "Maximize",
+  "tex.build.restoreSource": "Show source",
   "tex.build.status.ready": "Ready",
   "tex.build.status.compiling": "Compiling…",
   "tex.build.status.error": "Compile failed",
