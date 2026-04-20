@@ -235,11 +235,63 @@ opencode_asset_name() {
     esac
 }
 
+# Install the GPD desktop .deb on Debian/Ubuntu. Die on failure — the .deb
+# is the primary experience on these systems; a silent fallback to CLI-only
+# would leave users without the GUI/menu entry they expect.
+install_gpd_deb() {
+    local dest="$1"
+
+    # Already installed? Symlink CLI and return.
+    if [[ -x "/usr/bin/opencode-cli" ]] && [[ -x "/usr/bin/GPD" ]]; then
+        success "GPD desktop app already installed"
+        ln -sf /usr/bin/opencode-cli "$dest" 2>/dev/null || true
+        return 0
+    fi
+
+    # Discover .deb URL via web redirect (no API rate limit)
+    local tag deb_url
+    tag="$(curl -fsSLI --max-time 10 "https://github.com/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/latest" 2>/dev/null \
+        | grep -i '^location:' | tail -1 | grep -oE 'tag/[^ ]*' | sed 's|tag/||' | tr -d '\r\n')" || true
+
+    [[ -n "$tag" ]] || die "Could not discover latest GPD release tag. Check network connectivity."
+
+    local ver="${tag#*-v}"
+    deb_url="https://github.com/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/download/${tag}/GPD_${ver}_amd64.deb"
+
+    url_exists "$deb_url" || die "GPD .deb not found at $deb_url (arch mismatch or missing release asset)"
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    trap "rm -rf '$tmp_dir'" RETURN
+    local deb_file="$tmp_dir/gpd.deb"
+
+    download "$deb_url" "$deb_file"
+    log "Installing GPD desktop app (.deb, ~80MB)..."
+    sudo dpkg -i "$deb_file" 2>&1 || sudo apt-get install -f -y -qq 2>&1 || \
+        die "dpkg install failed. Check sudo access and disk space."
+
+    if [[ -x "/usr/bin/opencode-cli" ]]; then
+        ln -sf /usr/bin/opencode-cli "$dest"
+        success "GPD desktop app installed (CLI: /usr/bin/opencode-cli, GUI: /usr/bin/GPD)"
+        return 0
+    fi
+
+    die ".deb install completed but /usr/bin/opencode-cli not found"
+}
+
 install_opencode() {
     local dest="$GPD_BIN_DIR/opencode"
 
     if [[ -x "$dest" ]]; then
         success "OpenCode CLI already installed"
+        return 0
+    fi
+
+    # On Debian/Ubuntu (dpkg + sudo), the .deb is the primary install path
+    # and a failure is fatal. On other Linux (no dpkg), fall back to the
+    # standalone CLI binary.
+    if [[ "$os" == "linux" ]] && command -v dpkg &>/dev/null && command -v sudo &>/dev/null; then
+        install_gpd_deb "$dest"
         return 0
     fi
 
@@ -277,7 +329,7 @@ install_opencode() {
     mv "$binary" "$dest"
     chmod +x "$dest"
     rm -rf "$tmp_dir"
-    success "OpenCode CLI installed"
+    success "OpenCode CLI installed (standalone, no desktop app)"
 }
 
 # ── Step 2: Python ────────────────────────────────────────────────────────
