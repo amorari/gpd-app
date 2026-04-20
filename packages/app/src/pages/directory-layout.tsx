@@ -7,7 +7,9 @@ import { useLanguage } from "@/context/language"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
+import { useGlobalSync } from "@/context/global-sync"
 import { decode64 } from "@/utils/base64"
+import { rejectUnsafeProjectPath } from "@/utils/project-path"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const location = useLocation()
@@ -45,11 +47,19 @@ export default function Layout(props: ParentProps) {
   const params = useParams()
   const language = useLanguage()
   const navigate = useNavigate()
+  const globalSync = useGlobalSync()
   let invalid = ""
+  let rejectedPath = ""
 
   const resolved = createMemo(() => {
     if (!params.dir) return ""
     return decode64(params.dir) ?? ""
+  })
+
+  const rejection = createMemo(() => {
+    const dir = resolved()
+    if (!dir) return null
+    return rejectUnsafeProjectPath(dir, globalSync.data.path.home)
   })
 
   createEffect(() => {
@@ -69,8 +79,26 @@ export default function Layout(props: ParentProps) {
     navigate("/", { replace: true })
   })
 
+  createEffect(() => {
+    const reason = rejection()
+    const dir = resolved()
+    if (!reason || !dir) {
+      rejectedPath = ""
+      return
+    }
+    if (rejectedPath === dir) return
+    rejectedPath = dir
+    showToast({
+      title: "Can't open that folder as a project",
+      description: reason,
+      variant: "error",
+      icon: "close",
+    })
+    navigate("/", { replace: true })
+  })
+
   return (
-    <Show when={resolved()} keyed>
+    <Show when={resolved() && !rejection() ? resolved() : ""} keyed>
       {(resolved) => (
         <SDKProvider directory={() => resolved}>
           <SyncProvider>

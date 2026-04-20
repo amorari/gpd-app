@@ -595,7 +595,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       },
       projects: {
         list,
-        open(directory: string) {
+        open(directory: string): string | null {
           const root = rootFor(directory)
           const rejection = rejectUnsafeProjectPath(root, globalSync.data.path.home)
           if (rejection) {
@@ -605,11 +605,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
               variant: "error",
               icon: "close",
             })
-            return
+            return null
           }
-          if (server.projects.list().find((x) => x.worktree === root)) return
+          if (server.projects.list().find((x) => x.worktree === root)) return root
           globalSync.project.loadSessions(root)
           server.projects.open(root)
+          return root
         },
         close(directory: string) {
           server.projects.close(directory)

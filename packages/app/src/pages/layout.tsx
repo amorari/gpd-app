@@ -19,6 +19,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
+import { rejectUnsafeProjectPath } from "@/utils/project-path"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Button } from "@opencode-ai/ui/button"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -601,8 +602,10 @@ export default function Layout(props: ParentProps) {
     await layout.ready.promise
     if (!untrack(() => state.autoselect)) return
 
-    const list = layout.projects.list()
-    const last = server.projects.last()
+    const home = globalSync.data.path.home
+    const list = layout.projects.list().filter((p) => !rejectUnsafeProjectPath(p.worktree, home))
+    const lastRaw = server.projects.last()
+    const last = lastRaw && !rejectUnsafeProjectPath(lastRaw, home) ? lastRaw : undefined
 
     if (list.length === 0) {
       if (!last) return
@@ -1389,8 +1392,9 @@ export default function Layout(props: ParentProps) {
   }
 
   function openProject(directory: string, navigate = true) {
-    layout.projects.open(directory)
-    if (navigate) return navigateToProject(directory)
+    const root = layout.projects.open(directory)
+    if (!root) return
+    if (navigate) return navigateToProject(root)
   }
 
   const handleDeepLinks = (urls: string[]) => {

@@ -42,9 +42,10 @@ export default function Home() {
   })
 
   function openProject(directory: string) {
-    layout.projects.open(directory)
-    server.projects.touch(directory)
-    navigate(`/${base64Encode(directory)}`)
+    const root = layout.projects.open(directory)
+    if (!root) return
+    server.projects.touch(root)
+    navigate(`/${base64Encode(root)}`)
   }
 
   async function chooseProject() {
