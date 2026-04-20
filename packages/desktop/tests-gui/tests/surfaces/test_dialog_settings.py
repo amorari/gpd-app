@@ -5,13 +5,19 @@ import pytest
 
 from gpd_tests.helpers.dom_probe import DOMProbe, ProbeSkip
 from gpd_tests.helpers.navigator import Navigator, route_home
-from gpd_tests.helpers.selectors import TEXT_SIDEBAR_SETTINGS
+
+
+# The "General" tab label is specific to the settings dialog — it won't be
+# found on any other surface — so it serves as a reliable presence signal.
+_SETTINGS_GENERAL_TAB = "General"
 
 
 @pytest.mark.surfaces
 @pytest.mark.steals_focus
 def test_settings_opens_via_cmd_comma_and_closes_on_escape(mcp, ax, os_input):
     Navigator(mcp).go(route_home(), timeout_s=5.0)
+    # Bring GPD to the foreground using the configured app_name, not a
+    # hard-coded application name.
     ax.activate()
     # ⌘, — keystroke with cmd-down.
     subprocess.run(
@@ -24,12 +30,19 @@ def test_settings_opens_via_cmd_comma_and_closes_on_escape(mcp, ax, os_input):
     )
     probe = DOMProbe(mcp)
     deadline = time.monotonic() + 5.0
-    needle = TEXT_SIDEBAR_SETTINGS.replace('"', '\\"')
+    # Look for the "General" settings tab — this is unique to the settings
+    # dialog and won't false-positive on the sidebar's Settings icon label.
+    needle = _SETTINGS_GENERAL_TAB.replace('"', '\\"')
     opened = False
     while time.monotonic() < deadline:
         try:
             opened = probe.eval_bool(
-                f'document.body && document.body.innerText.includes("{needle}")'
+                '(() => {'
+                '  const tabs = Array.from(document.querySelectorAll('
+                '    "[role=\\"tab\\"], [data-component=\\"tabs-trigger\\"]"'
+                '  ));'
+                f'  return tabs.some(t => t.textContent.trim() === "{needle}");'
+                '})()'
             )
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable ({e})")
@@ -37,13 +50,18 @@ def test_settings_opens_via_cmd_comma_and_closes_on_escape(mcp, ax, os_input):
             break
         time.sleep(0.1)
     if not opened:
-        pytest.fail("settings dialog never appeared")
+        pytest.fail("settings dialog never appeared (General tab not found)")
     # Close via ESC.
     os_input.press_key("escape")
     time.sleep(0.3)
     try:
         still_open = probe.eval_bool(
-            f'document.body && document.body.innerText.includes("{needle}")'
+            '(() => {'
+            '  const tabs = Array.from(document.querySelectorAll('
+            '    "[role=\\"tab\\"], [data-component=\\"tabs-trigger\\"]"'
+            '  ));'
+            f'  return tabs.some(t => t.textContent.trim() === "{needle}");'
+            '})()'
         )
     except ProbeSkip as e:
         pytest.skip(f"execute_js unavailable ({e})")

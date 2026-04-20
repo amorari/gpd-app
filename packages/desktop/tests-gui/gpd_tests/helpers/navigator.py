@@ -32,6 +32,13 @@ def route_session(session_id: str | None = None) -> str:
     return f"{BASE}/session/{session_id}"
 
 
+def route_session_in_project(dir_token: str, session_id: str | None = None) -> str:
+    """Route for a session nested under a project: /:dir/session/:id?"""
+    if session_id is None:
+        return f"{BASE}/{dir_token}/session"
+    return f"{BASE}/{dir_token}/session/{session_id}"
+
+
 class _MCPLike(Protocol):
     def navigate(self, url: str) -> None: ...
     def current_url(self) -> str: ...
