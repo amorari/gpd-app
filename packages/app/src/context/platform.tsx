@@ -4,7 +4,7 @@ import type { Accessor } from "solid-js"
 import { ServerConnection } from "./server"
 
 type PickerPaths = string | string[] | null
-type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
+type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean; defaultPath?: string }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
 type UpdateInfo = { updateAvailable: boolean; version?: string }
@@ -124,6 +124,18 @@ export type Platform = {
    * path to the newly created directory.
    */
   createProjectDirectory?(parent: string, name: string): Promise<string>
+
+  /**
+   * Probe whether the app can read the given project folder. Runs in the
+   * Tauri main process so macOS TCC attributes any prompt/grant to the
+   * signed app bundle rather than the sidecar subprocess.
+   *
+   * Returns one of:
+   *   - `"ok"`       — directory exists and is readable
+   *   - `"locked"`   — macOS (or another OS) denied read access (EACCES/EPERM)
+   *   - `"missing"`  — directory does not exist
+   */
+  checkProjectAccessible?(path: string): Promise<"ok" | "locked" | "missing">
 
   /**
    * TeX compilation surface. Desktop only. Lets the Build pane detect a

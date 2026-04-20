@@ -89,12 +89,12 @@ const createPlatform = (): Platform => {
     version: pkg.version,
 
     async openDirectoryPickerDialog(opts) {
-      const defaultPath = await wslHome()
+      const fallback = await wslHome()
       const result = await open({
         directory: true,
         multiple: opts?.multiple ?? false,
         title: opts?.title ?? t("desktop.dialog.chooseFolder"),
-        defaultPath,
+        defaultPath: opts?.defaultPath ?? fallback,
       })
       return await handleWslPicker(result)
     },
@@ -387,6 +387,10 @@ const createPlatform = (): Platform => {
     repairGpdVenv: () => commands.repairGpdVenv().then(() => undefined),
     installTectonic: () => commands.installTectonic(),
     createProjectDirectory: (parent: string, name: string) => commands.createProjectDirectory(parent, name),
+    checkProjectAccessible: async (path: string) => {
+      const result = await commands.checkProjectAccessible(path)
+      return result as "ok" | "locked" | "missing"
+    },
     onTectonicDownloadProgress: async (cb) => {
       return events.tectonicDownloadProgress.listen((event) => {
         cb(event.payload)

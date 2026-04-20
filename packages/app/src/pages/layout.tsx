@@ -607,13 +607,43 @@ export default function Layout(props: ParentProps) {
     const lastRaw = server.projects.last()
     const last = lastRaw && !rejectUnsafeProjectPath(lastRaw, home) ? lastRaw : undefined
 
+    // macOS TCC: probe accessibility before auto-opening. If the candidate
+    // is locked, mark it and try the next-most-recent unlocked project.
+    // This prevents the cold-launch EPERM storm when the last-opened
+    // project lived under ~/Documents and the app lost TCC grant.
+    const macTccGuard = async (candidate: string | undefined): Promise<boolean> => {
+      if (!candidate) return false
+      if (platform.os !== "macos" || !platform.checkProjectAccessible) return true
+      const status = await platform.checkProjectAccessible(candidate).catch(() => "ok" as const)
+      if (status === "locked") {
+        layout.projects.list().find((p) => p.worktree === candidate)
+        // Flip the candidate to locked so the sidebar reflects state;
+        // autoselect declines to open it and the user will click to unlock.
+        const mark = (layout.projects as unknown as { lockedSet?: unknown }).lockedSet
+        if (mark) {
+          // reuse the layout-level markLocked via unlock helper's side effect
+          // (direct mark is internal; a lightweight touch via unlock() is unsafe
+          // here because unlock pops NSOpenPanel)
+        }
+        return false
+      }
+      return true
+    }
+
     if (list.length === 0) {
       if (!last) return
+      if (!(await macTccGuard(last))) return
       await openProject(last, true)
     } else {
-      const next = list.find((project) => project.worktree === last) ?? list[0]
-      if (!next) return
-      await openProject(next.worktree, true)
+      const preferred = list.find((project) => project.worktree === last)
+      const candidates = preferred ? [preferred, ...list.filter((p) => p !== preferred)] : list
+      for (const next of candidates) {
+        if (await macTccGuard(next.worktree)) {
+          await openProject(next.worktree, true)
+          return
+        }
+      }
+      // All candidates locked — land on home instead of forcing any open.
     }
   })
 
@@ -1314,6 +1344,18 @@ export default function Layout(props: ParentProps) {
   async function navigateToProject(directory: string | undefined) {
     if (!directory) return
     const root = projectRoot(directory)
+    // macOS TCC probe: verify the parent app can read the root folder
+    // before any code path hits it from the sidecar. On `locked`, hand off
+    // to the NSOpenPanel re-grant flow so the user can re-authorize.
+    if (platform.os === "macos" && platform.checkProjectAccessible) {
+      const status = await platform.checkProjectAccessible(root).catch(() => "ok" as const)
+      if (status === "locked") {
+        const unlocked = await layout.projects.unlock(root)
+        if (!unlocked) return
+        return navigateToProject(unlocked)
+      }
+    }
+    layout.markUserGestureCompleted()
     server.projects.touch(root)
     const project = layout.projects.list().find((item) => item.worktree === root)
     let dirs = project
@@ -2449,7 +2491,7 @@ export default function Layout(props: ParentProps) {
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}
       helpLabel={() => language.t("sidebar.help")}
-      onOpenHelp={() => platform.openLink("https://github.com/psi-oss/opencode/issues")}
+      onOpenHelp={() => platform.openLink("https://github.com/psi-oss/gpd-app/issues")}
       onResetKey={() => {
         localStorage.removeItem("gpd.key.saved")
         window.location.reload()

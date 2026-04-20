@@ -76,6 +76,7 @@ const ProjectTile = (props: {
 }): JSX.Element => {
   const notification = useNotification()
   const layout = useLayout()
+  const isLocked = createMemo(() => layout.projects.isLocked(props.project.worktree))
   const unseenCount = createMemo(() =>
     props.dirs().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
   )
@@ -101,12 +102,14 @@ const ProjectTile = (props: {
         aria-label={displayName(props.project)}
         data-action="project-switch"
         data-project={base64Encode(props.project.worktree)}
+        title={isLocked() ? props.language.t("sidebar.project.locked.tooltip") : undefined}
         classList={{
           "flex items-center justify-center size-10 p-1 rounded-lg overflow-hidden transition-colors cursor-default": true,
           "bg-transparent border-2 border-icon-strong-base hover:bg-surface-base-hover": props.selected(),
           "bg-transparent border border-transparent hover:bg-surface-base-hover hover:border-border-weak-base":
             !props.selected() && !props.active(),
           "bg-surface-base-hover border border-border-weak-base": !props.selected() && props.active(),
+          "opacity-60 border-dashed": isLocked(),
         }}
         onPointerDown={(event) => {
           if (event.button === 0 && !event.ctrlKey) {
@@ -137,6 +140,12 @@ const ProjectTile = (props: {
         }}
         onClick={() => {
           props.setOpen(false)
+          if (isLocked()) {
+            void layout.projects.unlock(props.project.worktree).then((unlocked) => {
+              if (unlocked) props.navigateToProject(unlocked)
+            })
+            return
+          }
           if (props.selected()) {
             layout.sidebar.toggle()
             return

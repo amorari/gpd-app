@@ -421,7 +421,8 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             tex_compiler::synctex_reverse,
             tex_compiler::parse_tex_log,
             tex_compiler::read_tex_artifact_base64,
-            project_fs::create_project_directory
+            project_fs::create_project_directory,
+            project_fs::check_project_accessible
         ])
         .events(tauri_specta::collect_events![
             LoadingWindowComplete,

@@ -1,5 +1,5 @@
 import { createStore, produce } from "solid-js/store"
-import { batch, createEffect, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor } from "solid-js"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { useGlobalSync } from "./global-sync"
@@ -586,8 +586,21 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         sessionFrame = undefined
         sessionTimer = window.setTimeout(() => {
           sessionTimer = undefined
+          const isMacRuntime = platform.os === "macos"
+          const probe = platform.checkProjectAccessible
           void Promise.all(
-            server.projects.list().map((project) => {
+            server.projects.list().map(async (project) => {
+              // On macOS, probe with the main Tauri process so TCC denial
+              // doesn't trigger an EPERM storm in the sidecar. If denied,
+              // mark the project locked and skip prefetch — the user will
+              // re-grant via the sidebar unlock flow when they click.
+              if (isMacRuntime && probe) {
+                const status = await probe(project.worktree).catch(() => "ok" as const)
+                if (status === "locked") {
+                  markLocked(project.worktree)
+                  return
+                }
+              }
               return globalSync.project.loadSessions(project.worktree)
             }),
           )
@@ -600,8 +613,39 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       if (sessionTimer !== undefined) window.clearTimeout(sessionTimer)
     })
 
+    // Per-session "locked" state for macOS TCC. When a project's worktree
+    // is under a TCC-protected folder (~/Documents, ~/Desktop, ~/Downloads)
+    // and the app hasn't been granted access, the sidecar returns EPERM.
+    // The fix is to detect that up-front (via the Rust main process) and
+    // offer an NSOpenPanel re-pick so macOS records user intent.
+    // Locked state is intentionally NOT persisted — an OS grant is a
+    // session-level thing; re-probe on next launch.
+    const [lockedProjects, setLockedProjects] = createSignal<Set<string>>(new Set())
+    const isMac = () => platform.os === "macos"
+    const markLocked = (worktree: string) =>
+      setLockedProjects((prev) => {
+        if (prev.has(worktree)) return prev
+        const next = new Set(prev)
+        next.add(worktree)
+        return next
+      })
+    const clearLocked = (worktree: string) =>
+      setLockedProjects((prev) => {
+        if (!prev.has(worktree)) return prev
+        const next = new Set(prev)
+        next.delete(worktree)
+        return next
+      })
+
+    // First-user-gesture signal. Turns true after the first `projects.open`
+    // call that is clearly user-initiated (click, dialog, etc.). Used to
+    // gate cold-launch eager-open effects on macOS.
+    const [userGestureCompleted, setUserGestureCompleted] = createSignal(false)
+
     return {
       ready,
+      userGestureCompleted,
+      markUserGestureCompleted: () => setUserGestureCompleted(true),
       handoff: {
         tabs: createMemo(() => store.handoff?.tabs),
         setTabs(dir: string, id: string) {
@@ -614,6 +658,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       },
       projects: {
         list,
+        isLocked: (worktree: string) => isMac() && lockedProjects().has(worktree),
+        lockedSet: lockedProjects,
+        clearLocked,
         open(directory: string): string | null {
           const root = rootFor(directory)
           const rejection = rejectUnsafeProjectPath(root, globalSync.data.path.home)
@@ -629,10 +676,72 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           if (server.projects.list().find((x) => x.worktree === root)) return root
           globalSync.project.loadSessions(root)
           server.projects.open(root)
+          clearLocked(root)
           return root
+        },
+        /**
+         * macOS TCC-aware open flow. Probes the path from the Rust main
+         * process first; on `locked`, pops NSOpenPanel pre-navigated to the
+         * worktree so the user can re-grant access. On non-macOS (or when
+         * checkProjectAccessible is unavailable) falls through to the
+         * synchronous `open` path. Returns the resolved root on success,
+         * null on rejection/cancel.
+         */
+        async openSafe(directory: string): Promise<string | null> {
+          if (!isMac() || !platform.checkProjectAccessible) {
+            return this.open(directory)
+          }
+          const root = rootFor(directory)
+          const rejection = rejectUnsafeProjectPath(root, globalSync.data.path.home)
+          if (rejection) return this.open(directory)
+          const status = await platform.checkProjectAccessible(root).catch(() => "ok" as const)
+          if (status === "locked") {
+            markLocked(root)
+            return this.unlock(root)
+          }
+          clearLocked(root)
+          return this.open(directory)
+        },
+        /**
+         * NSOpenPanel-based re-grant flow. Opens the directory picker
+         * pre-navigated to `worktree`. If the user confirms (same folder
+         * or an ancestor/descendant), retries the open; TCC will have
+         * recorded the grant so the sidecar succeeds. If the user cancels
+         * or picks something unrelated, does not navigate.
+         */
+        async unlock(worktree: string): Promise<string | null> {
+          if (!platform.openDirectoryPickerDialog) return null
+          const picked = await platform
+            .openDirectoryPickerDialog({
+              multiple: false,
+              defaultPath: worktree,
+              title: lookupEn("sidebar.project.locked.dialogTitle"),
+            })
+            .catch(() => null)
+          if (!picked) return null
+          const pickedPath = Array.isArray(picked) ? picked[0] : picked
+          if (!pickedPath) return null
+          // Re-probe; if still locked, surface a hint.
+          if (platform.checkProjectAccessible) {
+            const status = await platform.checkProjectAccessible(pickedPath).catch(() => "ok" as const)
+            if (status === "locked") {
+              markLocked(pickedPath)
+              showToast({
+                title: lookupEn("sidebar.project.locked.toast.stillLocked"),
+                variant: "error",
+                icon: "close",
+              })
+              return null
+            }
+          }
+          // Open the picked path (may differ from original worktree if the
+          // user navigated to a different folder). The original worktree
+          // stays locked until separately unlocked.
+          return this.open(pickedPath)
         },
         close(directory: string) {
           server.projects.close(directory)
+          clearLocked(directory)
         },
         expand(directory: string) {
           server.projects.expand(directory)

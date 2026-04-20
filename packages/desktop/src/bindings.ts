@@ -32,6 +32,7 @@ export const commands = {
 	parseTexLog: (logPath: string) => __TAURI_INVOKE<TexLogParseResult>("parse_tex_log", { logPath }),
 	readTexArtifactBase64: (path: string) => __TAURI_INVOKE<string>("read_tex_artifact_base64", { path }),
 	createProjectDirectory: (parent: string, name: string) => __TAURI_INVOKE<string>("create_project_directory", { parent, name }),
+	checkProjectAccessible: (path: string) => __TAURI_INVOKE<string>("check_project_accessible", { path }),
 };
 
 /** Events */

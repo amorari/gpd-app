@@ -754,6 +754,15 @@ export const dict = {
   "sidebar.project.clearNotifications": "Clear notifications",
   "sidebar.project.delete": "Delete Project",
   "sidebar.project.path": "{{path}}",
+
+  "sidebar.project.locked.badge": "Locked",
+  "sidebar.project.locked.tooltip": "macOS is blocking access to this folder. Click to reconnect.",
+  "sidebar.project.locked.previewBanner": "Folder access was revoked by macOS.",
+  "sidebar.project.locked.reconnect": "Reconnect folder",
+  "sidebar.project.locked.dialogTitle": "Reconnect folder",
+  "sidebar.project.locked.toast.reopenedSame": "Reconnected {{name}}.",
+  "sidebar.project.locked.toast.reopenedDifferent": "Opened {{newName}}. {{oldName}} is still locked.",
+  "sidebar.project.locked.toast.stillLocked": "macOS is still blocking access. Try picking the exact folder you want to open.",
   "dialog.confirmDelete.title": "Delete {{name}}?",
   "dialog.confirmDelete.description":
     "This removes the project from GPD. Files in the folder are not deleted.",
