@@ -1,6 +1,8 @@
 """Shape-only tests for HTTPClient session helpers. No live GPD required."""
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -93,3 +95,77 @@ def test_delete_session_returns_true():
         transport=transport,
     ) as c:
         assert c.delete_session("ses_abc") is True
+
+
+@pytest.mark.unit
+def test_create_session_sends_directory_in_body():
+    seen: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.content)
+        return httpx.Response(200, json={"id": "ses_1"})
+
+    transport = httpx.MockTransport(handler)
+    with HTTPClient(
+        base_url="http://127.0.0.1:9999",
+        username="u",
+        password="p",
+        transport=transport,
+    ) as c:
+        c.create_session(directory="/tmp/x")
+    body = json.loads(seen[0])
+    assert body == {"directory": "/tmp/x"}
+
+
+@pytest.mark.unit
+def test_create_session_includes_parent_id_camelcased():
+    seen: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.content)
+        return httpx.Response(200, json={"id": "ses_1"})
+
+    transport = httpx.MockTransport(handler)
+    with HTTPClient(
+        base_url="http://127.0.0.1:9999",
+        username="u",
+        password="p",
+        transport=transport,
+    ) as c:
+        c.create_session(directory="/tmp/x", parent_id="ses_parent")
+    body = json.loads(seen[0])
+    assert body == {"directory": "/tmp/x", "parentID": "ses_parent"}
+
+
+@pytest.mark.unit
+def test_send_message_camelcases_model_and_provider_keys():
+    seen: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.content)
+        return httpx.Response(
+            200,
+            json={"info": {"role": "assistant"}, "parts": []},
+        )
+
+    transport = httpx.MockTransport(handler)
+    with HTTPClient(
+        base_url="http://127.0.0.1:9999",
+        username="u",
+        password="p",
+        transport=transport,
+    ) as c:
+        c.send_message(
+            "ses_abc",
+            parts=[{"type": "text", "text": "hi"}],
+            model_id="claude-4-7",
+            provider_id="anthropic",
+            agent="default",
+        )
+    body = json.loads(seen[0])
+    assert body == {
+        "parts": [{"type": "text", "text": "hi"}],
+        "modelID": "claude-4-7",
+        "providerID": "anthropic",
+        "agent": "default",
+    }
