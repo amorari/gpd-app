@@ -323,17 +323,20 @@ fn load_shell_env(shell: &str) -> Option<HashMap<String, String>> {
         return None;
     }
 
-    match probe_shell_env(shell, "-il") {
+    // Use -l (login) instead of -il (interactive login) to avoid sourcing
+    // .zshrc/.bashrc which can scan protected directories and trigger
+    // macOS TCC permission prompts on first launch.
+    match probe_shell_env(shell, "-l") {
         ShellEnvProbe::Loaded(env) => {
             tracing::info!(
                 shell,
                 env_count = env.len(),
-                "Loaded shell environment with -il"
+                "Loaded shell environment with -l"
             );
             return Some(env);
         }
         ShellEnvProbe::Timeout => {
-            tracing::warn!(shell, "Interactive shell env probe timed out");
+            tracing::warn!(shell, "Login shell env probe timed out");
             return None;
         }
         ShellEnvProbe::Unavailable => {}
