@@ -1495,6 +1495,36 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  async function createNewProject() {
+    function resolve(result: string | string[] | null) {
+      const directory = Array.isArray(result) ? result[0] : result
+      if (directory) openProject(directory)
+    }
+
+    if (platform.openDirectoryPickerDialog && server.isLocal()) {
+      const result = await platform.openDirectoryPickerDialog?.({
+        title: language.t("home.newProject"),
+        multiple: false,
+      })
+      resolve(result)
+    } else {
+      const run = ++dialogRun
+      void import("@/components/dialog-select-directory").then((x) => {
+        if (dialogDead || dialogRun !== run) return
+        dialog.show(
+          () => (
+            <x.DialogSelectDirectory
+              title={language.t("home.newProject")}
+              multiple={false}
+              onSelect={resolve}
+            />
+          ),
+          () => resolve(null),
+        )
+      })
+    }
+  }
+
   const deleteWorkspace = async (root: string, directory: string, leaveDeletedWorkspace = false) => {
     if (directory === root) return
 
@@ -2108,7 +2138,10 @@ export default function Layout(props: ParentProps) {
                       {language.t("sidebar.empty.description")}
                     </div>
                   </div>
-                  <Button size="large" icon="folder-add-left" onClick={chooseProject}>
+                  <Button size="large" icon="plus" onClick={createNewProject}>
+                    {language.t("sidebar.newProject")}
+                  </Button>
+                  <Button size="large" icon="folder-add-left" variant="ghost" onClick={chooseProject}>
                     {language.t("command.project.open")}
                   </Button>
                 </div>

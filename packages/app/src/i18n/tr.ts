@@ -502,6 +502,8 @@ export const dict = {
   "home.recentProjects": "Son projeler",
   "home.empty.title": "Son proje yok",
   "home.empty.description": "Yerel bir proje açarak başlayın",
+  "home.newProject": "New Physics Project",
+  "home.newProject.description": "Start a new physics research project",
 
   "session.tab.session": "Oturum",
   "session.tab.review": "İnceleme",
@@ -618,6 +620,7 @@ export const dict = {
   "sidebar.project.recentSessions": "Son oturumlar",
   "sidebar.project.viewAllSessions": "Tüm oturumları görüntüle",
   "sidebar.project.clearNotifications": "Bildirimleri temizle",
+  "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD Masaüstü",
 

@@ -498,6 +498,8 @@ export const dict = {
   "home.recentProjects": "Proyectos recientes",
   "home.empty.title": "Sin proyectos recientes",
   "home.empty.description": "Empieza abriendo un proyecto local",
+  "home.newProject": "New Physics Project",
+  "home.newProject.description": "Start a new physics research project",
 
   "session.tab.session": "Sesión",
   "session.tab.review": "Revisión",
@@ -615,6 +617,7 @@ export const dict = {
   "sidebar.project.recentSessions": "Sesiones recientes",
   "sidebar.project.viewAllSessions": "Ver todas las sesiones",
   "sidebar.project.clearNotifications": "Borrar notificaciones",
+  "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD",
 

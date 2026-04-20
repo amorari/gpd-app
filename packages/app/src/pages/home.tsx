@@ -68,6 +68,32 @@ export default function Home() {
     }
   }
 
+  async function createNewProject() {
+    function resolve(result: string | string[] | null) {
+      const directory = Array.isArray(result) ? result[0] : result
+      if (directory) openProject(directory)
+    }
+
+    if (platform.openDirectoryPickerDialog && server.isLocal()) {
+      const result = await platform.openDirectoryPickerDialog?.({
+        title: language.t("home.newProject"),
+        multiple: false,
+      })
+      resolve(result)
+    } else {
+      dialog.show(
+        () => (
+          <DialogSelectDirectory
+            title={language.t("home.newProject")}
+            multiple={false}
+            onSelect={resolve}
+          />
+        ),
+        () => resolve(null),
+      )
+    }
+  }
+
   return (
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
       <Logo class="md:w-xl opacity-12" />
@@ -90,9 +116,14 @@ export default function Home() {
           <div class="mt-20 w-full flex flex-col gap-4">
             <div class="flex gap-2 items-center justify-between pl-3">
               <div class="text-14-medium text-text-strong">{language.t("home.recentProjects")}</div>
-              <Button icon="folder-add-left" size="normal" class="pl-2 pr-3" onClick={chooseProject}>
-                {language.t("command.project.open")}
-              </Button>
+              <div class="flex gap-2">
+                <Button icon="plus" size="normal" class="pl-2 pr-3" onClick={createNewProject}>
+                  {language.t("home.newProject")}
+                </Button>
+                <Button icon="folder-add-left" size="normal" variant="ghost" class="pl-2 pr-3" onClick={chooseProject}>
+                  {language.t("command.project.open")}
+                </Button>
+              </div>
             </div>
             <ul class="flex flex-col gap-2">
               <For each={recent()}>
@@ -116,9 +147,14 @@ export default function Home() {
         <Match when={!sync.ready}>
           <div class="mt-30 mx-auto flex flex-col items-center gap-3">
             <div class="text-12-regular text-text-weak">{language.t("common.loading")}</div>
-            <Button class="px-3" onClick={chooseProject}>
-              {language.t("command.project.open")}
-            </Button>
+            <div class="flex gap-2">
+              <Button icon="plus" class="px-3" onClick={createNewProject}>
+                {language.t("home.newProject")}
+              </Button>
+              <Button icon="folder-add-left" variant="ghost" class="px-3" onClick={chooseProject}>
+                {language.t("command.project.open")}
+              </Button>
+            </div>
           </div>
         </Match>
         <Match when={true}>
@@ -128,9 +164,14 @@ export default function Home() {
               <div class="text-14-medium text-text-strong">{language.t("home.empty.title")}</div>
               <div class="text-12-regular text-text-weak">{language.t("home.empty.description")}</div>
             </div>
-            <Button class="px-3 mt-1" onClick={chooseProject}>
-              {language.t("command.project.open")}
-            </Button>
+            <div class="flex gap-2 mt-1">
+              <Button icon="plus" class="px-3" onClick={createNewProject}>
+                {language.t("home.newProject")}
+              </Button>
+              <Button icon="folder-add-left" variant="ghost" class="px-3" onClick={chooseProject}>
+                {language.t("command.project.open")}
+              </Button>
+            </div>
           </div>
         </Match>
       </Switch>
