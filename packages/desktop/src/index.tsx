@@ -46,8 +46,11 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
 // Dev-only: wire up tauri-plugin-mcp webview listeners. Mirrors the Rust-side
 // cfg(debug_assertions) gate on the plugin in src-tauri/src/lib.rs. Awaited so
 // the vendor module's addEventListener monkey-patch installs before render().
-// Vite tree-shakes this whole block in release builds.
-if (import.meta.env.DEV) {
+// Vite tree-shakes this whole block in release builds via the __GPD_TAURI_DEBUG__
+// define set in vite.config.ts — import.meta.env.DEV is unreliable here because
+// `tauri build --debug` still runs a production Vite build.
+declare const __GPD_TAURI_DEBUG__: boolean
+if (__GPD_TAURI_DEBUG__) {
   const mcp = await import("./vendor/tauri-plugin-mcp")
   void mcp.setupPluginListeners()
 }

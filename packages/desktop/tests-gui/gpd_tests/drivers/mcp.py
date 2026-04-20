@@ -142,9 +142,15 @@ class MCPClient:
         unresponsive — callers should treat that as a non-fatal signal and
         fall back to other drive paths.
         """
-        return self._call(
+        data = self._call(
             "execute_js", {"code": code, "windowLabel": window_label}
         )
+        # The vendored tauri-plugin-mcp guest-js wraps results as
+        # {result: <stringified value>, type: <typeof>}. Unwrap so callers
+        # see the stringified value directly (matches the pre-vendor shape).
+        if isinstance(data, dict) and "result" in data:
+            return data["result"]
+        return data
 
     def restart_app(self) -> None:
         """WARNING: triggers a full app restart. Callers must own the lifecycle."""

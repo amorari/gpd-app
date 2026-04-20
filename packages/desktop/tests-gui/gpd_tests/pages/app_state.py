@@ -36,10 +36,10 @@ class AppState:
         self._launched_pid: int | None = None
 
     def is_running(self) -> bool:
-        return bool(_pgrep("GPD.app/Contents/MacOS/GPD"))
+        return bool(_pgrep(".app/Contents/MacOS/GPD"))
 
     def gpd_pid(self) -> int | None:
-        pids = _pgrep("GPD.app/Contents/MacOS/GPD")
+        pids = _pgrep(".app/Contents/MacOS/GPD")
         return pids[0] if pids else None
 
     def sidecar_pid(self) -> int | None:
@@ -73,7 +73,7 @@ class AppState:
 
     def kill_stale(self) -> None:
         """Terminate any leftover GPD / opencode-cli processes."""
-        for pattern in ("GPD.app/Contents/MacOS/GPD", "opencode-cli.*serve"):
+        for pattern in (".app/Contents/MacOS/GPD", "opencode-cli.*serve"):
             for pid in _pgrep(pattern):
                 subprocess.run(
                     ["kill", "-TERM", str(pid)],
@@ -81,7 +81,7 @@ class AppState:
                     check=False,
                 )
         wait_until(
-            lambda: not _pgrep("GPD.app/Contents/MacOS/GPD")
+            lambda: not _pgrep(".app/Contents/MacOS/GPD")
             and not _pgrep("opencode-cli.*serve"),
             timeout_s=5.0,
         )
