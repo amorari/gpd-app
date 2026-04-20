@@ -946,3 +946,18 @@ export const dict = {
   "gpd.firstRun.toast.description": "Physics tools, agents, and config are stored in ~/.config/gpd/. Per-project plans are stored in .opencode/ inside each project folder. Your research files remain where you put them.",
 
 } satisfies Partial<Record<Keys, string>>
+  "dock.gpdSkills": "GPD Skills",
+  "gpdSkills.dialog.title": "GPD Skills",
+  "gpdSkills.dialog.description": "Browse GPD research commands by category. Select one to insert it into the prompt.",
+  "gpdSkills.search.placeholder": "Search GPD commands...",
+  "gpdSkills.empty": "No GPD commands found. Install the GPD command pack to see them here.",
+  "gpdSkills.category.gettingStarted": "Getting Started",
+  "gpdSkills.category.researchPlanning": "Research Planning",
+  "gpdSkills.category.execution": "Execution",
+  "gpdSkills.category.analysis": "Analysis",
+  "gpdSkills.category.verification": "Verification",
+  "gpdSkills.category.writing": "Writing",
+  "gpdSkills.category.projectManagement": "Project Management",
+  "gpdSkills.category.knowledge": "Knowledge",
+  "gpdSkills.category.more": "More",
+} satisfies Partial<Record<Keys, string>>
