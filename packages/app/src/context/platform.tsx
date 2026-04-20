@@ -99,6 +99,9 @@ export type Platform = {
 
   /** Copy a string to the system clipboard. */
   writeClipboard?(text: string): Promise<void>
+
+  /** Delete the GPD venv + init marker and re-run first-run setup. Desktop only. */
+  repairGpdVenv?(): Promise<void>
 }
 
 export type DisplayBackend = "auto" | "wayland"

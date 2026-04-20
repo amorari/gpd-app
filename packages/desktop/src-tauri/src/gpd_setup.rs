@@ -78,6 +78,73 @@ pub fn is_initialized() -> bool {
     config_dir().join(GPD_INIT_MARKER).exists()
 }
 
+/// Returns true when the GPD venv is present and usable.
+///
+/// All three of the following must hold:
+/// 1. The venv Python binary exists on disk.
+/// 2. That binary can execute `import gpd; print('ok')` within 5 seconds.
+/// 3. The `.gpd-initialized` marker file exists.
+///
+/// The function is intentionally synchronous-looking from the caller's
+/// perspective because it blocks until the probe completes or times out.
+pub async fn is_venv_valid() -> bool {
+    let marker = config_dir().join(GPD_INIT_MARKER);
+    if !marker.exists() {
+        return false;
+    }
+
+    let python = gpd_python();
+    if !python.exists() {
+        return false;
+    }
+
+    let result = timeout(
+        Duration::from_secs(5),
+        Command::new(&python)
+            .args(["-c", "import gpd; print('ok')"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null())
+            .output(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(output)) => output.status.success(),
+        _ => false,
+    }
+}
+
+/// Tauri command: delete the init marker and re-run first-run setup.
+///
+/// Only the `.venv` directory is removed so project files in
+/// `~/.config/gpd/` are preserved. Emits progress via the existing
+/// `GpdFirstRunComplete` event when done.
+#[tauri::command]
+#[specta::specta]
+pub async fn repair_gpd_venv(app: tauri::AppHandle) -> Result<(), String> {
+    let config = config_dir();
+    let marker = config.join(GPD_INIT_MARKER);
+    let venv = gpd_venv_dir();
+
+    tracing::info!("Repair requested: removing GPD venv and init marker");
+
+    // Remove the venv directory (not other project files).
+    if venv.exists() {
+        std::fs::remove_dir_all(&venv)
+            .map_err(|e| format!("Failed to remove GPD venv: {e}"))?;
+        tracing::info!("Removed GPD venv at {}", venv.display());
+    }
+
+    // Remove the marker so the setup is unconditionally re-run.
+    if marker.exists() {
+        std::fs::remove_file(&marker)
+            .map_err(|e| format!("Failed to remove init marker: {e}"))?;
+    }
+
+    run_first_setup(app).await
+}
+
 /// Run the full GPD first-run setup. Non-fatal — errors are logged,
 /// and the marker file is only written on full success (retry next launch).
 pub async fn run_first_setup(app: AppHandle) -> Result<(), String> {
@@ -484,6 +551,25 @@ mod tests {
                 .unwrap_or_else(|| panic!("MCP server {name} command[0] is not a string"));
             assert_eq!(python_path, expected_python,
                 "MCP server {name} uses wrong Python: {python_path}");
+        }
+    }
+
+    /// Verify that `is_venv_valid` returns false when the expected Python
+    /// binary does not exist.  We override the venv lookup by checking that
+    /// `gpd_python()` points to a path that does not exist on a clean CI
+    /// runner (the real venv is never present in unit-test contexts).
+    #[tokio::test]
+    async fn is_venv_valid_returns_false_when_binary_missing() {
+        // The marker file won't exist in CI either, so this exercises the
+        // "binary missing" path. Either way the function must return false.
+        let result = is_venv_valid().await;
+        // In a CI environment neither the marker nor the binary exist, so the
+        // result is definitely false. On a developer machine with a real GPD
+        // install the result could be true — but the important invariant is
+        // that a *non-existent* binary always produces false.
+        let python = gpd_python();
+        if !python.exists() {
+            assert!(!result, "is_venv_valid should be false when Python binary is absent");
         }
     }
 

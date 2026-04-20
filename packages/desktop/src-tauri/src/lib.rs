@@ -397,7 +397,8 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             open_path,
             dependencies::install_git_macos,
             dependencies::install_git_windows,
-            dependencies::linux_install_hint
+            dependencies::linux_install_hint,
+            gpd_setup::repair_gpd_venv
         ])
         .events(tauri_specta::collect_events![
             LoadingWindowComplete,
@@ -447,10 +448,23 @@ async fn initialize(app: AppHandle) {
 
     // Use GPD-specific config directory to avoid colliding with personal OpenCode installs
     let gpd_config = gpd_setup::config_dir();
-    let needs_gpd_setup = !gpd_setup::is_initialized();
-    if needs_gpd_setup {
+
+    // Decide whether first-run setup is needed:
+    //   • Marker missing                → fresh install, run setup.
+    //   • Marker present + venv invalid → venv broken after upgrade or partial
+    //                                     delete; re-run setup (idempotent).
+    //   • Marker present + venv valid   → skip setup entirely.
+    let venv_valid = gpd_setup::is_venv_valid().await;
+    let marker_exists = gpd_setup::is_initialized();
+    let needs_gpd_setup = if marker_exists && !venv_valid {
+        tracing::warn!("GPD venv appears broken; re-running setup");
+        true
+    } else if !marker_exists {
         tracing::info!("GPD first-run detected — will run setup after health check");
-    }
+        true
+    } else {
+        false
+    };
 
     tracing::info!("Spawning sidecar on {url}");
     let gpd_config_str = gpd_config.to_string_lossy().to_string();

@@ -68,6 +68,7 @@ export const SettingsDependencies: Component = () => {
 
   const [refreshKey, setRefreshKey] = createSignal(0)
   const [detailsOpen, setDetailsOpen] = createSignal(false)
+  const [repairing, setRepairing] = createSignal(false)
 
   const currentServer = () => server.current
   const auth = createMemo(() => {
@@ -127,6 +128,30 @@ export const SettingsDependencies: Component = () => {
 
   const refetch = () => {
     setRefreshKey(refreshKey() + 1)
+  }
+
+  const repairPython = async () => {
+    if (!platform.repairGpdVenv) return
+    setRepairing(true)
+    showToast({
+      title: language.t("settings.dependencies.toast.repairStarted"),
+    })
+    try {
+      await platform.repairGpdVenv()
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: language.t("settings.dependencies.toast.repairDone"),
+      })
+      refetch()
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      showToast({
+        title: language.t("settings.dependencies.toast.repairFailed", { error }),
+      })
+    } finally {
+      setRepairing(false)
+    }
   }
 
   const confirmAndRun = async (
@@ -287,17 +312,32 @@ export const SettingsDependencies: Component = () => {
         <div class="flex flex-col gap-1 pt-6 pb-8 max-w-[720px]">
           <div class="flex items-center justify-between gap-4 flex-wrap">
             <h2 class="text-16-medium text-text-strong">{language.t("settings.dependencies.title")}</h2>
-            <Button
-              size="small"
-              variant="secondary"
-              icon="reset"
-              disabled={doctor.loading}
-              onClick={refetch}
-            >
-              {doctor.loading
-                ? language.t("settings.dependencies.checking")
-                : language.t("settings.dependencies.checkNow")}
-            </Button>
+            <div class="flex items-center gap-2">
+              <Show when={platform.repairGpdVenv}>
+                <Button
+                  size="small"
+                  variant="secondary"
+                  icon="settings-gear"
+                  disabled={repairing()}
+                  onClick={() => void repairPython()}
+                >
+                  {repairing()
+                    ? language.t("settings.dependencies.repairing")
+                    : language.t("settings.dependencies.repairPython")}
+                </Button>
+              </Show>
+              <Button
+                size="small"
+                variant="secondary"
+                icon="reset"
+                disabled={doctor.loading}
+                onClick={refetch}
+              >
+                {doctor.loading
+                  ? language.t("settings.dependencies.checking")
+                  : language.t("settings.dependencies.checkNow")}
+              </Button>
+            </div>
           </div>
           <Show when={doctor()}>
             {(d) => (
