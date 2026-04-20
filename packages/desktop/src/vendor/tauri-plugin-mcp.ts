@@ -1,8 +1,8 @@
 // Vendored from psi-oss/tauri-plugin-mcp@f739d7f guest-js/index.ts (2026-04-17).
-// Dev-only. Imported conditionally in index.tsx under import.meta.env.DEV so
+// Dev-only. Imported conditionally in index.tsx under __GPD_TAURI_DEBUG__ so
 // Vite tree-shakes it from release builds — matches the plugin's Rust-side
 // cfg(debug_assertions) gate. Refresh with:
-//   curl -sfL https://raw.githubusercontent.com/psi-oss/tauri-plugin-mcp/main/guest-js/index.ts \
+//   curl -sfL https://raw.githubusercontent.com/psi-oss/tauri-plugin-mcp/f739d7facd55a8585337c401db1312ace6c2795c/guest-js/index.ts \
 //     -o packages/desktop/src/vendor/tauri-plugin-mcp.ts
 // and re-prepend this header.
 
