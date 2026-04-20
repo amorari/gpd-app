@@ -11,27 +11,38 @@ from gpd_tests.helpers.llm_tolerant import assert_assistant_replied
 def test_new_session_send_prompt_assistant_replies(
     http, scratch_project_dir, anthropic_key
 ):
-    # 1. Create session in the scratch dir.
+    # 1. Create session in the scratch dir (directory passed as query param).
     session = http.create_session(directory=str(scratch_project_dir))
     assert "id" in session, f"create_session returned {session!r}"
     sid = session["id"]
 
-    # 2. Send a prompt. 60 s ceiling (pytest default --timeout=60).
-    response = http.send_message(
-        sid,
-        parts=[{"type": "text", "text": "Say hi."}],
-    )
+    try:
+        # 2. Send a prompt. 60 s ceiling (pytest default --timeout=60).
+        response = http.send_message(
+            sid,
+            parts=[{"type": "text", "text": "Say hi."}],
+        )
 
-    # 3. Shape-only assertions — LLM content is not asserted.
-    assert_assistant_replied(response)
+        # 3. Shape-only assertions — LLM content is not asserted.
+        assert_assistant_replied(response)
 
-    # 4. Session appears in list scoped to our dir.
-    listed = http.sessions()
-    found = [s for s in listed if s.get("id") == sid]
-    assert found, f"created session {sid} not in /session list"
+        # 4. Session appears in list scoped to our dir.
+        listed = http.sessions(directory=str(scratch_project_dir))
+        found = [s for s in listed if s.get("id") == sid]
+        if not found:
+            # Fall back to un-filtered list and match by id.
+            all_sessions = http.sessions()
+            found = [s for s in all_sessions if s.get("id") == sid]
+        assert found, f"created session {sid} not in /session list"
 
-    # 5. Message history has at least one user + one assistant entry.
-    msgs = http.messages(sid)
-    roles = [m.get("info", {}).get("role") or m.get("role") for m in msgs]
-    assert "user" in roles, f"no user message in history: {roles}"
-    assert "assistant" in roles, f"no assistant message in history: {roles}"
+        # 5. Message history has at least one user + one assistant entry.
+        msgs = http.messages(sid)
+        roles = [m.get("info", {}).get("role") for m in msgs]
+        assert "user" in roles, f"no user message in history: {roles}"
+        assert "assistant" in roles, f"no assistant message in history: {roles}"
+    finally:
+        # Clean up: delete the session so it doesn't leak across runs.
+        try:
+            http.delete_session(sid)
+        except Exception:
+            pass

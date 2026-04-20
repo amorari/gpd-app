@@ -41,7 +41,11 @@ class HTTPClient:
     def health(self) -> dict[str, Any]:
         return self._get("/global/health")
 
-    def sessions(self) -> list[dict[str, Any]]:
+    def sessions(self, *, directory: str | None = None) -> list[dict[str, Any]]:
+        if directory is not None:
+            r = self._client.get("/session", params={"directory": directory})
+            r.raise_for_status()
+            return r.json()
         return self._get("/session")
 
     def providers(self) -> dict[str, Any]:
