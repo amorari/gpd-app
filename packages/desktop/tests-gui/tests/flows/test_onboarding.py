@@ -21,10 +21,10 @@ DESTRUCTIVE = os.environ.get("PYTEST_RUN_DESTRUCTIVE_FLOWS") == "1"
     "opt in via PYTEST_RUN_DESTRUCTIVE_FLOWS=1",
 )
 def test_first_run_paste_key_reach_home(
-    mcp, anthropic_key, clean_auth_json, app_state
+    mcp, anthropic_key, clean_onboarding_state, app_state
 ):
-    # Precondition: fresh_app + clean_auth_json ensure GPD restarted with
-    # sentinel absent and auth.json removed.
+    # Precondition: fresh_app + clean_onboarding_state ensure GPD restarted
+    # with sentinel absent and auth.json removed.
     assert not SENTINEL.exists(), (
         "tier-2 reset did not remove the sentinel — "
         "scripts/reset.py may have drifted from the spec"
@@ -41,4 +41,4 @@ def test_first_run_paste_key_reach_home(
 
     # Post-condition: sentinel present, auth.json populated.
     assert SENTINEL.exists(), "sentinel not created after onboarding"
-    assert clean_auth_json.exists(), "auth.json not created after onboarding"
+    assert clean_onboarding_state.exists(), "auth.json not created after onboarding"

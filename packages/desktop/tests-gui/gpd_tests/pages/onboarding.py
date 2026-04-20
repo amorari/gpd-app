@@ -49,8 +49,8 @@ class Onboarding:
         """
         from gpd_tests.helpers.selectors import TEXT_WELCOME_API_KEY_PROMPT
 
-        placeholder = TEXT_WELCOME_API_KEY_PROMPT.replace('"', '\\"').replace(
-            "\\", "\\\\"
+        placeholder = TEXT_WELCOME_API_KEY_PROMPT.replace("\\", "\\\\").replace(
+            '"', '\\"'
         )
         safe_key = key.replace("\\", "\\\\").replace("'", "\\'")
         js = f"""
