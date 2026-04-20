@@ -2,6 +2,7 @@ mod cli;
 mod constants;
 mod dependencies;
 mod gpd_setup;
+mod tectonic;
 #[cfg(target_os = "linux")]
 pub mod linux_display;
 #[cfg(target_os = "linux")]
@@ -398,12 +399,14 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             dependencies::install_git_macos,
             dependencies::install_git_windows,
             dependencies::linux_install_hint,
-            gpd_setup::repair_gpd_venv
+            gpd_setup::repair_gpd_venv,
+            tectonic::install_tectonic
         ])
         .events(tauri_specta::collect_events![
             LoadingWindowComplete,
             SqliteMigrationProgress,
-            GpdFirstRunComplete
+            GpdFirstRunComplete,
+            tectonic::TectonicDownloadProgress
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
 }

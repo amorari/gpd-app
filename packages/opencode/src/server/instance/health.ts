@@ -90,6 +90,18 @@ function gpdPythonPath(): string {
   return `${venv}/bin/python`
 }
 
+/**
+ * Location where the desktop app installs the on-demand Tectonic binary. The
+ * `install_tectonic` Tauri command downloads into this directory; we include
+ * it in the Tectonic lookup so the "Install Tectonic" button flips the panel
+ * to green on the next `Check now`.
+ */
+function tectonicCapabilityPath(): string {
+  const bin = `${gpdConfigDir()}/.capabilities/tectonic/bin`
+  if (process.platform === "win32") return `${bin}\\tectonic.exe`
+  return `${bin}/tectonic`
+}
+
 async function fileExists(path: string): Promise<boolean> {
   try {
     await Bun.file(path).stat()
@@ -310,12 +322,22 @@ async function buildDoctorResponse() {
 
   // ------- Optional: Tectonic (preferred LaTeX alternative) -------
   {
-    const tectonic = await resolveOnPath("tectonic")
+    // Tectonic can be on the system PATH (user installed via brew/winget) or
+    // in the GPD capabilities dir populated by the in-app "Install Tectonic"
+    // button. Prefer the on-PATH copy when both exist so a user who has
+    // mixed installs sees their explicit install first.
+    let tectonic = await resolveOnPath("tectonic")
+    if (!tectonic) {
+      const managed = tectonicCapabilityPath()
+      if (await fileExists(managed)) tectonic = managed
+    }
+    const probe = tectonic ? await probeCommand(tectonic, ["--version"]) : undefined
     checks.push({
       id: "tectonic",
       label: "Tectonic (alternative LaTeX)",
-      status: tectonic ? "ok" : "warn",
+      status: tectonic && probe?.found ? "ok" : "warn",
       category: "optional",
+      version: probe?.version,
       path: tectonic,
       details: tectonic
         ? "Self-contained LaTeX build tool."

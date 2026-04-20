@@ -385,6 +385,12 @@ const createPlatform = (): Platform => {
     installGitWindows: () => commands.installGitWindows(),
     linuxInstallHint: (tool: string) => commands.linuxInstallHint(tool),
     repairGpdVenv: () => commands.repairGpdVenv().then(() => undefined),
+    installTectonic: () => commands.installTectonic(),
+    onTectonicDownloadProgress: async (cb) => {
+      return events.tectonicDownloadProgress.listen((event) => {
+        cb(event.payload)
+      })
+    },
     writeClipboard: (text: string) => writeText(text),
 
     async readClipboardImage() {

@@ -1019,6 +1019,11 @@ export const dict = {
   "settings.dependencies.toast.repairStarted": "Rebuilding GPD Python environment — this may take a minute.",
   "settings.dependencies.toast.repairDone": "GPD Python environment repaired successfully.",
   "settings.dependencies.toast.repairFailed": "Repair failed: {{error}}",
+  "settings.dependencies.tectonic.title": "TeX Toolchain (Tectonic)",
+  "settings.dependencies.tectonic.install": "Install Tectonic (~80MB)",
+  "settings.dependencies.tectonic.progress": "Downloading Tectonic: {{percent}}%",
+  "settings.dependencies.tectonic.installed": "Tectonic ready",
+  "settings.dependencies.tectonic.failed": "Tectonic install failed: {{error}}",
 
   "gpd.firstRun.toast.title": "GPD installed files to ~/.config/gpd/",
   "gpd.firstRun.toast.description": "Physics tools, agents, and config are stored in ~/.config/gpd/. Per-project plans are stored in .opencode/ inside each project folder. Your research files remain where you put them.",

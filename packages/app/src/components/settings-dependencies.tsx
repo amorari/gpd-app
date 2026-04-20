@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, createResource, createSignal } from "solid-js"
+import { Component, For, Show, createMemo, createResource, createSignal, onCleanup } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tag } from "@opencode-ai/ui/tag"
@@ -68,7 +68,12 @@ export const SettingsDependencies: Component = () => {
 
   const [refreshKey, setRefreshKey] = createSignal(0)
   const [detailsOpen, setDetailsOpen] = createSignal(false)
+<<<<<<< HEAD
   const [repairing, setRepairing] = createSignal(false)
+=======
+  const [tectonicInstalling, setTectonicInstalling] = createSignal(false)
+  const [tectonicProgress, setTectonicProgress] = createSignal<{ loaded: number; total: number } | null>(null)
+>>>>>>> worktree-agent-a811c4d1
 
   const currentServer = () => server.current
   const auth = createMemo(() => {
@@ -207,11 +212,77 @@ export const SettingsDependencies: Component = () => {
     }
   }
 
+  const tectonicPercent = () => {
+    const p = tectonicProgress()
+    if (!p || p.total <= 0) return null
+    return Math.min(100, Math.floor((p.loaded / p.total) * 100))
+  }
+
+  const runInstallTectonic = async () => {
+    if (!platform.installTectonic) return
+    setTectonicInstalling(true)
+    setTectonicProgress({ loaded: 0, total: 0 })
+    let unsubscribe: (() => void) | undefined
+    try {
+      if (platform.onTectonicDownloadProgress) {
+        unsubscribe = await platform.onTectonicDownloadProgress((payload) => {
+          setTectonicProgress(payload)
+        })
+      }
+      await platform.installTectonic()
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: language.t("settings.dependencies.tectonic.installed"),
+      })
+      refetch()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({
+        title: language.t("settings.dependencies.tectonic.failed", { error: message }),
+        description: message,
+      })
+    } finally {
+      unsubscribe?.()
+      setTectonicInstalling(false)
+      setTectonicProgress(null)
+    }
+  }
+
+  // Subscribe unconditionally cleaning up on unmount if a pending install
+  // leaves a dangling listener (e.g. navigation away before finally block).
+  onCleanup(() => {
+    setTectonicInstalling(false)
+  })
+
   const installAction = (check: Check) => {
     const hint = check.installHint
     if (!hint) return null
 
     const os = platform.os
+
+    // Tectonic: on desktop we can download and install the self-contained
+    // binary directly. Gate on `platform.installTectonic` so the web build
+    // (which doesn't expose the Tauri command) keeps showing the copy-command
+    // or learn-more fallbacks below.
+    if (check.id === "tectonic" && platform.installTectonic) {
+      const percent = tectonicPercent()
+      const label =
+        percent !== null
+          ? language.t("settings.dependencies.tectonic.progress", { percent })
+          : language.t("settings.dependencies.tectonic.install")
+      return (
+        <Button
+          size="small"
+          variant="secondary"
+          icon="download"
+          disabled={tectonicInstalling()}
+          onClick={() => void runInstallTectonic()}
+        >
+          {label}
+        </Button>
+      )
+    }
 
     // macOS: xcode-select for git, or URL open for others.
     if (os === "macos") {

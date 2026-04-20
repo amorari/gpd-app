@@ -915,4 +915,10 @@ export const dict = {
     "Delete {{name}}? This removes the project from GPD. Files in the project folder are NOT deleted.",
   "dialog.confirmDelete.confirm": "Delete",
   "dialog.confirmDelete.cancel": "Cancel",
+  "settings.dependencies.tectonic.title": "TeX Toolchain (Tectonic)",
+  "settings.dependencies.tectonic.install": "Install Tectonic (~80MB)",
+  "settings.dependencies.tectonic.progress": "Downloading Tectonic: {{percent}}%",
+  "settings.dependencies.tectonic.installed": "Tectonic ready",
+  "settings.dependencies.tectonic.failed": "Tectonic install failed: {{error}}",
+
 } satisfies Partial<Record<Keys, string>>
