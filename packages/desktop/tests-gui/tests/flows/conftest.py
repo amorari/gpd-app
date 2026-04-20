@@ -53,39 +53,56 @@ def clean_onboarding_state(auth_json_path):
     Used by @pytest.mark.fresh_app onboarding tests — the tier-2 reset alone
     does NOT remove the sentinel (that's tier-3 territory), so this fixture
     handles it symmetrically with auth.json.
-    """
-    import shutil
-    from pathlib import Path
 
-    sentinel_path = Path.home() / ".config/gpd/.gpd-initialized"
+    Only files that this fixture creates/removes are cleaned up in teardown.
+    """
+    from gpd_tests.pages.onboarding import sentinel_path
+
+    _sentinel_path = sentinel_path()
 
     auth_backup: Path | None = None
     sentinel_backup: Path | None = None
+    created_auth = False
+    created_sentinel = False
 
     if auth_json_path.exists():
         auth_backup = auth_json_path.with_suffix(".json.bak-phase3")
+        if auth_backup.exists():
+            raise RuntimeError(
+                f"Backup file already exists: {auth_backup}. "
+                "A previous test session may not have cleaned up properly."
+            )
         shutil.copy2(auth_json_path, auth_backup)
         auth_json_path.unlink()
-    if sentinel_path.exists():
-        sentinel_backup = sentinel_path.with_suffix(
-            sentinel_path.suffix + ".bak-phase3"
+        created_auth = True
+    if _sentinel_path.exists():
+        sentinel_backup = _sentinel_path.with_suffix(
+            _sentinel_path.suffix + ".bak-phase3"
         )
-        shutil.copy2(sentinel_path, sentinel_backup)
-        sentinel_path.unlink()
+        if sentinel_backup.exists():
+            raise RuntimeError(
+                f"Backup file already exists: {sentinel_backup}. "
+                "A previous test session may not have cleaned up properly."
+            )
+        shutil.copy2(_sentinel_path, sentinel_backup)
+        _sentinel_path.unlink()
+        created_sentinel = True
 
     try:
         yield auth_json_path
     finally:
-        if auth_backup and auth_backup.exists():
-            shutil.copy2(auth_backup, auth_json_path)
-            auth_backup.unlink()
-        elif auth_json_path.exists():
-            auth_json_path.unlink()
-        if sentinel_backup and sentinel_backup.exists():
-            shutil.copy2(sentinel_backup, sentinel_path)
-            sentinel_backup.unlink()
-        elif sentinel_path.exists():
-            sentinel_path.unlink()
+        if created_auth:
+            if auth_backup and auth_backup.exists():
+                shutil.copy2(auth_backup, auth_json_path)
+                auth_backup.unlink()
+            elif auth_json_path.exists():
+                auth_json_path.unlink()
+        if created_sentinel:
+            if sentinel_backup and sentinel_backup.exists():
+                shutil.copy2(sentinel_backup, _sentinel_path)
+                sentinel_backup.unlink()
+            elif _sentinel_path.exists():
+                _sentinel_path.unlink()
 
 
 # Backwards-compatible alias. Prefer `clean_onboarding_state` in new tests.
