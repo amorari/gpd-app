@@ -104,7 +104,7 @@ function Write-SuccessBanner {
 # ── Utilities ──────────────────────────────────────────────────────────────
 
 function Get-Arch {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
     switch ($arch) {
         "X64"   { return "x64" }
         "Arm64" { return "arm64" }
