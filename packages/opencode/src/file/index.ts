@@ -126,7 +126,6 @@ export namespace File {
     "xz",
     "lz",
     "z",
-    "pdf",
     "doc",
     "docx",
     "ppt",
@@ -265,7 +264,10 @@ export namespace File {
     ".eslintrc",
   ])
 
+  const pdf = new Set(["pdf"])
+
   const mime: Record<string, string> = {
+    pdf: "application/pdf",
     png: "image/png",
     jpg: "image/jpeg",
     jpeg: "image/jpeg",
@@ -289,11 +291,13 @@ export namespace File {
   const ext = (file: string) => path.extname(file).toLowerCase().slice(1)
   const name = (file: string) => path.basename(file).toLowerCase()
   const isImageByExtension = (file: string) => image.has(ext(file))
+  const isPdfByExtension = (file: string) => pdf.has(ext(file))
   const isTextByExtension = (file: string) => text.has(ext(file))
   const isTextByName = (file: string) => textName.has(name(file))
   const isBinaryByExtension = (file: string) => binary.has(ext(file))
   const isImage = (mimeType: string) => mimeType.startsWith("image/")
   const getImageMimeType = (file: string) => mime[ext(file)] || "image/" + ext(file)
+  const getPdfMimeType = (_file: string) => "application/pdf"
 
   function shouldEncode(mimeType: string) {
     const type = mimeType.toLowerCase()
@@ -520,6 +524,20 @@ export namespace File {
               type: "text" as const,
               content: Buffer.from(bytes).toString("base64"),
               mimeType: getImageMimeType(file),
+              encoding: "base64" as const,
+            }
+          }
+          return { type: "text" as const, content: "" }
+        }
+
+        if (isPdfByExtension(file)) {
+          const exists = yield* appFs.existsSafe(full)
+          if (exists) {
+            const bytes = yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
+            return {
+              type: "text" as const,
+              content: Buffer.from(bytes).toString("base64"),
+              mimeType: getPdfMimeType(file),
               encoding: "base64" as const,
             }
           }
