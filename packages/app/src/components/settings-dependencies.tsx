@@ -68,12 +68,9 @@ export const SettingsDependencies: Component = () => {
 
   const [refreshKey, setRefreshKey] = createSignal(0)
   const [detailsOpen, setDetailsOpen] = createSignal(false)
-<<<<<<< HEAD
   const [repairing, setRepairing] = createSignal(false)
-=======
   const [tectonicInstalling, setTectonicInstalling] = createSignal(false)
   const [tectonicProgress, setTectonicProgress] = createSignal<{ loaded: number; total: number } | null>(null)
->>>>>>> worktree-agent-a811c4d1
 
   const currentServer = () => server.current
   const auth = createMemo(() => {
