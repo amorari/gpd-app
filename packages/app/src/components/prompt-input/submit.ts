@@ -18,6 +18,7 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
+import { classifyError } from "@opencode-ai/util/classify-error"
 
 type PendingPrompt = {
   abort: AbortController
@@ -214,12 +215,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const params = useParams()
 
   const errorMessage = (err: unknown) => {
-    if (err && typeof err === "object" && "data" in err) {
-      const data = (err as { data?: { message?: string } }).data
-      if (data?.message) return data.message
-    }
-    if (err instanceof Error) return err.message
-    return language.t("common.requestFailed")
+    // First try structured server error types (ConfigInvalid, ProviderModelNotFound, etc.)
+    const structured = formatServerError(err, language.t)
+    if (structured && structured !== language.t("error.chain.unknown")) return structured
+    // Then classify raw API errors into professor-friendly messages
+    const key = classifyError(err)
+    if (key !== "error.classified.unknown") return language.t(key)
+    // Final fallback
+    return formatServerError(err, language.t, language.t("common.requestFailed"))
   }
 
   const abort = async () => {
