@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -20,11 +21,10 @@ def test_welcome_screen_renders_when_sentinel_absent(mcp):
         pytest.skip("already initialized; no welcome gate to check")
     from gpd_tests.helpers.selectors import TEXT_WELCOME_API_KEY_PROMPT
 
-    needle = TEXT_WELCOME_API_KEY_PROMPT.replace('"', '\\"')
+    needle = TEXT_WELCOME_API_KEY_PROMPT
+    js = f'!!document.body && document.body.innerText.includes({json.dumps(needle)})'
     try:
-        result = mcp.execute_js(
-            f'!!document.body && document.body.innerText.includes("{needle}")'
-        )
+        result = mcp.execute_js(js)
     except (MCPError, MCPTimeout) as e:
         pytest.skip(f"execute_js unavailable ({e})")
     assert result in ("true", True, "True")
