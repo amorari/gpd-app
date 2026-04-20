@@ -16,11 +16,6 @@ on:
           - github
           - pypi
           - npm
-      skip_platforms:
-        description: "Comma-separated platform labels to skip (mac-arm,mac-intel,windows,linux)"
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: write
@@ -132,7 +127,6 @@ jobs:
             label: linux
     runs-on: ${{ matrix.host }}
     timeout-minutes: 60
-    if: ${{ !contains(format(',{0},', inputs.skip_platforms), format(',{0},', matrix.label)) }}
     steps:
       - uses: actions/checkout@v4
 
