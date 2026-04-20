@@ -462,9 +462,18 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     createEffect(() => {
       const projects = server.projects.list()
       const seen = new Set(projects.map((project) => project.worktree))
+      const home = globalSync.data.path.home
 
       batch(() => {
         for (const project of projects) {
+          // Auto-close projects that were opened before the dangerous-path
+          // guard existed — `/`, home-directory, home-subdir-roots, etc.
+          if (rejectUnsafeProjectPath(project.worktree, home)) {
+            server.projects.close(project.worktree)
+            seen.delete(project.worktree)
+            continue
+          }
+
           const root = rootFor(project.worktree)
           if (root === project.worktree) continue
 
@@ -480,7 +489,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       })
     })
 
-    const enriched = createMemo(() => server.projects.list().map(enrich))
+    const enriched = createMemo(() =>
+      server.projects
+        .list()
+        .filter((p) => !rejectUnsafeProjectPath(p.worktree, globalSync.data.path.home))
+        .map(enrich),
+    )
     const list = createMemo(() => {
       const projects = enriched()
       return projects.map((project) => {

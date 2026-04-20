@@ -4,6 +4,20 @@ import { createSignal } from "solid-js"
 // A tab shows a dirty dot next to its filename while its path is in this set.
 const [dirty, setDirty] = createSignal<ReadonlySet<string>>(new Set())
 
+let beforeUnloadInstalled = false
+
+function ensureBeforeUnloadHook() {
+  if (beforeUnloadInstalled) return
+  if (typeof window === "undefined") return
+  beforeUnloadInstalled = true
+  window.addEventListener("beforeunload", (event) => {
+    if (dirty().size === 0) return
+    event.preventDefault()
+    // Chromium requires a non-empty returnValue to trigger the prompt.
+    event.returnValue = ""
+  })
+}
+
 export function isFileDirty(path: string): boolean {
   return dirty().has(path)
 }
@@ -16,6 +30,7 @@ export function setFileDirty(path: string, value: boolean) {
   if (value) next.add(path)
   else next.delete(path)
   setDirty(next)
+  if (value) ensureBeforeUnloadHook()
 }
 
 /** Reactive accessor for Solid tracking contexts (use inside createMemo/effect). */

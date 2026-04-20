@@ -20,6 +20,8 @@ const read = (file: string) => run(File.Service.use((svc) => svc.read(file)))
 const list = (dir?: string) => run(File.Service.use((svc) => svc.list(dir)))
 const search = (input: { query: string; limit?: number; dirs?: boolean; type?: "file" | "directory" }) =>
   run(File.Service.use((svc) => svc.search(input)))
+const editLine = (input: { path: string; line: number; oldContent: string; newContent: string }) =>
+  run(File.Service.use((svc) => svc.editLine(input)))
 
 describe("file/index Filesystem patterns", () => {
   describe("read() - text content", () => {
@@ -888,6 +890,119 @@ describe("file/index Filesystem patterns", () => {
           expect(result.content).toBe("unchanged")
           expect(result.diff).toBeUndefined()
           expect(result.patch).toBeUndefined()
+        },
+      })
+    })
+  })
+
+  describe("editLine()", () => {
+    test("applies a matching single-line edit and preserves line endings", async () => {
+      await using tmp = await tmpdir()
+      const filepath = path.join(tmp.path, "sample.txt")
+      await fs.writeFile(filepath, "alpha\nbeta\ngamma\n", "utf-8")
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const result = await editLine({
+            path: "sample.txt",
+            line: 2,
+            oldContent: "beta",
+            newContent: "beta-edited",
+          })
+          expect(result.ok).toBe(true)
+          const disk = await fs.readFile(filepath, "utf-8")
+          expect(disk).toBe("alpha\nbeta-edited\ngamma\n")
+        },
+      })
+    })
+
+    test("returns conflict when old content no longer matches", async () => {
+      await using tmp = await tmpdir()
+      const filepath = path.join(tmp.path, "sample.txt")
+      await fs.writeFile(filepath, "alpha\nbeta\ngamma\n", "utf-8")
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const result = await editLine({
+            path: "sample.txt",
+            line: 2,
+            oldContent: "outdated",
+            newContent: "beta-new",
+          })
+          expect(result.ok).toBe(false)
+          if (!result.ok) {
+            expect(result.reason).toBe("conflict")
+            expect(result.currentLineContent).toBe("beta")
+          }
+        },
+      })
+    })
+
+    test("returns conflict when line is out of range", async () => {
+      await using tmp = await tmpdir()
+      const filepath = path.join(tmp.path, "sample.txt")
+      await fs.writeFile(filepath, "alpha\nbeta\n", "utf-8")
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const result = await editLine({
+            path: "sample.txt",
+            line: 99,
+            oldContent: "",
+            newContent: "x",
+          })
+          expect(result.ok).toBe(false)
+        },
+      })
+    })
+
+    test("rejects path escaping the project directory", async () => {
+      await using tmp = await tmpdir()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await expect(
+            editLine({ path: "../escape.txt", line: 1, oldContent: "", newContent: "x" }),
+          ).rejects.toThrow()
+        },
+      })
+    })
+
+    test("rejects multi-line content", async () => {
+      await using tmp = await tmpdir()
+      const filepath = path.join(tmp.path, "sample.txt")
+      await fs.writeFile(filepath, "alpha\n", "utf-8")
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await expect(
+            editLine({ path: "sample.txt", line: 1, oldContent: "alpha", newContent: "one\ntwo" }),
+          ).rejects.toThrow()
+        },
+      })
+    })
+
+    test("preserves CRLF line endings", async () => {
+      await using tmp = await tmpdir()
+      const filepath = path.join(tmp.path, "sample.txt")
+      await fs.writeFile(filepath, "alpha\r\nbeta\r\ngamma\r\n", "utf-8")
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const result = await editLine({
+            path: "sample.txt",
+            line: 2,
+            oldContent: "beta",
+            newContent: "beta-new",
+          })
+          expect(result.ok).toBe(true)
+          const disk = await fs.readFile(filepath, "utf-8")
+          expect(disk).toBe("alpha\r\nbeta-new\r\ngamma\r\n")
         },
       })
     })

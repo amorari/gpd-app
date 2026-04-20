@@ -707,7 +707,9 @@ export namespace File {
         if (!stat) throw new Error(`File not found: ${input.path}`)
         if (stat.type === "Directory") throw new Error(`Path is a directory, not a file: ${input.path}`)
 
-        const current = yield* appFs.readFileString(full)
+        const current = yield* appFs.readFileString(full).pipe(
+          Effect.orDie,
+        )
         const ending = current.includes("\r\n") ? "\r\n" : "\n"
         const lines = current.split(/\r?\n/)
         // Preserve trailing-newline convention: if the file ends with a newline, split produces
@@ -734,7 +736,7 @@ export namespace File {
 
         lines[input.line - 1] = input.newContent
         const next = lines.join(ending)
-        yield* appFs.writeFileString(full, next)
+        yield* appFs.writeFileString(full, next).pipe(Effect.orDie)
 
         return {
           ok: true as const,

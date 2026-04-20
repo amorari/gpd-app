@@ -386,6 +386,7 @@ const createPlatform = (): Platform => {
     linuxInstallHint: (tool: string) => commands.linuxInstallHint(tool),
     repairGpdVenv: () => commands.repairGpdVenv().then(() => undefined),
     installTectonic: () => commands.installTectonic(),
+    createProjectDirectory: (parent: string, name: string) => commands.createProjectDirectory(parent, name),
     onTectonicDownloadProgress: async (cb) => {
       return events.tectonicDownloadProgress.listen((event) => {
         cb(event.payload)

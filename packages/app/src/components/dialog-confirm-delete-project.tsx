@@ -44,16 +44,16 @@ export function DialogConfirmDeleteProject(props: {
   }
 
   return (
-    <Dialog title={language.t("dialog.confirmDelete.title", { name })} class="w-full max-w-[480px] mx-auto">
-      <form onSubmit={handleSubmit} class="flex flex-col gap-6 p-6 pt-0">
-        <p class="text-14-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
+    <Dialog fit title={language.t("dialog.confirmDelete.title", { name })} class="w-full max-w-[420px] mx-auto">
+      <form onSubmit={handleSubmit} class="flex flex-col gap-3 px-4 pb-4 pt-1">
+        <p class="text-13-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
           {language.t("dialog.confirmDelete.description", { name })}
         </p>
         <div class="flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="large" onClick={() => dialog.close()}>
+          <Button type="button" variant="ghost" size="normal" onClick={() => dialog.close()}>
             {language.t("dialog.confirmDelete.cancel")}
           </Button>
-          <Button type="submit" variant="primary" size="large" disabled={deleteMutation.isPending}>
+          <Button type="submit" variant="primary" size="normal" disabled={deleteMutation.isPending}>
             {deleteMutation.isPending
               ? language.t("common.saving")
               : language.t("dialog.confirmDelete.confirm")}

@@ -118,6 +118,14 @@ export type Platform = {
   repairGpdVenv?(): Promise<void>
 
   /**
+   * Create a new empty directory under `parent` with name `name`. Desktop
+   * only. Refuses to overwrite an existing file or directory and validates
+   * name (no slashes, not `.` or `..`, non-empty). Resolves with the full
+   * path to the newly created directory.
+   */
+  createProjectDirectory?(parent: string, name: string): Promise<string>
+
+  /**
    * TeX compilation surface. Desktop only. Lets the Build pane detect a
    * compiler, compile a `.tex` file to PDF, and do bidirectional SyncTeX
    * navigation between source and rendered output.

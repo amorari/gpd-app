@@ -31,6 +31,7 @@ export const commands = {
 	synctexReverse: (synctexPath: string, sourceFile: string, line: number) => __TAURI_INVOKE<SyncTexResult>("synctex_reverse", { synctexPath, sourceFile, line }),
 	parseTexLog: (logPath: string) => __TAURI_INVOKE<TexLogParseResult>("parse_tex_log", { logPath }),
 	readTexArtifactBase64: (path: string) => __TAURI_INVOKE<string>("read_tex_artifact_base64", { path }),
+	createProjectDirectory: (parent: string, name: string) => __TAURI_INVOKE<string>("create_project_directory", { parent, name }),
 };
 
 /** Events */

@@ -10,6 +10,7 @@ import { DateTime } from "luxon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { DialogSelectServer } from "@/components/dialog-select-server"
+import { DialogOpenOrCreateProject } from "@/components/dialog-open-or-create-project"
 import { useServer } from "@/context/server"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -71,30 +72,13 @@ export default function Home() {
     }
   }
 
-  async function createNewProject() {
-    function resolve(result: string | string[] | null) {
-      const directory = Array.isArray(result) ? result[0] : result
-      if (directory) openProject(directory)
-    }
-
-    if (platform.openDirectoryPickerDialog && server.isLocal()) {
-      const result = await platform.openDirectoryPickerDialog?.({
-        title: language.t("home.newProject"),
-        multiple: false,
-      })
-      resolve(result)
-    } else {
-      dialog.show(
-        () => (
-          <DialogSelectDirectory
-            title={language.t("home.newProject")}
-            multiple={false}
-            onSelect={resolve}
-          />
-        ),
-        () => resolve(null),
-      )
-    }
+  function openOrCreateProject() {
+    dialog.show(() => (
+      <DialogOpenOrCreateProject
+        onResolved={(directory) => openProject(directory)}
+        onOpenExisting={chooseProject}
+      />
+    ))
   }
 
   return (
@@ -120,11 +104,8 @@ export default function Home() {
             <div class="flex gap-2 items-center justify-between pl-3">
               <div class="text-14-medium text-text-strong">{language.t("home.recentProjects")}</div>
               <div class="flex gap-2">
-                <Button icon="plus" size="normal" class="pl-2 pr-3" onClick={createNewProject}>
-                  {language.t("home.newProject")}
-                </Button>
-                <Button icon="folder-add-left" size="normal" variant="ghost" class="pl-2 pr-3" onClick={chooseProject}>
-                  {language.t("command.project.open")}
+                <Button icon="plus" size="normal" class="pl-2 pr-3" onClick={openOrCreateProject}>
+                  {language.t("home.openOrCreate")}
                 </Button>
               </div>
             </div>
@@ -151,11 +132,8 @@ export default function Home() {
           <div class="mt-30 mx-auto flex flex-col items-center gap-3">
             <div class="text-12-regular text-text-weak">{language.t("common.loading")}</div>
             <div class="flex gap-2">
-              <Button icon="plus" class="px-3" onClick={createNewProject}>
-                {language.t("home.newProject")}
-              </Button>
-              <Button icon="folder-add-left" variant="ghost" class="px-3" onClick={chooseProject}>
-                {language.t("command.project.open")}
+              <Button icon="plus" class="px-3" onClick={openOrCreateProject}>
+                {language.t("home.openOrCreate")}
               </Button>
             </div>
           </div>
@@ -168,11 +146,8 @@ export default function Home() {
               <div class="text-12-regular text-text-weak">{language.t("home.empty.description")}</div>
             </div>
             <div class="flex gap-2 mt-1">
-              <Button icon="plus" class="px-3" onClick={createNewProject}>
-                {language.t("home.newProject")}
-              </Button>
-              <Button icon="folder-add-left" variant="ghost" class="px-3" onClick={chooseProject}>
-                {language.t("command.project.open")}
+              <Button icon="plus" class="px-3" onClick={openOrCreateProject}>
+                {language.t("home.openOrCreate")}
               </Button>
             </div>
           </div>

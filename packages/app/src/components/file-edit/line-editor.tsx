@@ -1,5 +1,5 @@
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view"
-import { EditorState, type Extension } from "@codemirror/state"
+import { Compartment, EditorState, type Extension } from "@codemirror/state"
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
 import { bracketMatching, indentOnInput, syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language"
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js"
@@ -52,6 +52,8 @@ export function LineEditor(props: LineEditorProps) {
     props.onSave(next)
   }
 
+  const languageCompartment = new Compartment()
+
   const baseExtensions = (): Extension[] => [
     history(),
     bracketMatching(),
@@ -93,6 +95,7 @@ export function LineEditor(props: LineEditorProps) {
       ...historyKeymap,
       ...defaultKeymap,
     ]),
+    languageCompartment.of([]),
   ]
 
   onMount(() => {
@@ -115,7 +118,7 @@ export function LineEditor(props: LineEditorProps) {
         .then((ext) => {
           if (!view) return
           view.dispatch({
-            effects: EditorState.reconfigure.of([...baseExtensions(), ext]),
+            effects: languageCompartment.reconfigure(ext),
           })
         })
         .catch(() => {

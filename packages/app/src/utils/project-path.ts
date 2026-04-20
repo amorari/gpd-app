@@ -28,12 +28,23 @@ export function rejectUnsafeProjectPath(path: string | undefined | null, homedir
     return "Please choose a specific project folder, not your home directory."
   }
 
-  // User's home directory itself
+  // User's home directory itself + standard "catch-all" subdirectories
+  // (Documents, Downloads, Desktop, etc.) that are NOT appropriate as a
+  // project root.  Subdirectories inside these are fine.
   if (homedir) {
     const h = homedir.replace(/[\\/]+$/, "")
     const n = p.replace(/[\\/]+$/, "")
     if (n === h) {
       return "Please choose a specific project folder, not your home directory."
+    }
+    const forbiddenHomeSubdirs = [
+      "Documents", "Downloads", "Desktop", "Library", "Applications",
+      "Music", "Pictures", "Movies", "Public", "Videos",
+    ]
+    for (const sub of forbiddenHomeSubdirs) {
+      if (n === `${h}/${sub}` || n === `${h}\\${sub}`) {
+        return `Please choose a specific project folder inside ~/${sub}, not ~/${sub} itself.`
+      }
     }
   }
 
