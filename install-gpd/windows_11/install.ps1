@@ -465,13 +465,13 @@ function Read-LiteLlmKey {
     $envFile = Join-Path $GpdConfigDir "litellm.env"
 
     if (Test-Path $envFile) {
-        Write-Success "LiteLLM configuration already exists at $envFile"
+        Write-Success "PSI key already configured at $envFile"
         return
     }
 
     Write-Host ""
-    Write-Host "  LiteLLM API Key Configuration" -ForegroundColor White
-    Write-Host "  Your LiteLLM virtual key connects GPD to AI models." -ForegroundColor DarkGray
+    Write-Host "  PSI API Key Configuration" -ForegroundColor White
+    Write-Host "  Your PSI key connects GPD to AI models." -ForegroundColor DarkGray
     Write-Host "  Get your key from your lab administrator." -ForegroundColor DarkGray
     Write-Host ""
 
@@ -483,7 +483,7 @@ function Read-LiteLlmKey {
             return
         }
         while ([string]::IsNullOrWhiteSpace($key)) {
-            $key = Read-Host "  Enter your LiteLLM key (sk-...)"
+            $key = Read-Host "  Enter your PSI key (sk-...)"
             if ([string]::IsNullOrWhiteSpace($key)) {
                 Write-Warn "Key cannot be empty. Press Ctrl+C to skip and configure later."
             }
@@ -514,7 +514,7 @@ LITELLM_API_BASE=$LiteLlmProxyUrl
         Write-Warn "Could not restrict file permissions on $envFile"
     }
 
-    Write-Success "LiteLLM key saved to $envFile"
+    Write-Success "PSI key saved to $envFile"
 }
 
 # ── Git & LaTeX ────────────────────────────────────────────────────────────
@@ -686,8 +686,8 @@ function Invoke-GpdInstall {
     Install-Gpd
     Write-Host ""
 
-    # Step 5: LiteLLM key
-    Write-Log "Step 5/7: Configuring LiteLLM..."
+    # Step 5: PSI key
+    Write-Log "Step 5/7: Configuring PSI key..."
     Read-LiteLlmKey
     Write-Host ""
 

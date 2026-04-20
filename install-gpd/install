@@ -66,7 +66,7 @@ Options:
     -h, --help              Display this help message
     -v, --version <version> Install a specific OpenCode version
         --no-modify-path    Don't modify shell config files
-        --skip-key          Skip LiteLLM API key prompt
+        --skip-key          Skip PSI API key prompt
 
 Examples:
     curl -fsSL https://download.gpd.psi.inc/install | bash
@@ -375,12 +375,12 @@ configure_litellm_key() {
     local env_file="$GPD_CONFIG_DIR/litellm.env"
 
     if [[ -f "$env_file" ]]; then
-        success "LiteLLM key already configured"
+        success "PSI key already configured"
         return 0
     fi
 
     if [[ "$skip_key" == true ]]; then
-        warn "Skipping LiteLLM key (use --skip-key or set GPD_LITELLM_KEY env var)"
+        warn "Skipping PSI key (use --skip-key or set GPD_API_KEY env var)"
         return 0
     fi
 
@@ -393,13 +393,13 @@ configure_litellm_key() {
         return 0
     else
         printf "\n"
-        printf " ${BOLD}LiteLLM API Key Configuration${RESET}\n"
-        printf " ${DIM}Your key connects GPD to AI models. Get it from your lab admin.${RESET}\n"
+        printf " ${BOLD}PSI API Key Configuration${RESET}\n"
+        printf " ${DIM}Your PSI key connects GPD to AI models. Get it from your lab admin.${RESET}\n"
         printf "\n"
 
         local key=""
         while [[ -z "$key" ]]; do
-            printf " Enter your LiteLLM key (sk-...): "
+            printf " Enter your PSI key (sk-...): "
             read -r key
             [[ -n "$key" ]] || warn "Key cannot be empty. Ctrl+C to skip."
         done
@@ -420,7 +420,7 @@ EOF
         printf '\n# GPD API key for desktop app\n%s\n' "$export_line" >> "$profile"
     fi
 
-    success "LiteLLM key saved"
+    success "PSI key saved"
 }
 
 # ── Step 5: GPD wrapper ──────────────────────────────────────────────────
@@ -500,10 +500,14 @@ configure_path() {
 # ── Step 7: GPD runtime config ───────────────────────────────────────────
 
 configure_gpd_runtime() {
+    # Run from $HOME so gpd's checkout-root detection doesn't try to read
+    # an unreadable cwd (e.g. /root when script is run via sudo).
     if [[ -x "$GPD_VENV_DIR/bin/python" ]]; then
         log "Configuring GPD for OpenCode..."
-        "$GPD_VENV_DIR/bin/python" -m gpd.cli install opencode --global --skip-readiness-check 2>/dev/null || \
-            warn "GPD runtime configuration skipped (run manually: gpd install opencode --global)"
+        if ! ( cd "$HOME" && "$GPD_VENV_DIR/bin/python" -m gpd.cli install opencode --global --skip-readiness-check ); then
+            warn "GPD runtime configuration failed. Run manually from your home dir:"
+            warn "  cd ~ && ~/.gpd/venv/bin/gpd install opencode --global"
+        fi
     fi
 }
 
@@ -552,7 +556,7 @@ main() {
     install_latex
     printf "\n"
 
-    log "Step 5/8: Configuring LiteLLM..."
+    log "Step 5/8: Configuring PSI key..."
     configure_litellm_key
     printf "\n"
 

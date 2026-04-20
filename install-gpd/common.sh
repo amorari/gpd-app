@@ -334,13 +334,13 @@ prompt_litellm_key() {
     local env_file="$GPD_CONFIG_DIR/litellm.env"
 
     if [[ -f "$env_file" ]]; then
-        success "LiteLLM configuration already exists at $env_file"
+        success "PSI key already configured at $env_file"
         return 0
     fi
 
     printf "\n"
-    printf " ${BOLD}LiteLLM API Key Configuration${RESET}\n"
-    printf " ${DIM}Your LiteLLM virtual key connects GPD to AI models.${RESET}\n"
+    printf " ${BOLD}PSI API Key Configuration${RESET}\n"
+    printf " ${DIM}Your PSI key connects GPD to AI models.${RESET}\n"
     printf " ${DIM}Get your key from your lab administrator.${RESET}\n"
     printf "\n"
 
@@ -352,7 +352,7 @@ prompt_litellm_key() {
             return 0
         fi
         while [[ -z "$key" ]]; do
-            printf " Enter your LiteLLM key (sk-...): "
+            printf " Enter your PSI key (sk-...): "
             read -r key
             if [[ -z "$key" ]]; then
                 warn "Key cannot be empty. Press Ctrl+C to skip and configure later."
@@ -376,7 +376,7 @@ EOF
         printf '\n# GPD API key for desktop app\n%s\n' "$export_line" >> "$profile"
     fi
 
-    success "LiteLLM key saved to $env_file"
+    success "PSI key saved to $env_file"
 }
 
 # ── LaTeX ─────────────────────────────────────────────────────────────────
@@ -546,8 +546,8 @@ run_install() {
     install_latex "$os"
     printf "\n"
 
-    # Step 5: LiteLLM key
-    log "Step 5/7: Configuring LiteLLM..."
+    # Step 5: PSI key
+    log "Step 5/7: Configuring PSI key..."
     prompt_litellm_key
     printf "\n"
 
@@ -561,11 +561,16 @@ run_install() {
     add_to_path
     printf "\n"
 
-    # Run GPD install for OpenCode runtime configuration
+    # Run GPD install for OpenCode runtime configuration.
+    # Run from $HOME so the gpd package's checkout-root detection doesn't try
+    # to read system dirs (e.g. /root when script is run via sudo) and fail
+    # with a PermissionError.
     if [[ -x "$GPD_VENV_DIR/bin/gpd" ]]; then
         log "Configuring GPD for OpenCode runtime..."
-        "$GPD_VENV_DIR/bin/gpd" install --opencode --global 2>/dev/null || \
-            warn "GPD runtime configuration skipped (run 'gpd install --opencode --global' manually)"
+        if ! ( cd "$HOME" && "$GPD_VENV_DIR/bin/gpd" install opencode --global --skip-readiness-check ); then
+            warn "GPD runtime configuration failed. Run manually from your home dir:"
+            warn "  cd ~ && ~/.gpd/venv/bin/gpd install opencode --global"
+        fi
     fi
 
     print_success_banner
