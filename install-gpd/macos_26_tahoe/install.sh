@@ -35,11 +35,18 @@ if [[ "$ARCH" == "x64" ]]; then
     fi
 fi
 
-# macOS ships with curl, but verify unzip is available (it should be).
+# macOS ships with curl, but verify other tools are available.
 for cmd in curl unzip tar; do
     if ! command_exists "$cmd"; then
         die "Required tool '$cmd' not found. Install Xcode Command Line Tools: xcode-select --install"
     fi
 done
+
+# git: on macOS, calling it triggers the Xcode CLT install dialog on first run.
+# Warn rather than die so scripted installs don't get stuck on the GUI prompt.
+if ! command_exists git; then
+    warn "git not found. macOS will prompt to install Xcode Command Line Tools."
+    warn "Run 'xcode-select --install' manually if the dialog doesn't appear."
+fi
 
 run_install "$OS" "$ARCH"

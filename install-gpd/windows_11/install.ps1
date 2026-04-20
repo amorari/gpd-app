@@ -517,6 +517,76 @@ LITELLM_API_BASE=$LiteLlmProxyUrl
     Write-Success "LiteLLM key saved to $envFile"
 }
 
+# ── Git & LaTeX ────────────────────────────────────────────────────────────
+#
+# Git is required (OpenCode/GPD use it). LaTeX is needed to compile physics
+# papers. Both install via winget if present; fallback is a warn-and-skip.
+
+function Test-CommandExists {
+    param([string]$Name)
+    return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Update-SessionPath {
+    # winget installs update the user PATH registry key but not the current
+    # session. Re-read so subsequent commands can find the new binaries.
+    $user = [Environment]::GetEnvironmentVariable("PATH", "User")
+    $machine = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+    $env:PATH = "$user;$machine"
+}
+
+function Install-Git {
+    if (Test-CommandExists "git") {
+        Write-Success "git already installed ($(git --version))"
+        return
+    }
+
+    if (-not (Test-CommandExists "winget")) {
+        Write-Warn "git not found and winget unavailable. Install git manually from https://git-scm.com/"
+        return
+    }
+
+    Write-Log "Installing git via winget..."
+    try {
+        & winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        Update-SessionPath
+        if (Test-CommandExists "git") {
+            Write-Success "git installed"
+        } else {
+            Write-Warn "git installed but not on PATH yet -- open a new terminal"
+        }
+    } catch {
+        Write-Warn "git install via winget failed: $_"
+    }
+}
+
+function Install-LaTeX {
+    if (Test-CommandExists "pdflatex") {
+        Write-Success "LaTeX already installed"
+        return
+    }
+
+    if (-not (Test-CommandExists "winget")) {
+        Write-Warn "LaTeX not found and winget unavailable."
+        Write-Warn "Install MiKTeX manually from https://miktex.org/download"
+        return
+    }
+
+    Write-Log "Installing MiKTeX via winget (~200MB download, takes several minutes)..."
+    try {
+        & winget install --id MiKTeX.MiKTeX -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        Update-SessionPath
+        if (Test-CommandExists "pdflatex") {
+            Write-Success "LaTeX (MiKTeX) installed"
+        } else {
+            Write-Warn "MiKTeX installed but not on PATH yet -- open a new terminal"
+        }
+    } catch {
+        Write-Warn "MiKTeX install via winget failed: $_"
+        Write-Warn "Install manually from https://miktex.org/download"
+    }
+}
+
 # ── GPD wrappers ───────────────────────────────────────────────────────────
 
 function New-GpdWrappers {
@@ -594,34 +664,40 @@ function Invoke-GpdInstall {
         }
     }
 
-    # Step 1: OpenCode CLI binary
-    Write-Log "Step 1/6: Installing OpenCode CLI..."
+    # Step 1: git + LaTeX (install first so later steps see them on PATH)
+    Write-Log "Step 1/7: Installing git and LaTeX..."
+    Install-Git
+    Install-LaTeX
+    Write-Host ""
+
+    # Step 2: OpenCode CLI binary
+    Write-Log "Step 2/7: Installing OpenCode CLI..."
     Install-OpenCode -Arch $arch
     Write-Host ""
 
-    # Step 2: Python
-    Write-Log "Step 2/6: Ensuring Python ${RequiredPythonMajor}.${RequiredPythonMinor}+..."
+    # Step 3: Python
+    Write-Log "Step 3/7: Ensuring Python ${RequiredPythonMajor}.${RequiredPythonMinor}+..."
     $python = Get-Python -Arch $arch
     Write-Host ""
 
-    # Step 3: Venv + GPD package
-    Write-Log "Step 3/6: Installing GPD package..."
+    # Step 4: Venv + GPD package
+    Write-Log "Step 4/7: Installing GPD package..."
     New-GpdVenv -PythonPath $python
     Install-Gpd
     Write-Host ""
 
-    # Step 4: LiteLLM key
-    Write-Log "Step 4/6: Configuring LiteLLM..."
+    # Step 5: LiteLLM key
+    Write-Log "Step 5/7: Configuring LiteLLM..."
     Read-LiteLlmKey
     Write-Host ""
 
-    # Step 5: Wrapper scripts
-    Write-Log "Step 5/6: Creating gpd command..."
+    # Step 6: Wrapper scripts
+    Write-Log "Step 6/7: Creating gpd command..."
     New-GpdWrappers
     Write-Host ""
 
-    # Step 6: PATH
-    Write-Log "Step 6/6: Configuring PATH..."
+    # Step 7: PATH
+    Write-Log "Step 7/7: Configuring PATH..."
     Add-GpdToPath
     Write-Host ""
 

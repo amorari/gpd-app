@@ -148,6 +148,50 @@ check_prerequisites() {
     fi
 }
 
+# ── LaTeX ─────────────────────────────────────────────────────────────────
+# Optional dependency for physics paper compilation. Warns on failure.
+
+install_latex() {
+    if command -v pdflatex &>/dev/null; then
+        success "LaTeX already installed"
+        return 0
+    fi
+
+    log "Installing LaTeX tools (~500MB download, takes a few minutes)..."
+
+    case "$os" in
+        linux)
+            if ! command -v apt-get &>/dev/null; then
+                warn "LaTeX auto-install only supports apt-based distros — install manually"
+                return 0
+            fi
+            sudo apt-get install -y -qq texlive-latex-base texlive-binaries latexmk 2>&1 | tail -5 || \
+                warn "LaTeX install failed — run: sudo apt install texlive-latex-base texlive-binaries latexmk"
+            ;;
+        darwin)
+            if ! command -v brew &>/dev/null; then
+                warn "Homebrew not found — skipping LaTeX. Install from https://brew.sh, then: brew install --cask basictex"
+                return 0
+            fi
+            brew install --cask basictex 2>&1 | tail -5 || \
+                warn "BasicTeX install failed — run: brew install --cask basictex"
+            local texbin="/Library/TeX/texbin"
+            if [[ -x "$texbin/tlmgr" ]]; then
+                sudo "$texbin/tlmgr" update --self 2>/dev/null || true
+                sudo "$texbin/tlmgr" install latexmk 2>&1 | tail -3 || \
+                    warn "latexmk install failed — run: sudo tlmgr install latexmk"
+                export PATH="$texbin:$PATH"
+            fi
+            ;;
+    esac
+
+    if command -v pdflatex &>/dev/null; then
+        success "LaTeX installed"
+    else
+        warn "LaTeX install completed but pdflatex not on PATH yet — open a new shell"
+    fi
+}
+
 # ── Utilities ─────────────────────────────────────────────────────────────
 
 download() {
@@ -492,31 +536,35 @@ main() {
     check_prerequisites
     mkdir -p "$GPD_BIN_DIR" "$GPD_PYTHON_DIR" "$GPD_VENV_DIR" "$GPD_CONFIG_DIR"
 
-    log "Step 1/7: Installing OpenCode CLI..."
+    log "Step 1/8: Installing OpenCode CLI..."
     install_opencode
     printf "\n"
 
-    log "Step 2/7: Ensuring Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+..."
+    log "Step 2/8: Ensuring Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+..."
     ensure_python
     printf "\n"
 
-    log "Step 3/7: Installing GPD package..."
+    log "Step 3/8: Installing GPD package..."
     install_gpd_package
     printf "\n"
 
-    log "Step 4/7: Configuring LiteLLM..."
+    log "Step 4/8: Installing LaTeX tools..."
+    install_latex
+    printf "\n"
+
+    log "Step 5/8: Configuring LiteLLM..."
     configure_litellm_key
     printf "\n"
 
-    log "Step 5/7: Creating gpd command..."
+    log "Step 6/8: Creating gpd command..."
     create_gpd_wrapper
     printf "\n"
 
-    log "Step 6/7: Configuring PATH..."
+    log "Step 7/8: Configuring PATH..."
     configure_path
     printf "\n"
 
-    log "Step 7/7: Configuring GPD runtime..."
+    log "Step 8/8: Configuring GPD runtime..."
     configure_gpd_runtime
     printf "\n"
 

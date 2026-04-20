@@ -379,6 +379,71 @@ EOF
     success "LiteLLM key saved to $env_file"
 }
 
+# ── LaTeX ─────────────────────────────────────────────────────────────────
+#
+# GPD compiles physics papers, so we ensure pdflatex/bibtex/latexmk/kpsewhich
+# are available. Install is optional: failure warns, doesn't abort.
+#
+# Called from platform-specific installers:
+#   - Ubuntu: installs texlive-latex-base + latexmk via apt
+#   - macOS:  installs BasicTeX via Homebrew, then `tlmgr install latexmk`
+
+latex_installed() { command_exists pdflatex; }
+
+install_latex() {
+    local os="$1"
+
+    if latex_installed; then
+        success "LaTeX already installed ($(pdflatex --version 2>&1 | head -1))"
+        return 0
+    fi
+
+    log "Installing LaTeX (this may take a few minutes — ~500MB download)..."
+
+    case "$os" in
+        linux)
+            if ! command_exists apt-get; then
+                warn "LaTeX auto-install only supports apt-based distros — install manually"
+                return 0
+            fi
+            if ! sudo apt-get install -y -qq texlive-latex-base texlive-binaries latexmk 2>&1 | tail -5; then
+                warn "LaTeX install failed — install manually: sudo apt install texlive-latex-base texlive-binaries latexmk"
+                return 0
+            fi
+            ;;
+        darwin)
+            if ! command_exists brew; then
+                warn "Homebrew not found — skipping LaTeX install."
+                warn "Install Homebrew (https://brew.sh), then run: brew install --cask basictex"
+                return 0
+            fi
+            if ! brew install --cask basictex 2>&1 | tail -5; then
+                warn "BasicTeX install failed — install manually: brew install --cask basictex"
+                return 0
+            fi
+            # BasicTeX installs to /Library/TeX/texbin (not on PATH until new shell)
+            local texbin="/Library/TeX/texbin"
+            if [[ -x "$texbin/tlmgr" ]]; then
+                log "Installing latexmk via tlmgr..."
+                sudo "$texbin/tlmgr" update --self 2>/dev/null || true
+                sudo "$texbin/tlmgr" install latexmk 2>&1 | tail -3 || \
+                    warn "latexmk install via tlmgr failed — run manually: sudo tlmgr install latexmk"
+                export PATH="$texbin:$PATH"
+            fi
+            ;;
+        *)
+            warn "LaTeX auto-install not supported on $os — install manually"
+            return 0
+            ;;
+    esac
+
+    if latex_installed; then
+        success "LaTeX installed"
+    else
+        warn "LaTeX install completed but pdflatex not on PATH yet — open a new shell"
+    fi
+}
+
 # ── GPD wrapper ────────────────────────────────────────────────────────────
 
 create_gpd_wrapper() {
@@ -460,34 +525,39 @@ run_install() {
     mkdir -p "$GPD_BIN_DIR" "$GPD_PYTHON_DIR" "$GPD_VENV_DIR" "$GPD_CONFIG_DIR"
 
     # Step 1: OpenCode CLI binary
-    log "Step 1/6: Installing OpenCode CLI..."
+    log "Step 1/7: Installing OpenCode CLI..."
     install_opencode "$os" "$arch"
     printf "\n"
 
     # Step 2: Python
-    log "Step 2/6: Ensuring Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+..."
+    log "Step 2/7: Ensuring Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+..."
     local python
     python="$(ensure_python "$os" "$arch")"
     printf "\n"
 
     # Step 3: Venv + GPD package
-    log "Step 3/6: Installing GPD package..."
+    log "Step 3/7: Installing GPD package..."
     create_venv "$python"
     install_gpd
     printf "\n"
 
-    # Step 4: LiteLLM key
-    log "Step 4/6: Configuring LiteLLM..."
+    # Step 4: LaTeX tools
+    log "Step 4/7: Installing LaTeX tools..."
+    install_latex "$os"
+    printf "\n"
+
+    # Step 5: LiteLLM key
+    log "Step 5/7: Configuring LiteLLM..."
     prompt_litellm_key
     printf "\n"
 
-    # Step 5: Wrapper script
-    log "Step 5/6: Creating gpd command..."
+    # Step 6: Wrapper script
+    log "Step 6/7: Creating gpd command..."
     create_gpd_wrapper
     printf "\n"
 
-    # Step 6: PATH
-    log "Step 6/6: Configuring PATH..."
+    # Step 7: PATH
+    log "Step 7/7: Configuring PATH..."
     add_to_path
     printf "\n"
 
