@@ -190,12 +190,12 @@ fn open_path(_app: AppHandle, path: String, app_name: Option<String>) -> Result<
         }
 
         return tauri_plugin_opener::open_path(path, app_name.as_deref())
-            .map_err(|e| format!("Failed to open path: {e}"));
+            .map_err(|e| format!("Couldn't open that file or folder. Check permissions and that it exists. ({e})"));
     }
 
     #[cfg(not(target_os = "windows"))]
     tauri_plugin_opener::open_path(path, app_name.as_deref())
-        .map_err(|e| format!("Failed to open path: {e}"))
+        .map_err(|e| format!("Couldn't open that file or folder. Check permissions and that it exists. ({e})"))
 }
 
 #[cfg(target_os = "macos")]
@@ -285,18 +285,18 @@ fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String> {
         Command::new("wsl")
             .args(["-e", "sh", "-lc", &cmd])
             .output()
-            .map_err(|e| format!("Failed to run wslpath: {e}"))?
+            .map_err(|e| format!("Couldn't translate the file path for WSL. Try a simpler path. ({e})"))?
     } else {
         Command::new("wsl")
             .args(["-e", "wslpath", flag, &path])
             .output()
-            .map_err(|e| format!("Failed to run wslpath: {e}"))?
+            .map_err(|e| format!("Couldn't translate the file path for WSL. Try a simpler path. ({e})"))?
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if stderr.is_empty() {
-            return Err("wslpath failed".to_string());
+            return Err("Couldn't translate the file path for WSL. Try a simpler path.".to_string());
         }
         return Err(stderr);
     }

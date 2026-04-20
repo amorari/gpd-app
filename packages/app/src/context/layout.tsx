@@ -11,10 +11,28 @@ import { Persist, persisted, removePersisted } from "@/utils/persist"
 import { decode64 } from "@/utils/base64"
 import { same } from "@/utils/same"
 import { rejectUnsafeProjectPath } from "@/utils/project-path"
-import { useLanguage } from "./language"
 import { showToast } from "@opencode-ai/ui/toast"
+import { dict as en } from "@/i18n/en"
 import { createScrollPersistence, type SessionScroll } from "./layout-scroll"
 import { createPathHelpers } from "./file/path"
+
+// Minimal i18n helpers for context-level toasts. We cannot call
+// `useLanguage()` inside the provider's `init` (it runs before the
+// component tree is established for consumers). Falling back to the
+// English dictionary keeps the copy physicist-friendly without depending
+// on the reactive language context; non-English locales pick up the same
+// strings via the normal component-scope `useLanguage` calls elsewhere.
+const enDict = en as Record<string, string>
+function lookupEn(key: string): string {
+  return enDict[key] ?? key
+}
+function interpolate(template: string, params?: Record<string, string>): string {
+  if (!params) return template
+  return Object.entries(params).reduce(
+    (s, [k, v]) => s.replace(new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, "g"), v),
+    template,
+  )
+}
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 const DEFAULT_SIDEBAR_WIDTH = 344
@@ -142,7 +160,6 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     const globalSync = useGlobalSync()
     const server = useServer()
     const platform = usePlatform()
-    const language = useLanguage()
 
     const isRecord = (value: unknown): value is Record<string, unknown> =>
       typeof value === "object" && value !== null && !Array.isArray(value)
@@ -602,8 +619,8 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           const rejection = rejectUnsafeProjectPath(root, globalSync.data.path.home)
           if (rejection) {
             showToast({
-              title: language.t("project.rejection.title"),
-              description: language.t(rejection.key as never, rejection.params ?? {}),
+              title: lookupEn("project.rejection.title"),
+              description: interpolate(lookupEn(rejection.key), rejection.params),
               variant: "error",
               icon: "close",
             })

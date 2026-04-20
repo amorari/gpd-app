@@ -42,10 +42,38 @@ export function formatServerError(error: unknown, translate?: Translator, fallba
       "error.chain.permissionDenied",
       "GPD needs permission to access this folder. Open System Settings → Privacy & Security → Files and Folders to grant access.",
     )
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === "string" && error) return error
+  if (error instanceof Error && error.message) return friendly(error.message)
+  if (typeof error === "string" && error) return friendly(error)
   if (fallback) return fallback
-  return tr(translate, "error.chain.unknown", "Unknown error")
+  return tr(translate, "error.chain.unknown", "Something went wrong")
+}
+
+/**
+ * Rewrite common low-level error codes into user-friendly copy. Keeps the
+ * original text if no match. This catches errors that bypass our typed
+ * error shapes (raw Node errors, fetch failures, etc.).
+ */
+function friendly(msg: string): string {
+  const lower = msg.toLowerCase()
+  if (lower.includes("enoent") || lower.includes("no such file")) {
+    return "That file or folder couldn't be found. It may have been moved or deleted."
+  }
+  if (lower.includes("eacces") || lower.includes("permission denied")) {
+    return "GPD doesn't have permission to access that file or folder."
+  }
+  if (lower.includes("econnrefused")) {
+    return "Couldn't connect — the service isn't reachable. Check your internet or try restarting GPD."
+  }
+  if (lower.includes("enotfound") || lower.includes("getaddrinfo")) {
+    return "Couldn't reach that server. Check your internet connection."
+  }
+  if (lower.includes("etimedout") || lower.includes("timeout")) {
+    return "The request took too long. Try again or check your internet connection."
+  }
+  if (lower.includes("econnreset")) {
+    return "The connection was interrupted. Try again in a moment."
+  }
+  return msg
 }
 
 function isPermissionError(error: unknown): boolean {
@@ -88,7 +116,8 @@ function isUnknownErrorLike(error: unknown): error is UnknownError {
 
 function parseReadableUnknownError(error: UnknownError): string {
   // Strip stack trace: take only the first line of the message
-  return error.data.message.split("\n")[0].trim()
+  const firstLine = error.data.message.split("\n")[0].trim()
+  return friendly(firstLine)
 }
 
 export function parseReadableConfigInvalidError(errorInput: ConfigInvalidError, translator?: Translator) {
@@ -102,8 +131,8 @@ export function parseReadableConfigInvalidError(errorInput: ConfigInvalidError, 
     })
     .filter(Boolean)
   const msg = issues.length ? issues.join("\n") : detail
-  if (!msg) return tr(translator, "error.chain.configInvalid", `Config file at ${file} is invalid`, { path: file })
-  return tr(translator, "error.chain.configInvalidWithMessage", `Config file at ${file} is invalid: ${msg}`, {
+  if (!msg) return tr(translator, "error.chain.configInvalid", `Settings file at ${file} is invalid`, { path: file })
+  return tr(translator, "error.chain.configInvalidWithMessage", `Settings file at ${file} is invalid: ${msg}`, {
     path: file,
     message: msg,
   })
@@ -114,7 +143,7 @@ function parseReadableProviderModelNotFoundError(errorInput: ProviderModelNotFou
   const m = errorInput.data.modelID.trim()
   const list = (errorInput.data.suggestions ?? []).map((v) => v.trim()).filter(Boolean)
   const body = tr(translator, "error.chain.modelNotFound", `Model not found: ${p}/${m}`, { provider: p, model: m })
-  const tail = tr(translator, "error.chain.checkConfig", "Check your GPD settings for correct provider/model names")
+  const tail = tr(translator, "error.chain.checkConfig", "Check your GPD settings for correct AI service and model names")
   if (list.length) {
     const suggestions = list.slice(0, 5).join(", ")
     return [body, tr(translator, "error.chain.didYouMean", `Did you mean: ${suggestions}`, { suggestions }), tail].join(

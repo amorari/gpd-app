@@ -132,14 +132,14 @@ pub async fn repair_gpd_venv(app: tauri::AppHandle) -> Result<(), String> {
     // Remove the venv directory (not other project files).
     if venv.exists() {
         std::fs::remove_dir_all(&venv)
-            .map_err(|e| format!("Failed to remove GPD venv: {e}"))?;
+            .map_err(|e| format!("Couldn't remove the GPD Python environment. Make sure no other app is using it. ({e})"))?;
         tracing::info!("Removed GPD venv at {}", venv.display());
     }
 
     // Remove the marker so the setup is unconditionally re-run.
     if marker.exists() {
         std::fs::remove_file(&marker)
-            .map_err(|e| format!("Failed to remove init marker: {e}"))?;
+            .map_err(|e| format!("Couldn't reset GPD setup. Try restarting the app. ({e})"))?;
     }
 
     run_first_setup(app).await
@@ -152,11 +152,11 @@ pub async fn run_first_setup(app: AppHandle) -> Result<(), String> {
     let uv = uv_path(&app)?;
 
     if !uv.exists() {
-        return Err(format!("Bundled uv not found at {}", uv.display()));
+        return Err(format!("GPD installation is missing a required helper (uv) at {}. Try reinstalling the app.", uv.display()));
     }
 
     std::fs::create_dir_all(&config)
-        .map_err(|e| format!("Failed to create config dir: {e}"))?;
+        .map_err(|e| format!("Couldn't create GPD's settings folder. Check disk space and folder permissions. ({e})"))?;
 
     tracing::info!(
         config = %config.display(),
@@ -179,7 +179,7 @@ pub async fn run_first_setup(app: AppHandle) -> Result<(), String> {
     // Step 5: Mark as initialized
     let marker = config.join(GPD_INIT_MARKER);
     std::fs::write(&marker, "initialized")
-        .map_err(|e| format!("Failed to write init marker: {e}"))?;
+        .map_err(|e| format!("GPD couldn't save its setup status. Try restarting the app. ({e})"))?;
 
     tracing::info!("GPD first-run setup completed");
     Ok(())
@@ -194,7 +194,7 @@ fn uv_path(app: &AppHandle) -> Result<PathBuf, String> {
     let bin_name = if cfg!(windows) { "uv.exe" } else { "uv" };
     app.path()
         .resolve(format!("uv-bundle/{bin_name}"), tauri::path::BaseDirectory::Resource)
-        .map_err(|e| format!("Failed to resolve uv path: {e}"))
+        .map_err(|e| format!("GPD's Python helper (uv) couldn't be located. Try reinstalling the app. ({e})"))
 }
 
 /// GPD venv location: ~/.config/gpd/.venv/
@@ -247,12 +247,12 @@ async fn ensure_python(uv: &Path) -> Result<PathBuf, String> {
             .output(),
     )
     .await
-    .map_err(|_| "uv python install timed out (120s)".to_string())?
-    .map_err(|e| format!("Failed to run uv python install: {e}"))?;
+    .map_err(|_| "Installing Python is taking too long. Check your internet connection and try again.".to_string())?
+    .map_err(|e| format!("Couldn't start the Python installer. ({e})"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("uv python install failed: {stderr}"));
+        return Err(format!("Couldn't install Python. {stderr}"));
     }
 
     // Locate the installed interpreter
@@ -263,11 +263,11 @@ async fn ensure_python(uv: &Path) -> Result<PathBuf, String> {
         .stdin(Stdio::null())
         .output()
         .await
-        .map_err(|e| format!("uv python find failed: {e}"))?;
+        .map_err(|e| format!("Couldn't locate the installed Python. ({e})"))?;
 
     let python_path = String::from_utf8_lossy(&find_output.stdout).trim().to_string();
     if python_path.is_empty() {
-        return Err("uv python find returned empty path".to_string());
+        return Err("Python was installed but GPD couldn't locate it. Restart the app or reinstall.".to_string());
     }
 
     tracing::info!("uv-provisioned Python at: {python_path}");
@@ -308,12 +308,12 @@ async fn ensure_gpd_installed(uv: &Path, python: &Path) -> Result<(), String> {
                 .output(),
         )
         .await
-        .map_err(|_| "uv venv creation timed out (30s)".to_string())?
-        .map_err(|e| format!("Failed to create venv: {e}"))?;
+        .map_err(|_| "Setting up the Python environment is taking too long. Check your internet connection.".to_string())?
+        .map_err(|e| format!("Couldn't set up the Python environment. ({e})"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("uv venv creation failed: {stderr}"));
+            return Err(format!("Couldn't set up the Python environment. {stderr}"));
         }
     }
 
@@ -335,12 +335,12 @@ async fn ensure_gpd_installed(uv: &Path, python: &Path) -> Result<(), String> {
             .output(),
     )
     .await
-    .map_err(|_| "GPD pip install timed out (180s)".to_string())?
-    .map_err(|e| format!("Failed to install get-physics-done: {e}"))?;
+    .map_err(|_| "Installing GPD tools is taking too long. Check your internet connection.".to_string())?
+    .map_err(|e| format!("Couldn't start the GPD tools installer. ({e})"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("GPD pip install failed: {stderr}"));
+        return Err(format!("Couldn't install GPD tools. {stderr}"));
     }
 
     tracing::info!("get-physics-done installed successfully");
@@ -389,12 +389,12 @@ async fn run_gpd_install(config: &Path) -> Result<(), String> {
             .output(),
     )
     .await
-    .map_err(|_| "gpd install timed out (60s)".to_string())?
-    .map_err(|e| format!("Failed to run gpd install: {e}"))?;
+    .map_err(|_| "GPD setup is taking too long. Check your internet connection.".to_string())?
+    .map_err(|e| format!("Couldn't run GPD setup. ({e})"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("gpd install opencode failed: {stderr}"));
+        return Err(format!("GPD couldn't install its research tools. {stderr}"));
     }
 
     tracing::info!("gpd install opencode completed");
@@ -410,9 +410,9 @@ fn inject_provider_config(config: &Path) -> Result<(), String> {
 
     let mut config_val: serde_json::Value = if path.exists() {
         let content = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read opencode.json: {e}"))?;
+            .map_err(|e| format!("Couldn't read GPD's settings file. Try repairing via Settings. ({e})"))?;
         serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse opencode.json: {e}"))?
+            .map_err(|e| format!("GPD's settings file is corrupted. Try restarting or repairing from Settings. ({e})"))?
     } else {
         serde_json::json!({})
     };
@@ -473,9 +473,9 @@ fn inject_provider_config(config: &Path) -> Result<(), String> {
     }
 
     let json_str = serde_json::to_string_pretty(&config_val)
-        .map_err(|e| format!("Failed to serialize opencode.json: {e}"))?;
+        .map_err(|e| format!("Couldn't prepare GPD's settings file. Try restarting the app. ({e})"))?;
     std::fs::write(&path, format!("{json_str}\n"))
-        .map_err(|e| format!("Failed to write opencode.json: {e}"))?;
+        .map_err(|e| format!("Couldn't save GPD's settings. Check disk space and permissions. ({e})"))?;
 
     tracing::info!(path = %path.display(), "Injected LiteLLM provider config");
     Ok(())

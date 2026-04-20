@@ -264,7 +264,7 @@ pub async fn compile_tex(
 
     let root_path = PathBuf::from(&root);
     if !root_path.is_file() {
-        return Err(format!("TeX root file does not exist: {root}"));
+        return Err(format!("LaTeX source file not found: {root}. Make sure the file exists and hasn't been moved."));
     }
 
     let Some((compiler_kind, compiler_path)) = resolve_tex_compiler() else {
@@ -289,7 +289,7 @@ pub async fn compile_tex(
         Err(e) => return Err(e),
     };
     std::fs::create_dir_all(&out_dir)
-        .map_err(|e| format!("Failed to create cache dir {}: {e}", out_dir.display()))?;
+        .map_err(|e| format!("Couldn't create a temporary folder for the LaTeX build. Check disk space. ({e})"))?;
 
     // Register this compile with the shared state so a second click can
     // cancel it. Use a generation counter so the running task can detect
@@ -438,7 +438,7 @@ pub async fn synctex_forward(
         .stdin(Stdio::null())
         .output()
         .await
-        .map_err(|e| format!("synctex view failed to spawn: {e}"))?;
+        .map_err(|e| format!("Couldn't link PDF to source — SyncTeX isn't available. ({e})"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut file: Option<String> = None;
@@ -485,7 +485,7 @@ pub async fn synctex_reverse(
         .stdin(Stdio::null())
         .output()
         .await
-        .map_err(|e| format!("synctex edit failed to spawn: {e}"))?;
+        .map_err(|e| format!("Couldn't link source to PDF — SyncTeX isn't available. ({e})"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut page: Option<u32> = None;
@@ -521,18 +521,18 @@ pub fn read_tex_artifact_base64(path: String) -> Result<String, String> {
     let cache_root = gpd_config_dir().join(".tex-builds");
     // Canonicalize both so symlinks / `..` can't escape the cache.
     let canon_path = std::fs::canonicalize(&p)
-        .map_err(|e| format!("Failed to canonicalize {path}: {e}"))?;
+        .map_err(|e| format!("Couldn't resolve the file path. Try moving the file to a simpler location. ({e})"))?;
     let canon_cache = std::fs::canonicalize(&cache_root)
-        .map_err(|e| format!("Cache dir missing: {e}"))?;
+        .map_err(|e| format!("GPD's LaTeX build folder is missing. Re-render the document. ({e})"))?;
     if !canon_path.starts_with(&canon_cache) {
         return Err(format!(
-            "Refusing to read {} — outside the GPD TeX cache",
+            "For safety, GPD can only read files inside its LaTeX build folder. ({})",
             canon_path.display()
         ));
     }
 
     let bytes = std::fs::read(&canon_path)
-        .map_err(|e| format!("Failed to read {}: {e}", canon_path.display()))?;
+        .map_err(|e| format!("Couldn't read {}. Check that it exists and hasn't been moved. ({e})", canon_path.display()))?;
     Ok(base64_encode(&bytes))
 }
 
@@ -578,7 +578,7 @@ fn base64_encode(input: &[u8]) -> String {
 #[specta::specta]
 pub fn parse_tex_log(log_path: String) -> Result<TexLogParseResult, String> {
     let raw_log = std::fs::read_to_string(&log_path)
-        .map_err(|e| format!("Failed to read log {log_path}: {e}"))?;
+        .map_err(|e| format!("Couldn't open the LaTeX error log. Try re-rendering. ({e})"))?;
     let (errors, warnings) = parse_log_contents(&raw_log);
     Ok(TexLogParseResult {
         errors,
