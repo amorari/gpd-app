@@ -492,6 +492,17 @@ export const dict = {
   "error.childStore.storeCreateFailed": "Failed to create store",
   "directory.error.invalidUrl": "Invalid directory in URL.",
 
+  "error.classified.rateLimit": "The model rate limit was hit. Please wait a moment and try again.",
+  "error.classified.auth": "Authentication failed. Check your API key in Settings.",
+  "error.classified.context":
+    "The conversation is too long for the model's context. Try starting a new session or using a model with a larger context window.",
+  "error.classified.network": "Couldn't reach the server. Check your internet connection.",
+  "error.classified.providerUnavailable":
+    "The model provider is temporarily unavailable. Please try again in a moment.",
+  "error.classified.timeout": "The request timed out. Try again or try a simpler prompt.",
+  "error.classified.invalidRequest": "The request was rejected by the model provider.",
+  "error.classified.unknown": "Something went wrong. See details for more.",
+
   "error.chain.unknown": "Unknown error",
   "error.chain.permissionDenied":
     "GPD needs permission to access this folder. Open System Settings → Privacy & Security → Files and Folders to grant access.",

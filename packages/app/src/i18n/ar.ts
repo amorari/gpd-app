@@ -858,4 +858,12 @@ export const dict = {
   "session.newView.chip.symmetryBreaking": "Explain spontaneous symmetry breaking",
   "session.newView.chip.researchMilestone": "Help me plan my next research milestone",
   "session.newView.chip.quantumEntanglement": "Summarize key results on quantum entanglement",
+  "error.classified.rateLimit": "The model rate limit was hit. Please wait a moment and try again.",
+  "error.classified.auth": "Authentication failed. Check your API key in Settings.",
+  "error.classified.context": "The conversation is too long for the model's context. Try starting a new session or using a model with a larger context window.",
+  "error.classified.network": "Couldn't reach the server. Check your internet connection.",
+  "error.classified.providerUnavailable": "The model provider is temporarily unavailable. Please try again in a moment.",
+  "error.classified.timeout": "The request timed out. Try again or try a simpler prompt.",
+  "error.classified.invalidRequest": "The request was rejected by the model provider.",
+  "error.classified.unknown": "Something went wrong. See details for more.",
 }
