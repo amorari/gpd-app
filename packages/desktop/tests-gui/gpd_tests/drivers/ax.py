@@ -89,6 +89,50 @@ class AXClient:
         '''
         _osascript(script)
 
+    def items_of(self, menu: str) -> list[str]:
+        """Return names of every menu item under the given top-level menu.
+
+        AppleScript's `missing value` entries are filtered out — they
+        represent separator items and are not useful as test targets.
+        """
+        script = (
+            'set AppleScript\'s text item delimiters to "|"\n'
+            f'tell application "System Events" to tell process "{self._app}" '
+            f'to return (name of every menu item of menu 1 of menu bar item '
+            f'"{menu}" of menu bar 1) as string'
+        )
+        try:
+            raw = _osascript(script)
+        except RuntimeError:
+            return []
+        if not raw:
+            return []
+        return [
+            x.strip()
+            for x in raw.split("|")
+            if x.strip() and x.strip() != "missing value"
+        ]
+
+    def enabled_items_of(self, menu: str) -> list[str]:
+        """Return names of menu items that are currently enabled."""
+        names = self.items_of(menu)
+        if not names:
+            return []
+        script = (
+            'set AppleScript\'s text item delimiters to "|"\n'
+            f'tell application "System Events" to tell process "{self._app}" '
+            f'to return (enabled of every menu item of menu 1 of menu bar '
+            f'item "{menu}" of menu bar 1) as string'
+        )
+        try:
+            raw = _osascript(script)
+        except RuntimeError:
+            return []
+        flags = [f.strip() for f in raw.split("|")]
+        # flags length may differ from names if AppleScript emits extra
+        # entries for separators; zip truncates to the shorter sequence.
+        return [name for name, flag in zip(names, flags) if flag == "true"]
+
     def main_window(self) -> dict[str, Any]:
         """Return the main window geometry via AX: {x, y, w, h, title}.
 
