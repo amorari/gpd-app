@@ -141,7 +141,18 @@ def pytest_runtest_setup(item):
     # Let the fresh app come up before the next fixture use. The driver
     # fixtures below are function-scoped so they rediscover socket path,
     # HTTP port, and creds on the next test.
-    AppState().wait_launched(timeout_s=20.0)
+    fresh = AppState()
+    fresh.wait_launched(timeout_s=20.0)
+    # Refresh the session-scoped app_state fixture's _launched_pid so that
+    # sidecar_pid() keeps tracking the live process tree instead of a stale
+    # PID from before the reset.
+    try:
+        session_app_state = item._request.getfixturevalue("app_state")
+        session_app_state.refresh_launched_pid()
+    except Exception:
+        # Fixture not yet created or request not available; the first test
+        # that uses app_state will see the fresh state naturally.
+        pass
 
 
 # --- Reporting hooks -----------------------------------------------------

@@ -41,16 +41,28 @@ def paths_for_tier(tier: int) -> list[Path]:
     return paths
 
 
+def _app_name() -> str:
+    """Derive the macOS application name from GPD_APP_PATH.
+
+    Returns "GPD Dev" for a debug bundle and "GPD" for the release bundle.
+    Tauri names the binary inside Contents/MacOS/ identically to the .app stem.
+    """
+    app_path = os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")
+    return Path(app_path).stem
+
+
 def stop_gpd() -> None:
+    name = _app_name()
     subprocess.run(
-        ["osascript", "-e", 'tell application "GPD" to quit'],
+        ["osascript", "-e", f'tell application "{name}" to quit'],
         capture_output=True,
         text=True,
         check=False,
     )
+    pattern = f"{name}.app/Contents/MacOS/{name}"
     for _ in range(100):
         out = subprocess.run(
-            ["pgrep", "-f", "GPD.app/Contents/MacOS/GPD"],
+            ["pgrep", "-f", pattern],
             capture_output=True,
             text=True,
             check=False,
@@ -64,7 +76,47 @@ def start_gpd() -> None:
     # -g = background, so resets don't steal focus from the developer.
     # Honor GPD_APP_PATH for in-tree dev builds.
     app_path = os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")
+    name = _app_name()
     subprocess.run(["open", "-g", "-a", app_path], check=False)
+
+    # Verify the main process came up.
+    binary_pattern = f"{name}.app/Contents/MacOS/{name}"
+    launched = False
+    for _ in range(50):
+        out = subprocess.run(
+            ["pgrep", "-f", binary_pattern],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if out.stdout.strip():
+            launched = True
+            break
+        time.sleep(0.2)
+    if not launched:
+        raise RuntimeError(
+            f"GPD process did not appear after launch "
+            f"(pattern: {binary_pattern!r})"
+        )
+
+    # Wait up to 15 s for the opencode-cli sidecar to appear.
+    sidecar_appeared = False
+    for _ in range(150):
+        out = subprocess.run(
+            ["pgrep", "-f", "opencode-cli.*serve"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if out.stdout.strip():
+            sidecar_appeared = True
+            break
+        time.sleep(0.1)
+    if not sidecar_appeared:
+        raise RuntimeError(
+            "opencode-cli sidecar did not appear within 15 s after GPD launch. "
+            "The app may have started in a degraded state."
+        )
 
 
 def run(
