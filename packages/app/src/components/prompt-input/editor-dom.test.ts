@@ -96,4 +96,45 @@ describe("prompt-input editor dom", () => {
 
     container.remove()
   })
+
+  test("setCursorPosition places cursor correctly when text node contains merged \\u200B", () => {
+    // Simulates WebKit merging "hello" + "\u200B" into "hello\u200B".
+    const container = document.createElement("div")
+    container.appendChild(document.createTextNode("hello\u200B"))
+    document.body.appendChild(container)
+
+    // Logical position 5 (after "hello") should map to physical offset 5
+    // (before the \u200B), so the sentinel stays invisible.
+    setCursorPosition(container, 5)
+    const selection = window.getSelection()!
+    expect(selection.getRangeAt(0).startOffset).toBe(5)
+    // getCursorPosition strips \u200B, so round-trip reads back 5.
+    expect(getCursorPosition(container)).toBe(5)
+
+    container.remove()
+  })
+
+  test("setCursorPosition and getCursorPosition round-trip with \\u200B at end of text node", () => {
+    // "ab\u200B" followed by a pill — logical length of text node is 2.
+    const container = document.createElement("div")
+    const pill = document.createElement("span")
+    pill.dataset.type = "file"
+    pill.textContent = "@file"
+    container.appendChild(document.createTextNode("ab\u200B"))
+    container.appendChild(pill)
+    container.appendChild(document.createTextNode("cd"))
+    document.body.appendChild(container)
+
+    setCursorPosition(container, 0)
+    expect(getCursorPosition(container)).toBe(0)
+
+    setCursorPosition(container, 2)
+    expect(getCursorPosition(container)).toBe(2)
+
+    // After the pill
+    setCursorPosition(container, 7)
+    expect(getCursorPosition(container)).toBe(7)
+
+    container.remove()
+  })
 })
