@@ -11,6 +11,20 @@ from gpd_tests.helpers.dom_probe import DOMProbe, ProbeSkip
 SENTINEL = Path.home() / ".config/gpd/.gpd-initialized"
 
 
+def sentinel_path() -> Path:
+    """Return the XDG-aware path to the GPD onboarding sentinel file.
+
+    Respects ``XDG_CONFIG_HOME`` if set, otherwise falls back to
+    ``~/.config/gpd/.gpd-initialized``.
+    """
+    import os
+
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config:
+        return Path(xdg_config) / "gpd" / ".gpd-initialized"
+    return SENTINEL
+
+
 class Onboarding:
     """Thin wrapper — probes welcome-screen state via DOMProbe.
 
@@ -85,7 +99,7 @@ class Onboarding:
         """Wait for the welcome screen to disappear (sentinel appears)."""
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            if SENTINEL.exists() and not self.welcome_visible():
+            if sentinel_path().exists() and not self.welcome_visible():
                 return
             time.sleep(0.2)
         raise TimeoutError(
