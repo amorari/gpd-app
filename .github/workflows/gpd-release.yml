@@ -58,6 +58,7 @@ jobs:
 
           REPO="${{ github.repository }}"
           CANDIDATE="$BASE_VERSION"
+          RESOLVED=""
           for N in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
             if [ "$N" -eq 0 ]; then
               CANDIDATE="$BASE_VERSION"
@@ -65,23 +66,26 @@ jobs:
               CANDIDATE="$BASE_VERSION-$N"
             fi
             TAG="gpd-desktop-v$CANDIDATE"
-            RJ=$(gh api "repos/$REPO/releases/tags/$TAG" 2>/dev/null || echo '')
-            if [ -z "$RJ" ]; then
+            if RJ=$(gh api "repos/$REPO/releases/tags/$TAG" 2>/dev/null); then
+              IS_DRAFT=$(printf '%s' "$RJ" | python3 -c "import sys,json; print(json.load(sys.stdin).get('draft', False))")
+              if [ "$IS_DRAFT" = "True" ]; then
+                echo "Draft release $TAG exists; will add assets to it."
+                RESOLVED="$CANDIDATE"
+                break
+              fi
+              echo "Tag $TAG is already published; trying next suffix."
+            else
               echo "Tag $TAG does not exist; will create a fresh draft."
+              RESOLVED="$CANDIDATE"
               break
             fi
-            IS_DRAFT=$(echo "$RJ" | python3 -c "import sys,json; print(json.load(sys.stdin)['draft'])")
-            if [ "$IS_DRAFT" = "True" ]; then
-              echo "Draft release $TAG exists; will add assets to it."
-              break
-            fi
-            echo "Tag $TAG is already published; trying next suffix."
           done
 
-          if [ "$N" -ge 20 ]; then
+          if [ -z "$RESOLVED" ]; then
             echo "::error::Exhausted -N suffixes 1..20 for $BASE_VERSION. Bump get-physics-done version."
             exit 1
           fi
+          CANDIDATE="$RESOLVED"
 
           VERSION="$CANDIDATE"
           echo "Resolved release version: $VERSION (tag: gpd-desktop-v$VERSION, base: $BASE_VERSION, source: $SOURCE)"
