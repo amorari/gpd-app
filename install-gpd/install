@@ -496,6 +496,44 @@ EOF
         printf '\n# GPD API key for desktop app\n%s\n' "$export_line" >> "$profile"
     fi
 
+    # Also write the key into opencode's auth.json so the GPD desktop app
+    # can see an existing auth entry on first launch and skip its own
+    # "enter your key" welcome screen. Without this, users who install via
+    # the CLI installer and enter their PSI key here still get prompted
+    # again when they open the desktop app (matching fix in
+    # packages/app/src/app.tsx:SetupGate).
+    #
+    # auth.json path follows XDG: ~/.local/share/opencode/auth.json on
+    # Linux, ~/Library/Application Support/opencode/auth.json on macOS.
+    # Format: {"<providerID>": {"type":"api","key":"sk-..."}}
+    local xdg_data="${XDG_DATA_HOME:-$HOME/.local/share}"
+    if [[ "$os" == "darwin" ]]; then
+        xdg_data="$HOME/Library/Application Support"
+    fi
+    local auth_dir="$xdg_data/opencode"
+    local auth_file="$auth_dir/auth.json"
+    mkdir -p "$auth_dir"
+    # If auth.json already has other providers, preserve them. Otherwise
+    # write a fresh one. We use python/jq if available for a proper merge;
+    # fall back to a fresh overwrite if the user has neither (rare).
+    if [[ -f "$auth_file" ]] && command -v python3 &>/dev/null; then
+        python3 - "$auth_file" "$key" <<'PY'
+import json, os, sys, stat
+path, key = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+data["gpd"] = {"type": "api", "key": key}
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+os.chmod(path, 0o600)
+PY
+    else
+        ( umask 077; printf '{\n  "gpd": {\n    "type": "api",\n    "key": "%s"\n  }\n}\n' "$key" > "$auth_file" )
+    fi
+
     success "PSI key saved"
 }
 
@@ -590,16 +628,28 @@ configure_gpd_runtime() {
 # ── Success ──────────────────────────────────────────────────────────────
 
 print_success() {
+    local has_desktop=false
+    [[ -x "/usr/bin/GPD" ]] && has_desktop=true
+
     printf "\n"
     success "GPD installed successfully!"
     printf "\n"
-    printf "  Start GPD:    ${BOLD}gpd${RESET}\n"
-    printf "  Show help:    ${BOLD}gpd --help${RESET}\n"
+
+    if [[ "$has_desktop" == true ]]; then
+        printf "  ${BOLD}Desktop app${RESET} ${DIM}(recommended)${RESET}\n"
+        printf "    Launch ${BOLD}GPD${RESET} from your applications menu.\n"
+        printf "    ${DIM}You may be asked for your PSI key again on first launch —${RESET}\n"
+        printf "    ${DIM}use the same key you entered here.${RESET}\n"
+        printf "\n"
+        printf "  ${BOLD}CLI${RESET}\n"
+        printf "    Open a ${BOLD}new terminal${RESET}, then run: ${BOLD}gpd${RESET}\n"
+    else
+        printf "  Run GPD: open a ${BOLD}new terminal${RESET}, then type ${BOLD}gpd${RESET}\n"
+    fi
     printf "\n"
     printf "  ${DIM}Installed to: %s${RESET}\n" "$GPD_HOME"
-    printf "  ${DIM}Desktop app:  https://download.gpd.psi.inc${RESET}\n"
     printf "\n"
-    warn "Open a new terminal to use the gpd command."
+    warn "PATH changes don't apply to THIS terminal — open a new one to use 'gpd'."
     printf "\n"
 }
 

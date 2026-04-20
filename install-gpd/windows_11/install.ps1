@@ -584,6 +584,38 @@ LITELLM_API_BASE=$LiteLlmProxyUrl
         Write-Warn "Could not restrict file permissions on $envFile"
     }
 
+    # Also write the key into opencode's auth.json so the GPD desktop app
+    # can see an existing auth entry on first launch and skip its own
+    # "enter your key" welcome screen. Without this, users who install via
+    # the CLI installer and enter their PSI key here still get prompted
+    # again when they open the desktop app (matching fix in
+    # packages/app/src/app.tsx:SetupGate).
+    #
+    # auth.json path on Windows: %APPDATA%\opencode\auth.json
+    # (XDG_DATA_HOME fallback on Windows per xdg-basedir).
+    $xdgData = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { $env:APPDATA }
+    $authDir = Join-Path $xdgData "opencode"
+    $authFile = Join-Path $authDir "auth.json"
+    New-Item -ItemType Directory -Path $authDir -Force | Out-Null
+
+    # If auth.json already has other providers, merge (don't clobber).
+    # Otherwise write fresh.
+    $authData = @{}
+    if (Test-Path $authFile) {
+        try {
+            $existing = Get-Content $authFile -Raw | ConvertFrom-Json
+            # Copy existing providers into our hashtable
+            $existing.PSObject.Properties | ForEach-Object {
+                $authData[$_.Name] = $_.Value
+            }
+        }
+        catch {
+            Write-Warn "Couldn't parse existing $authFile; overwriting."
+        }
+    }
+    $authData["gpd"] = @{ type = "api"; key = $key }
+    $authData | ConvertTo-Json -Depth 5 | Set-Content -Path $authFile -Encoding UTF8
+
     Write-Success "PSI key saved to $envFile"
 }
 
