@@ -19,21 +19,46 @@ export const commands = {
 	wslPath: (path: string, mode: "windows" | "linux" | null) => __TAURI_INVOKE<string>("wsl_path", { path, mode }),
 	resolveAppPath: (appName: string) => __TAURI_INVOKE<string | null>("resolve_app_path", { appName }),
 	openPath: (path: string, appName: string | null) => __TAURI_INVOKE<null>("open_path", { path, appName }),
+	installGitMacos: () => __TAURI_INVOKE<InstallResult>("install_git_macos"),
+	installGitWindows: () => __TAURI_INVOKE<InstallResult>("install_git_windows"),
+	linuxInstallHint: (tool: string) => __TAURI_INVOKE<string>("linux_install_hint", { tool }),
 };
 
 /** Events */
 export const events = {
+	gpdFirstRunComplete: makeEvent<GpdFirstRunComplete>("gpd-first-run-complete"),
 	loadingWindowComplete: makeEvent<LoadingWindowComplete>("loading-window-complete"),
 	sqliteMigrationProgress: makeEvent<SqliteMigrationProgress>("sqlite-migration-progress"),
-	gpdFirstRunComplete: makeEvent<GpdFirstRunComplete>("gpd-first-run-complete"),
 };
 
 /* Types */
+/**
+ * Emitted once, after a successful GPD first-run setup, so the frontend can
+ * show an informational toast about where files were installed.
+ */
+export type GpdFirstRunComplete = null;
+
 export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "gpd_setup" } | { phase: "done" };
 
-export type LinuxDisplayBackend = "wayland" | "auto";
+/**
+ * Result returned to the frontend after an install command is spawned.
+ */
+export type InstallResult = {
+		
+	/**
+ * Whether the installer was launched successfully. This does not
+ * guarantee the install finished — some installers detach and run
+ * out-of-band (e.g. xcode-select's GUI prompt).
+ */
+launched: boolean,
+		
+	/**
+ * Human-readable message describing what happened.
+ */
+message: string,
+	};
 
-export type GpdFirstRunComplete = null;
+export type LinuxDisplayBackend = "wayland" | "auto";
 
 export type LoadingWindowComplete = null;
 

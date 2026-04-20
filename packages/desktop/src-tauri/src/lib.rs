@@ -1,5 +1,6 @@
 mod cli;
 mod constants;
+mod dependencies;
 mod gpd_setup;
 #[cfg(target_os = "linux")]
 pub mod linux_display;
@@ -393,7 +394,10 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             check_app_exists,
             wsl_path,
             resolve_app_path,
-            open_path
+            open_path,
+            dependencies::install_git_macos,
+            dependencies::install_git_windows,
+            dependencies::linux_install_hint
         ])
         .events(tauri_specta::collect_events![
             LoadingWindowComplete,
