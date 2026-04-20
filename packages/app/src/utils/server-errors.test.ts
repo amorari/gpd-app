@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { ConfigInvalidError, ProviderModelNotFoundError } from "./server-errors"
+import type { ConfigInvalidError, ProviderModelNotFoundError, UnknownError } from "./server-errors"
 import { formatServerError, parseReadableConfigInvalidError } from "./server-errors"
 
 function fill(text: string, vars?: Record<string, string | number>) {
@@ -98,6 +98,28 @@ describe("formatServerError", () => {
     expect(formatServerError({ name: "ServerTimeoutError", data: { seconds: 30 } }, language.t)).toBe(
       "Erro desconhecido",
     )
+  })
+
+  test("extracts first line from UnknownError data.message", () => {
+    const error = {
+      name: "UnknownError",
+      data: {
+        message: "git init failed\nStack trace line 1\nStack trace line 2",
+      },
+    } satisfies UnknownError
+
+    expect(formatServerError(error, language.t)).toBe("git init failed")
+  })
+
+  test("handles UnknownError with single-line message", () => {
+    const error = {
+      name: "UnknownError",
+      data: {
+        message: "repository already exists",
+      },
+    } satisfies UnknownError
+
+    expect(formatServerError(error, language.t)).toBe("repository already exists")
   })
 
   test("formats provider model errors using provider/model", () => {
