@@ -44,10 +44,16 @@ def test_sessions_returns_list():
 
 
 @pytest.mark.unit
-def test_providers_returns_list():
+def test_providers_returns_config_shape():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/config/providers"
-        return httpx.Response(200, json=[{"id": "anthropic"}])
+        return httpx.Response(
+            200,
+            json={
+                "providers": [{"id": "anthropic", "name": "Anthropic"}],
+                "default": {"anthropic": "claude-4-7"},
+            },
+        )
 
     c = HTTPClient(
         base_url="http://x",
@@ -55,7 +61,9 @@ def test_providers_returns_list():
         password="p",
         transport=httpx.MockTransport(handler),
     )
-    assert c.providers() == [{"id": "anthropic"}]
+    data = c.providers()
+    assert data["providers"][0]["id"] == "anthropic"
+    assert data["default"]["anthropic"] == "claude-4-7"
 
 
 @pytest.fixture

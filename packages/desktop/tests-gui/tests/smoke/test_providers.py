@@ -10,6 +10,6 @@ import pytest
     reason="GPD_TEST_ANTHROPIC_KEY not set",
 )
 def test_providers_non_empty(http):
-    providers = http.providers()
-    assert isinstance(providers, list)
-    assert len(providers) >= 1, "expected at least one provider when key is set"
+    data = http.providers()
+    assert isinstance(data, dict), f"expected dict shape, got {type(data)}"
+    assert data.get("providers"), f"no providers: {data}"

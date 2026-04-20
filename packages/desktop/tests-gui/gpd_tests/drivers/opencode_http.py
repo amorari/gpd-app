@@ -44,7 +44,7 @@ class HTTPClient:
     def sessions(self) -> list[dict[str, Any]]:
         return self._get("/session")
 
-    def providers(self) -> list[dict[str, Any]]:
+    def providers(self) -> dict[str, Any]:
         return self._get("/config/providers")
 
     def path_info(self) -> dict[str, Any]:
