@@ -1,7 +1,7 @@
 # GPD Distribution System — Complete Reference
 
 **Last updated:** April 16, 2026
-**Status:** Production — versioned to match `get-physics-done` (currently 1.1.0)
+**Status:** Production — versioned to match `get-physics-done`. Latest shipped desktop build: `gpd-desktop-v1.1.0-1` (first desktop redrop against sidecar `1.1.0`).
 
 ---
 

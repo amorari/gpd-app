@@ -55,7 +55,7 @@ gpd-desktop-v<gpd-version>[-<redrop-counter>]
 
 A `1.1.0-1` tag means "first desktop redrop against the `get-physics-done` 1.1.0 sidecar". Use this when you need to re-ship desktop without a new sidecar release.
 
-⚠️ **Caveat on auto-updaters:** the app's internal version in `tauri.conf.json` is not currently rewritten to include the `-N` suffix, so asset filenames still show the base version (`GPD_1.1.0_aarch64.dmg`). Users on `1.1.0` will not auto-update to `1.1.0-1` via Tauri's updater — this is acceptable for redrops because updates require manual download anyway (updater signing is disabled in `tauri.prod.conf.json`).
+⚠️ **Caveat on auto-updaters:** asset filenames DO include the `-N` suffix (`GPD_1.1.0-1_aarch64.dmg`), and the Tauri app's reported version matches the tag. However, per semver, `1.1.0-1` is a *pre-release* of `1.1.0` and so sorts *below* `1.1.0`. Users on `1.1.0` will not auto-update to `1.1.0-1`. This is acceptable in practice because updater signing is disabled in `tauri.prod.conf.json`, so auto-updates don't run regardless — users download manually from the download page. Use a real patch bump (e.g. `1.1.1`) if you need the updater to actually promote the new build.
 
 ---
 
