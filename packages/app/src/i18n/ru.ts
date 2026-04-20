@@ -21,6 +21,7 @@ export const dict = {
   "theme.scheme.light": "Светлая",
   "theme.scheme.dark": "Тёмная",
 
+  "command.navigation.home": "Home",
   "command.sidebar.toggle": "Переключить боковую панель",
   "command.project.open": "Открыть проект",
   "command.provider.connect": "Подключить провайдера",
@@ -600,6 +601,7 @@ export const dict = {
 
   "sidebar.menu.toggle": "Переключить меню",
   "sidebar.nav.projectsAndSessions": "Проекты и сессии",
+  "sidebar.home": "Home",
   "sidebar.settings": "Настройки",
   "sidebar.help": "Помощь",
   "sidebar.workspaces.enable": "Включить рабочие пространства",

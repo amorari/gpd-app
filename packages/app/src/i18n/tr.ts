@@ -25,6 +25,7 @@ export const dict = {
   "theme.scheme.light": "Açık",
   "theme.scheme.dark": "Koyu",
 
+  "command.navigation.home": "Home",
   "command.sidebar.toggle": "Kenar çubuğunu aç/kapat",
   "command.project.open": "Proje aç",
   "command.provider.connect": "Sağlayıcı bağla",
@@ -606,6 +607,7 @@ export const dict = {
 
   "sidebar.menu.toggle": "Menüyü aç/kapat",
   "sidebar.nav.projectsAndSessions": "Projeler ve oturumlar",
+  "sidebar.home": "Home",
   "sidebar.settings": "Ayarlar",
   "sidebar.help": "Yardım",
   "sidebar.workspaces.enable": "Çalışma alanlarını etkinleştir",

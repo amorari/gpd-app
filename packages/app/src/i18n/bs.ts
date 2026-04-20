@@ -21,6 +21,7 @@ export const dict = {
   "theme.scheme.light": "Svijetlo",
   "theme.scheme.dark": "Tamno",
 
+  "command.navigation.home": "Home",
   "command.sidebar.toggle": "Prikaži/sakrij bočnu traku",
   "command.project.open": "Otvori projekat",
   "command.provider.connect": "Poveži provajdera",
@@ -600,6 +601,7 @@ export const dict = {
 
   "sidebar.menu.toggle": "Prikaži/sakrij meni",
   "sidebar.nav.projectsAndSessions": "Projekti i sesije",
+  "sidebar.home": "Home",
   "sidebar.settings": "Postavke",
   "sidebar.help": "Pomoć",
   "sidebar.workspaces.enable": "Omogući radne prostore",

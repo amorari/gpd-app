@@ -25,6 +25,7 @@ export const dict = {
   "theme.scheme.light": "浅色",
   "theme.scheme.dark": "深色",
 
+  "command.navigation.home": "Home",
   "command.sidebar.toggle": "切换侧边栏",
 
   "command.project.open": "打开项目",
@@ -593,6 +594,7 @@ export const dict = {
 
   "sidebar.menu.toggle": "切换菜单",
   "sidebar.nav.projectsAndSessions": "项目和会话",
+  "sidebar.home": "Home",
   "sidebar.settings": "设置",
   "sidebar.help": "帮助",
   "sidebar.workspaces.enable": "启用工作区",

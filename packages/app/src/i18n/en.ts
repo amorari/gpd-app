@@ -27,6 +27,7 @@ export const dict = {
   "theme.scheme.light": "Light",
   "theme.scheme.dark": "Dark",
 
+  "command.navigation.home": "Go to home",
   "command.sidebar.toggle": "Toggle sidebar",
   "command.project.open": "Open project",
   "command.project.previous": "Previous project",
@@ -677,6 +678,7 @@ export const dict = {
   "common.time.hoursAgo.short": "{{count}}h ago",
   "common.time.daysAgo.short": "{{count}}d ago",
 
+  "sidebar.home": "Home",
   "sidebar.menu.toggle": "Toggle menu",
   "sidebar.nav.projectsAndSessions": "Projects and sessions",
   "sidebar.settings": "Settings",

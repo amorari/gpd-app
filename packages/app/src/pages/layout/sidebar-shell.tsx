@@ -25,6 +25,8 @@ export const SidebarContent = (props: {
   openProjectKeybind: Accessor<string | undefined>
   onOpenProject: () => void
   renderProjectOverlay: () => JSX.Element
+  homeLabel: Accessor<string>
+  onGoHome: () => void
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
   onOpenSettings: () => void
@@ -64,6 +66,15 @@ export const SidebarContent = (props: {
             <DragDropSensors />
             <ConstrainDragXAxis />
             <div class="h-full w-full flex flex-col items-center gap-3 px-3 py-3 overflow-y-auto no-scrollbar">
+              <Tooltip placement={placement()} value={props.homeLabel()}>
+                <IconButton
+                  icon="home"
+                  variant="ghost"
+                  size="large"
+                  onClick={props.onGoHome}
+                  aria-label={props.homeLabel()}
+                />
+              </Tooltip>
               <SortableProvider ids={props.projects().map((p) => p.worktree)}>
                 <For each={props.projects()}>{(project) => props.renderProject(project)}</For>
               </SortableProvider>
