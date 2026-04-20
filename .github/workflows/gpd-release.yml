@@ -31,44 +31,68 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      base_version: ${{ steps.version.outputs.base_version }}
       source: ${{ steps.version.outputs.source }}
     steps:
       - id: version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+
           if [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
-            echo "Using manual version: $VERSION"
+            BASE_VERSION="${{ inputs.version }}"
+            SOURCE="manual"
+            echo "Using manual version: $BASE_VERSION"
           else
-            SOURCE="${{ inputs.version_source || 'pypi' }}"
-            echo "Auto-detecting version from: $SOURCE"
+            SOURCE="${{ inputs.version_source || 'github' }}"
+            echo "Auto-detecting GPD version from: $SOURCE"
             case "$SOURCE" in
               pypi)
-                VERSION=$(curl -s https://pypi.org/pypi/get-physics-done/json | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
+                BASE_VERSION=$(curl -s https://pypi.org/pypi/get-physics-done/json | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
                 ;;
               github)
-                VERSION=$(gh api repos/psi-oss/get-physics-done/contents/pyproject.toml --jq '.content' | base64 -d | grep '^version' | head -1 | grep -oP '"\K[^"]+')
+                BASE_VERSION=$(gh api repos/psi-oss/get-physics-done/contents/pyproject.toml --jq '.content' | base64 -d | grep '^version' | head -1 | grep -oP '"\K[^"]+')
                 ;;
               npm)
-                VERSION=$(curl -s https://registry.npmjs.org/get-physics-done | python3 -c "import sys,json; print(json.load(sys.stdin)['dist-tags']['latest'])")
+                BASE_VERSION=$(curl -s https://registry.npmjs.org/get-physics-done | python3 -c "import sys,json; print(json.load(sys.stdin)['dist-tags']['latest'])")
                 ;;
             esac
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "source=${SOURCE:-manual}" >> "$GITHUB_OUTPUT"
-          echo "Resolved GPD version: $VERSION (source: ${SOURCE:-manual})"
+          echo "Base GPD version: $BASE_VERSION"
 
-          TAG="gpd-desktop-v$VERSION"
-          RELEASE_JSON=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" 2>/dev/null || echo '')
-          if [ -n "$RELEASE_JSON" ]; then
-            IS_DRAFT=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['draft'])")
-            if [ "$IS_DRAFT" = "False" ]; then
-              echo "::error::Tag $TAG already exists as a PUBLISHED release. Bump the version in get-physics-done pyproject.toml or pass an explicit 'version' input."
-              exit 1
+          REPO="${{ github.repository }}"
+          CANDIDATE="$BASE_VERSION"
+          for N in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            if [ "$N" -eq 0 ]; then
+              CANDIDATE="$BASE_VERSION"
+            else
+              CANDIDATE="$BASE_VERSION-$N"
             fi
-            echo "::notice::Draft release for $TAG already exists; assets will be added to it."
+            TAG="gpd-desktop-v$CANDIDATE"
+            RJ=$(gh api "repos/$REPO/releases/tags/$TAG" 2>/dev/null || echo '')
+            if [ -z "$RJ" ]; then
+              echo "Tag $TAG does not exist; will create a fresh draft."
+              break
+            fi
+            IS_DRAFT=$(echo "$RJ" | python3 -c "import sys,json; print(json.load(sys.stdin)['draft'])")
+            if [ "$IS_DRAFT" = "True" ]; then
+              echo "Draft release $TAG exists; will add assets to it."
+              break
+            fi
+            echo "Tag $TAG is already published; trying next suffix."
+          done
+
+          if [ "$N" -ge 20 ]; then
+            echo "::error::Exhausted -N suffixes 1..20 for $BASE_VERSION. Bump get-physics-done version."
+            exit 1
           fi
+
+          VERSION="$CANDIDATE"
+          echo "Resolved release version: $VERSION (tag: gpd-desktop-v$VERSION, base: $BASE_VERSION, source: $SOURCE)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
 
   build-cli:
     needs: resolve-version
