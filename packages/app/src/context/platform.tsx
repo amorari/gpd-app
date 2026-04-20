@@ -97,6 +97,20 @@ export type Platform = {
   /** Return the install shell snippet for a tool on Linux (no execution). */
   linuxInstallHint?(tool: string): Promise<string>
 
+  /**
+   * Download and install the Tectonic TeX engine on demand (desktop only).
+   * Resolves with the absolute path to the installed `tectonic` binary.
+   */
+  installTectonic?(): Promise<string>
+
+  /**
+   * Subscribe to Tectonic download progress while `installTectonic()` is in
+   * flight. Returns an unsubscribe callback. Desktop only.
+   */
+  onTectonicDownloadProgress?(
+    cb: (payload: { loaded: number; total: number }) => void,
+  ): Promise<() => void>
+
   /** Copy a string to the system clipboard. */
   writeClipboard?(text: string): Promise<void>
 }

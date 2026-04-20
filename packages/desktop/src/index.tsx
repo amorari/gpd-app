@@ -384,6 +384,12 @@ const createPlatform = (): Platform => {
     installGitMacos: () => commands.installGitMacos(),
     installGitWindows: () => commands.installGitWindows(),
     linuxInstallHint: (tool: string) => commands.linuxInstallHint(tool),
+    installTectonic: () => commands.installTectonic(),
+    onTectonicDownloadProgress: async (cb) => {
+      return events.tectonicDownloadProgress.listen((event) => {
+        cb(event.payload)
+      })
+    },
     writeClipboard: (text: string) => writeText(text),
 
     async readClipboardImage() {

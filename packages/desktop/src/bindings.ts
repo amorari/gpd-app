@@ -22,6 +22,7 @@ export const commands = {
 	installGitMacos: () => __TAURI_INVOKE<InstallResult>("install_git_macos"),
 	installGitWindows: () => __TAURI_INVOKE<InstallResult>("install_git_windows"),
 	linuxInstallHint: (tool: string) => __TAURI_INVOKE<string>("linux_install_hint", { tool }),
+	installTectonic: () => __TAURI_INVOKE<string>("install_tectonic"),
 };
 
 /** Events */
@@ -29,6 +30,7 @@ export const events = {
 	gpdFirstRunComplete: makeEvent<GpdFirstRunComplete>("gpd-first-run-complete"),
 	loadingWindowComplete: makeEvent<LoadingWindowComplete>("loading-window-complete"),
 	sqliteMigrationProgress: makeEvent<SqliteMigrationProgress>("sqlite-migration-progress"),
+	tectonicDownloadProgress: makeEvent<TectonicDownloadProgress>("tectonic-download-progress"),
 };
 
 /* Types */
@@ -69,6 +71,28 @@ export type ServerReadyData = {
 	};
 
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" };
+
+/**
+ * Progress payload emitted under the `tectonic-download-progress` event
+ * while the Tectonic archive is being streamed from GitHub.
+ * 
+ * Fields are typed as `f64` (rather than `u64`) because TypeScript's
+ * `number` is a double and the specta TypeScript exporter forbids
+ * `BigInt`-backed integers by default. Tectonic archives are ~20-30 MB,
+ * which is well inside the safe-integer range for `f64`.
+ */
+export type TectonicDownloadProgress = {
+		
+	/**
+ * Bytes downloaded so far.
+ */
+loaded: number,
+		
+	/**
+ * Total bytes advertised by the server, or 0 if unknown.
+ */
+total: number,
+	};
 
 export type WslConfig = {
 		enabled: boolean,
