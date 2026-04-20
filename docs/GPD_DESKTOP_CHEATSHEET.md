@@ -52,8 +52,8 @@ curl -s -X POST 'https://litellm-production-46bb.up.railway.app/key/generate' \
 ### Repos
 | Repo | Branch | Purpose |
 |------|--------|---------|
-| `psi-oss/opencode` | `gpd` (default) | OpenCode fork with GPD branding + uv setup |
-| `psi-oss/opencode` | `gh-pages` | Download page + install script |
+| `psi-oss/gpd-app` | `gpd` (default) | OpenCode fork with GPD branding + uv setup |
+| `psi-oss/gpd-app` | `gh-pages` | Download page + install script |
 | `psi-oss/get-physics-done` | `main` | GPD Python package (not ours to modify) |
 | `psi-oss/tauri-plugin-mcp` | `main` | Forked MCP plugin (Tauri ^2.9 compat) |
 
@@ -148,9 +148,9 @@ curl -s -X POST https://litellm-production-46bb.up.railway.app/v1/chat/completio
 
 ### Trigger Release Build
 ```bash
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd
 # Monitor:
-gh run list --repo psi-oss/opencode --workflow gpd-release.yml --limit 3
+gh run list --repo psi-oss/gpd-app --workflow gpd-release.yml --limit 3
 ```
 
 ### Install from Release (Clean Test)
@@ -163,7 +163,7 @@ rm -rf ~/.config/gpd ~/Library/WebKit/inc.psi.gpd*
 
 # Download and install
 cd /tmp && curl -sL -o GPD_aarch64.app.tar.gz \
-  "https://github.com/psi-oss/opencode/releases/download/gpd-desktop-v1.1.0/GPD_aarch64.app.tar.gz" && \
+  "https://github.com/psi-oss/gpd-app/releases/download/gpd-desktop-v1.1.0/GPD_aarch64.app.tar.gz" && \
   tar xzf GPD_aarch64.app.tar.gz && \
   rm -rf /Applications/GPD.app && \
   mv GPD.app /Applications/ && \
@@ -179,7 +179,7 @@ rm -rf ~/.gpd && curl -fsSL https://download.gpd.psi.inc/install | bash
 ### Update Download Page
 ```bash
 cd /tmp && rm -rf gpd-gh-pages && \
-  git clone --branch gh-pages --single-branch https://github.com/psi-oss/opencode.git gpd-gh-pages && \
+  git clone --branch gh-pages --single-branch https://github.com/psi-oss/gpd-app.git gpd-gh-pages && \
   cd gpd-gh-pages && \
   # Edit files... then:
   git add -A && git commit -m "Update" && git push origin gh-pages
@@ -222,7 +222,7 @@ LiteLLM Proxy (Railway)
 ├── Admin UI at /ui
 └── Stock image (no custom callbacks)
 
-GitHub (psi-oss/opencode)
+GitHub (psi-oss/gpd-app)
 ├── gpd branch — OpenCode fork with all GPD changes
 ├── gh-pages branch — download page + install script
 └── Releases — desktop app builds (draft → publish flow)

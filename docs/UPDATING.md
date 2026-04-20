@@ -13,9 +13,9 @@ After:   v1.5.0 → [GPD commit rebased]
 
 ```bash
 # One-time setup: add upstream remote
-cd gpd-opencode-fresh  # or wherever you cloned psi-oss/opencode
+cd gpd-opencode-fresh  # or wherever you cloned psi-oss/gpd-app
 git remote add upstream https://github.com/anomalyco/opencode.git
-git remote add psi-oss https://github.com/psi-oss/opencode.git
+git remote add psi-oss https://github.com/psi-oss/gpd-app.git
 ```
 
 ## Step-by-Step Rebase
@@ -100,16 +100,16 @@ git push psi-oss gpd --force-with-lease
 
 ```bash
 # Typical case — version auto-detected from get-physics-done
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd
 
 # Explicit override
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version=<NEW_VERSION>
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd -f version=<NEW_VERSION>
 ```
 
 This creates a **draft** release. Inspect it, then publish:
 
 ```bash
-gh workflow run gpd-publish-draft.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-publish-draft.yml --repo psi-oss/gpd-app --ref gpd
 ```
 
 Full release workflow reference: `docs/RELEASING.md`.

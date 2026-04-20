@@ -35,8 +35,8 @@ Upstream Providers (PSI's API keys — never exposed)
 
 | Repo | Branch | What |
 |------|--------|------|
-| `psi-oss/opencode` | `gpd` (default) | OpenCode fork with GPD branding, welcome screen, provider config |
-| `psi-oss/opencode` | `gh-pages` | Download page at `download.gpd.psi.inc` |
+| `psi-oss/gpd-app` | `gpd` (default) | OpenCode fork with GPD branding, welcome screen, provider config |
+| `psi-oss/gpd-app` | `gh-pages` | Download page at `download.gpd.psi.inc` |
 | `psi-oss/get-physics-done` | `main` | GPD Python package — MCP servers, commands, agents. **Version source for desktop app.** |
 
 ---
@@ -56,10 +56,10 @@ The CI release workflow auto-detects the version. Default source: **GitHub** (re
 **Triggering a release:**
 ```bash
 # Auto-detect version from GitHub (default) — creates/updates a DRAFT release
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd
 
 # Publish the draft when ready
-gh workflow run gpd-publish-draft.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-publish-draft.yml --repo psi-oss/gpd-app --ref gpd
 ```
 
 All releases start as drafts; assets upload per-platform as each matrix job finishes. If the resolved tag collides with an already-published release, the version auto-increments as `<base>-1`, `<base>-2`, … so redrops against the same sidecar version don't overwrite published assets.
@@ -264,7 +264,7 @@ git rebase --onto v1.5.0 v1.4.6 gpd
 git push psi-oss gpd --force
 
 # 6. Trigger release
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd
 # Version auto-detected from get-physics-done. Override with: -f version=X.Y.Z
 ```
 
@@ -274,7 +274,7 @@ gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd
 
 **After rebase:**
 1. Run `cargo check` in `packages/desktop/src-tauri/` to verify Rust compiles
-2. Trigger release: `gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version=<VERSION>`
+2. Trigger release: `gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd -f version=<VERSION>`
 3. Download page auto-updates
 
 **Branch structure:**
@@ -357,7 +357,7 @@ curl -fsSL https://download.gpd.psi.inc/install.sh | bash
    - Same binary that's inside the desktop app (`opencode-cli` sidecar)
    - Detect OS/arch (macOS ARM/Intel, Linux x64/ARM)
    - Install to `~/.gpd/bin/opencode`
-   - This is a fork of OpenCode's install script (`https://opencode.ai/install`) with the download URL changed to `psi-oss/opencode` releases
+   - This is a fork of OpenCode's install script (`https://opencode.ai/install`) with the download URL changed to `psi-oss/gpd-app` releases
 
 2. **Check for Python 3.11+**
    - Required for GPD's MCP servers
@@ -413,7 +413,7 @@ curl -fsSL https://download.gpd.psi.inc/install.sh | bash
 ### Implementation notes
 
 - Fork OpenCode's install script at `https://opencode.ai/install` (~200 lines of bash)
-- Change the download URL from `github.com/anomalyco/opencode/releases` to `github.com/psi-oss/opencode/releases`
+- Change the download URL from `github.com/anomalyco/opencode/releases` to `github.com/psi-oss/gpd-app/releases`
 - Change branding strings ("OpenCode" → "GPD")
 - Add the GPD-specific steps (3-7) after the binary install
 - Host at `download.gpd.psi.inc/install.sh` (add to gh-pages branch)
@@ -455,7 +455,7 @@ curl -fsSL https://download.gpd.psi.inc/install.sh | bash
 | Add new models | When providers release | LiteLLM API + `gpd_setup.rs` update |
 | Rebase on new OpenCode | When upstream releases a new tag | See `docs/UPDATING.md` |
 | Update LiteLLM | Monthly | Railway redeploy |
-| Release new GPD desktop version | When `get-physics-done` updates | `gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd` (auto-detects version) |
+| Release new GPD desktop version | When `get-physics-done` updates | `gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd` (auto-detects version) |
 
 ---
 

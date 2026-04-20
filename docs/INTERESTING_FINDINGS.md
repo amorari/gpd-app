@@ -9,7 +9,7 @@
 ## Branding: Error/help links point to opencode.ai — RESOLVED
 **Found in:** Pre-iteration baseline audit
 **Severity:** ~~Medium~~ None (resolved)
-**Description:** Fixed — both URLs in error.tsx and layout.tsx now point to github.com/psi-oss/opencode/issues.
+**Description:** Fixed — both URLs in error.tsx and layout.tsx now point to github.com/psi-oss/gpd-app/issues.
 **Action:** RESOLVED.
 
 ## Branding: "opencode.json" in user-facing error messages — RESOLVED

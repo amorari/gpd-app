@@ -1,15 +1,15 @@
 # Releasing GPD Desktop
 
-How to cut, inspect, and publish GPD Desktop releases on `psi-oss/opencode`.
+How to cut, inspect, and publish GPD Desktop releases on `psi-oss/gpd-app`.
 
 ## TL;DR
 
 ```bash
 # 1. Cut a draft (reads get-physics-done version from GitHub by default)
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd
 
 # 2. When you're satisfied with the draft, publish it
-gh workflow run gpd-publish-draft.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-publish-draft.yml --repo psi-oss/gpd-app --ref gpd
 ```
 
 Builds are uploaded to the draft release **as each platform finishes**, so mac-intel / mac-arm binaries appear first (~6 min), linux next (~8 min), Windows last (~15 min). You can download them from the draft page while the rest are still building.
@@ -18,7 +18,7 @@ Builds are uploaded to the draft release **as each platform finishes**, so mac-i
 
 ## Repo refresher
 
-- Default branch on `psi-oss/opencode` is `gpd`, not `main`. When you see `git push origin gpd`, that's the equivalent of pushing to `main` on a normal repo — it's where we work.
+- Default branch on `psi-oss/gpd-app` is `gpd`, not `main`. When you see `git push origin gpd`, that's the equivalent of pushing to `main` on a normal repo — it's where we work.
 - `main` on the fork tracks upstream and is not touched during day-to-day work.
 - `gh-pages` is the download page and is updated automatically by the `gpd-download-page.yml` workflow on `release:published`.
 
@@ -69,14 +69,14 @@ gpd-desktop-v<desktop-version>[-<redrop-counter>]
 ### Standard case — release matches get-physics-done
 
 ```bash
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd
 ```
 
 Watch it:
 
 ```bash
-RUN_ID=$(gh run list --repo psi-oss/opencode --workflow gpd-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
-gh run watch $RUN_ID --repo psi-oss/opencode
+RUN_ID=$(gh run list --repo psi-oss/gpd-app --workflow gpd-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch $RUN_ID --repo psi-oss/gpd-app
 ```
 
 ### Desktop-only patch — keeps same sidecar, needs to reach existing installs
@@ -84,7 +84,7 @@ gh run watch $RUN_ID --repo psi-oss/opencode
 Pick the next desktop patch version explicitly so the auto-updater promotes it:
 
 ```bash
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version=1.1.1
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd -f version=1.1.1
 ```
 
 The release body will still say "Bundled sidecar: get-physics-done v1.1.0" (whatever the sidecar is at build time).
@@ -96,7 +96,7 @@ Just re-run the workflow with no input. The collision handler picks the next `-N
 ### Explicit version override (general case)
 
 ```bash
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version=1.2.0
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd -f version=1.2.0
 ```
 
 Use this whenever the desktop version is intentionally diverging from the sidecar.
@@ -104,7 +104,7 @@ Use this whenever the desktop version is intentionally diverging from the sideca
 ### Reading from PyPI instead of GitHub
 
 ```bash
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version_source=pypi
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd -f version_source=pypi
 ```
 
 Useful when `main` in `get-physics-done` is ahead of what's published to PyPI and you want the release to match the sidecar users actually install.
@@ -117,7 +117,7 @@ Each build-desktop matrix job uploads directly to the draft as it completes, so 
 
 ```bash
 # Which assets are live on the draft right now?
-gh api repos/psi-oss/opencode/releases --jq \
+gh api repos/psi-oss/gpd-app/releases --jq \
   '.[] | select(.draft == true and (.tag_name | startswith("gpd-desktop-v"))) | {tag_name, assets: [.assets[].name]}'
 ```
 
@@ -142,14 +142,14 @@ When the draft looks good, flip it to published:
 
 ```bash
 # Newest gpd-desktop-v* draft (most common)
-gh workflow run gpd-publish-draft.yml --repo psi-oss/opencode --ref gpd
+gh workflow run gpd-publish-draft.yml --repo psi-oss/gpd-app --ref gpd
 
 # Specific tag
-gh workflow run gpd-publish-draft.yml --repo psi-oss/opencode --ref gpd \
+gh workflow run gpd-publish-draft.yml --repo psi-oss/gpd-app --ref gpd \
   -f tag=gpd-desktop-v1.1.0-1
 
 # Don't mark as 'latest' (rare — for test/pre-release drops)
-gh workflow run gpd-publish-draft.yml --repo psi-oss/opencode --ref gpd \
+gh workflow run gpd-publish-draft.yml --repo psi-oss/gpd-app --ref gpd \
   -f mark_latest=false
 ```
 
@@ -200,7 +200,7 @@ Let the release finish with only three platforms — the draft will have Mac + L
 Check `psi-oss/get-physics-done@main` — its `pyproject.toml` version is probably stale. Bump to the next real version and re-run.
 
 **Download page didn't update after publishing**
-Check `gpd-download-page.yml` in the Actions tab. It runs on `release:published` events only — if you unpublished and republished, or modified the release via the UI, the event may not have fired. Manually trigger it: `gh workflow run gpd-download-page.yml --repo psi-oss/opencode --ref gpd`.
+Check `gpd-download-page.yml` in the Actions tab. It runs on `release:published` events only — if you unpublished and republished, or modified the release via the UI, the event may not have fired. Manually trigger it: `gh workflow run gpd-download-page.yml --repo psi-oss/gpd-app --ref gpd`.
 
 ---
 

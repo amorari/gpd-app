@@ -1,7 +1,7 @@
 # GPD Installer — Status & Follow-up Tasks
 
 **Last updated**: 2026-04-16
-**Branch**: `gpd` on `psi-oss/opencode`
+**Branch**: `gpd` on `psi-oss/gpd-app`
 **Commit**: `88fa669f1` — "Add GPD CLI installers for Ubuntu, macOS, and Windows"
 
 ## Completed
@@ -40,7 +40,7 @@ Verify: OpenCode runs, `gpd` command works, Python venv has get-physics-done, li
 
 ### 2. CI Workflow for GPD CLI Binary Releases (HIGH PRIORITY)
 
-**Problem**: The GPD fork (`psi-oss/opencode`, `gpd` branch) only publishes desktop app assets (.deb, .dmg, .exe) — no standalone CLI binaries. The installers currently fall back to upstream `anomalyco/opencode` CLI binaries.
+**Problem**: The GPD fork (`psi-oss/gpd-app`, `gpd` branch) only publishes desktop app assets (.deb, .dmg, .exe) — no standalone CLI binaries. The installers currently fall back to upstream `anomalyco/opencode` CLI binaries.
 
 **Needed**: A GitHub Actions workflow that builds and publishes CLI binaries (`opencode-{linux|darwin|windows}-{x64|arm64}.{tar.gz|zip}`) from the GPD fork. This ensures users get the GPD-patched version of OpenCode, not upstream.
 
@@ -87,7 +87,7 @@ install-gpd/
 
 **Install directory**: `~/.gpd/` on all platforms
 
-**OpenCode binary fallback**: Tries `psi-oss/opencode` releases first, falls back to `anomalyco/opencode` if no CLI binary found.
+**OpenCode binary fallback**: Tries `psi-oss/gpd-app` releases first, falls back to `anomalyco/opencode` if no CLI binary found.
 
 **Python strategy**: Uses system Python if >= 3.11, otherwise downloads portable build from astral-sh/python-build-standalone.
 

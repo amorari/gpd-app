@@ -32,8 +32,8 @@
 - `packages/ui/src/theme/context.tsx:69` — Theme display name "OpenCode" → "GPD"
 - `packages/ui/src/theme/desktop-theme.schema.json` — Title/description "OpenCode" → "GPD"
 - `packages/ui/src/theme/themes/opencode.json` — Theme name "OpenCode" → "GPD"
-- `packages/app/src/pages/error.tsx:304` — Feedback URL opencode.ai → github.com/psi-oss/opencode/issues
-- `packages/app/src/pages/layout.tsx:2358` — Feedback URL opencode.ai → github.com/psi-oss/opencode/issues
+- `packages/app/src/pages/error.tsx:304` — Feedback URL opencode.ai → github.com/psi-oss/gpd-app/issues
+- `packages/app/src/pages/layout.tsx:2358` — Feedback URL opencode.ai → github.com/psi-oss/gpd-app/issues
 **Bugs fixed:**
 - 70 "OpenCode" references across 14 non-English locale files → all replaced with "GPD" with proper grammar in each language
 - "CLI binary" jargon in sidecarMissing error → replaced with "application"/"aplicación"/"Anwendung"/etc in each language
