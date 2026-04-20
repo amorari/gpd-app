@@ -109,6 +109,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     let run: Promise<void> | undefined
     let started = false
     const HEARTBEAT_TIMEOUT_MS = 15_000
+    const RESUME_STALE_THRESHOLD_MS = 60_000
     let lastEventAt = Date.now()
     let heartbeat: ReturnType<typeof setTimeout> | undefined
     const resetHeartbeat = () => {
@@ -214,9 +215,15 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
 
     onMount(() => {
       makeEventListener(document, "visibilitychange", () => {
-        if (document.visibilityState !== "visible") return
+        if (document.visibilityState === "hidden") {
+          clearHeartbeat()
+          return
+        }
         if (!started) return
-        if (Date.now() - lastEventAt < HEARTBEAT_TIMEOUT_MS) return
+        if (Date.now() - lastEventAt < RESUME_STALE_THRESHOLD_MS) {
+          resetHeartbeat()
+          return
+        }
         attempt?.abort()
       })
     })
