@@ -945,7 +945,6 @@ export const dict = {
   "gpd.firstRun.toast.title": "GPD installed files to ~/.config/gpd/",
   "gpd.firstRun.toast.description": "Physics tools, agents, and config are stored in ~/.config/gpd/. Per-project plans are stored in .opencode/ inside each project folder. Your research files remain where you put them.",
 
-} satisfies Partial<Record<Keys, string>>
   "dock.gpdSkills": "GPD Skills",
   "gpdSkills.dialog.title": "GPD Skills",
   "gpdSkills.dialog.description": "Browse GPD research commands by category. Select one to insert it into the prompt.",
