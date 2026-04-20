@@ -4,34 +4,38 @@ Platform-specific installers that set up the complete GPD terminal environment f
 
 ## Quick Start
 
-### Unified installer (Ubuntu + macOS)
+### Ubuntu / macOS (recommended)
 
 ```bash
-curl -fsSL https://download.gpd.psi.inc/install | bash
+bash <(curl -fsSL https://download.gpd.psi.inc/install)
 ```
 
-Or run locally:
+This uses process substitution so interactive prompts (sudo password, PSI
+key) work normally. On Ubuntu it installs the GPD desktop `.deb` (GUI +
+CLI); on other Linux and macOS it installs the standalone CLI.
+
+For fully non-interactive installs, preset the key and pipe:
 
 ```bash
-bash install
+curl -fsSL https://download.gpd.psi.inc/install | GPD_API_KEY=sk-... bash
 ```
 
-Options: `--skip-key` (skip LiteLLM prompt), `--no-modify-path`, `--version 1.0.180`.
-
-### Platform-specific installers
-
-```bash
-# Ubuntu 24.04+ (installs .deb desktop app if available)
-bash ubuntu_24_04/install.sh
-
-# macOS (Tahoe / Apple Silicon + Intel)
-bash macos_26_tahoe/install.sh
-```
+Options: `--skip-key`, `--no-modify-path`, `--version 1.0.180`.
 
 ### Windows 11
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File windows_11\install.ps1
+irm https://download.gpd.psi.inc/install.ps1 | iex
+```
+
+### Platform-specific installers (advanced)
+
+The unified `install` handles most cases. Use the platform-specific
+scripts only if you're developing on the installers themselves:
+
+```bash
+bash ubuntu_24_04/install.sh      # Ubuntu, sources common.sh
+bash macos_26_tahoe/install.sh    # macOS, sources common.sh
 ```
 
 ## What Gets Installed
@@ -41,12 +45,18 @@ All files are installed to `~/.gpd/` (or `$HOME\.gpd\` on Windows):
 ```
 ~/.gpd/
 ├── bin/
-│   ├── opencode      # OpenCode CLI binary
+│   ├── opencode      # OpenCode CLI binary (or symlink to /usr/bin/opencode-cli on Ubuntu)
 │   └── gpd           # Wrapper script (+ gpd.cmd on Windows)
 ├── python/           # App-local Python 3.13 (only if system Python < 3.11)
 ├── venv/             # Python venv with get-physics-done package
 └── config/
-    └── litellm.env   # LiteLLM API key (user-only permissions)
+    └── litellm.env   # PSI API key (user-only permissions)
+```
+
+On Ubuntu, the GPD desktop app is installed system-wide via `.deb`:
+```
+/usr/bin/GPD             # Desktop app (launched from menu)
+/usr/bin/opencode-cli    # CLI (symlinked into ~/.gpd/bin/opencode)
 ```
 
 ## Prerequisites
@@ -61,17 +71,18 @@ No Python required -- the installer downloads a standalone build if system Pytho
 
 Each installer performs these steps:
 
-1. **OpenCode CLI** -- Downloads the binary from GitHub releases (tries GPD fork first, falls back to upstream)
+1. **OpenCode CLI** -- On Ubuntu, installs the GPD desktop `.deb` (GUI + CLI). Elsewhere, downloads the standalone CLI binary from GitHub releases.
 2. **Python 3.11+** -- Checks for system Python; if missing or too old, downloads a portable build from [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
 3. **GPD package** -- Creates a Python venv and installs `get-physics-done` from GitHub
-4. **LiteLLM key** -- Prompts for your virtual key (get it from your lab administrator)
-5. **`gpd` command** -- Creates a wrapper script that launches OpenCode with GPD configuration
-6. **PATH** -- Adds `~/.gpd/bin` to your shell PATH
-7. **GPD runtime** -- Configures OpenCode with GPD settings (`gpd install opencode --global`)
+4. **LaTeX tools** -- Installs pdflatex, bibtex, latexmk, kpsewhich for physics paper compilation (via apt on Linux, BasicTeX on macOS, MiKTeX on Windows). Warns and skips if the platform package manager is unavailable.
+5. **PSI key** -- Prompts for your virtual key (get it from your lab administrator), or reads `GPD_API_KEY` env var for non-interactive installs
+6. **`gpd` command** -- Creates a wrapper script that launches OpenCode with GPD configuration
+7. **PATH** -- Adds `~/.gpd/bin` to your shell PATH
+8. **GPD runtime** -- Configures OpenCode with GPD settings (`gpd install opencode --global`)
 
 ## Configuration
 
-### LiteLLM Key
+### PSI Key
 
 The installer prompts for your key during setup. To change it later:
 
@@ -82,7 +93,7 @@ nano ~/.gpd/config/litellm.env
 
 The file contains:
 ```
-LITELLM_API_KEY=sk-your-key-here
+GPD_API_KEY=sk-your-key-here
 LITELLM_API_BASE=https://litellm-production-46bb.up.railway.app
 ```
 
@@ -150,8 +161,8 @@ The installer tries to download from GitHub releases. Check that you have networ
 ### "gpd: command not found" after install
 Open a new terminal, or run `source ~/.bashrc` (or `source ~/.zshrc` on macOS).
 
-### Re-configuring LiteLLM key
-Edit `~/.gpd/config/litellm.env` directly, or delete it and re-run the installer.
+### Re-configuring the PSI key
+Edit `~/.gpd/config/litellm.env` directly (set `GPD_API_KEY=sk-...`), or delete it and re-run the installer.
 
 ## Future: GUI Installers
 
