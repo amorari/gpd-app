@@ -49,10 +49,10 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
 // Vite tree-shakes this whole block in release builds via the __GPD_TAURI_DEBUG__
 // define set in vite.config.ts — import.meta.env.DEV is unreliable here because
 // `tauri build --debug` still runs a production Vite build.
-declare const __GPD_TAURI_DEBUG__: boolean
-if (__GPD_TAURI_DEBUG__) {
+declare const __GPD_TAURI_DEBUG__: boolean | undefined
+if (typeof __GPD_TAURI_DEBUG__ !== "undefined" && __GPD_TAURI_DEBUG__) {
   const mcp = await import("./vendor/tauri-plugin-mcp")
-  void mcp.setupPluginListeners()
+  await mcp.setupPluginListeners()
 }
 
 void initI18n()
