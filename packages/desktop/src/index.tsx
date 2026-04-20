@@ -384,6 +384,7 @@ const createPlatform = (): Platform => {
     installGitMacos: () => commands.installGitMacos(),
     installGitWindows: () => commands.installGitWindows(),
     linuxInstallHint: (tool: string) => commands.linuxInstallHint(tool),
+    repairGpdVenv: () => commands.repairGpdVenv().then(() => undefined),
     writeClipboard: (text: string) => writeText(text),
 
     async readClipboardImage() {

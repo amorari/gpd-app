@@ -22,6 +22,7 @@ export const commands = {
 	installGitMacos: () => __TAURI_INVOKE<InstallResult>("install_git_macos"),
 	installGitWindows: () => __TAURI_INVOKE<InstallResult>("install_git_windows"),
 	linuxInstallHint: (tool: string) => __TAURI_INVOKE<string>("linux_install_hint", { tool }),
+	repairGpdVenv: () => __TAURI_INVOKE<null>("repair_gpd_venv"),
 };
 
 /** Events */

@@ -1014,6 +1014,11 @@ export const dict = {
   "settings.dependencies.toast.installLaunched": "Launched installer for {{tool}}",
   "settings.dependencies.toast.installFailed": "Failed to launch installer for {{tool}}",
   "settings.dependencies.toast.copied": "Command copied to clipboard",
+  "settings.dependencies.repairPython": "Repair Python environment",
+  "settings.dependencies.repairing": "Repairing...",
+  "settings.dependencies.toast.repairStarted": "Rebuilding GPD Python environment — this may take a minute.",
+  "settings.dependencies.toast.repairDone": "GPD Python environment repaired successfully.",
+  "settings.dependencies.toast.repairFailed": "Repair failed: {{error}}",
 
   "gpd.firstRun.toast.title": "GPD installed files to ~/.config/gpd/",
   "gpd.firstRun.toast.description": "Physics tools, agents, and config are stored in ~/.config/gpd/. Per-project plans are stored in .opencode/ inside each project folder. Your research files remain where you put them.",
