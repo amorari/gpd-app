@@ -9,18 +9,85 @@ import pytest
 
 from gpd_tests.helpers.navigator import route_session
 
+_LSREGISTER = (
+    "/System/Library/Frameworks/CoreServices.framework"
+    "/Frameworks/LaunchServices.framework/Support/lsregister"
+)
+
+
+def _installed_release_paths() -> list[Path]:
+    """Return existing GPD.app release install locations."""
+    candidates = [
+        Path("/Applications/GPD.app"),
+        Path.home() / "Applications" / "GPD.app",
+    ]
+    return [p for p in candidates if p.exists()]
+
+
+def _schemes_registered_for_gpd() -> set[str] | None:
+    """Query lsregister for URL schemes claimed by any GPD bundle.
+
+    Returns a set of bundle IDs that claim 'gpd' as a URL scheme, or None
+    if lsregister is unavailable or the output cannot be parsed.
+    """
+    lsr_path = Path(_LSREGISTER)
+    if not lsr_path.exists():
+        return None
+    try:
+        result = subprocess.run(
+            [str(lsr_path), "-dump"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+    bundle_ids: set[str] = set()
+    current_bundle: str | None = None
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        # lsregister -dump groups entries; bundle id lines look like:
+        #   bundle id:    inc.psi.gpd
+        if stripped.startswith("bundle id:"):
+            current_bundle = stripped.split(":", 1)[1].strip()
+        # URL scheme lines look like:
+        #   url schemes:  gpd
+        elif stripped.startswith("url schemes:") and current_bundle:
+            schemes_text = stripped.split(":", 1)[1].strip()
+            schemes = [s.strip() for s in schemes_text.split(",")]
+            if "gpd" in schemes:
+                bundle_ids.add(current_bundle)
+    return bundle_ids if bundle_ids else None
+
 
 def _scheme_ambiguity() -> str | None:
     """Return a skip reason if `gpd://` is plausibly registered to multiple
     bundle ids, otherwise None.
 
-    Heuristic: if /Applications/GPD.app exists (release bundle id
-    inc.psi.gpd) AND the currently-running GPD is launched from a
-    different path (e.g. debug build under src-tauri/target), both apps
-    claim the scheme and macOS dispatch is ambiguous.
+    Primary check: query lsregister for actual URL scheme registration.
+    Fallback heuristic: if a release GPD.app exists in /Applications or
+    ~/Applications AND the running GPD is a dev build, both may claim the
+    scheme and macOS dispatch is ambiguous.
     """
-    release_installed = Path("/Applications/GPD.app").exists()
-    if not release_installed:
+    # --- Primary: lsregister-based check ---
+    registered_bundles = _schemes_registered_for_gpd()
+    if registered_bundles is not None and len(registered_bundles) > 1:
+        return (
+            f"gpd:// scheme is registered by multiple bundle ids "
+            f"({', '.join(sorted(registered_bundles))}); "
+            "macOS dispatch is non-deterministic here. Run against a "
+            "single registered bundle id."
+        )
+    if registered_bundles is not None:
+        # lsregister gave a definitive answer (0 or 1 claimant) — no need
+        # for the fallback heuristic.
+        return None
+
+    # --- Fallback heuristic (lsregister unavailable) ---
+    release_paths = _installed_release_paths()
+    if not release_paths:
         return None
 
     # Use `ps -eo command` to get full command-line paths of all processes.
@@ -42,8 +109,9 @@ def _scheme_ambiguity() -> str | None:
         for p in running_paths
     )
     if dev_build_running:
+        locations = ", ".join(str(p) for p in release_paths)
         return (
-            "gpd:// scheme is claimed by both /Applications/GPD.app "
+            f"gpd:// scheme is claimed by both {locations} "
             "(inc.psi.gpd) and the running dev build (inc.psi.gpd.dev); "
             "macOS dispatch is non-deterministic here. Run against a "
             "single registered bundle id."
