@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gpd_tests.pages.onboarding import Onboarding, SENTINEL
+from gpd_tests.pages.onboarding import Onboarding, sentinel_path
 
 
 DESTRUCTIVE = os.environ.get("PYTEST_RUN_DESTRUCTIVE_FLOWS") == "1"
@@ -25,7 +25,7 @@ def test_first_run_paste_key_reach_home(
 ):
     # Precondition: fresh_app + clean_onboarding_state ensure GPD restarted
     # with sentinel absent and auth.json removed.
-    assert not SENTINEL.exists(), (
+    assert not sentinel_path().exists(), (
         "tier-2 reset did not remove the sentinel — "
         "scripts/reset.py may have drifted from the spec"
     )
@@ -40,5 +40,5 @@ def test_first_run_paste_key_reach_home(
     onboarding.wait_for_home(timeout_s=30.0)
 
     # Post-condition: sentinel present, auth.json populated.
-    assert SENTINEL.exists(), "sentinel not created after onboarding"
+    assert sentinel_path().exists(), "sentinel not created after onboarding"
     assert clean_onboarding_state.exists(), "auth.json not created after onboarding"
