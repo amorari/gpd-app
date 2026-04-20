@@ -28,14 +28,13 @@ Options: `--skip-key`, `--no-modify-path`, `--version 1.0.180`.
 irm https://download.gpd.psi.inc/install.ps1 | iex
 ```
 
-### Platform-specific installers (advanced)
+### Local testing (developers only)
 
-The unified `install` handles most cases. Use the platform-specific
-scripts only if you're developing on the installers themselves:
+If you're editing the installer itself, test from a local clone:
 
 ```bash
-bash ubuntu_24_04/install.sh      # Ubuntu, sources common.sh
-bash macos_26_tahoe/install.sh    # macOS, sources common.sh
+bash install                              # Run local version
+GPD_API_KEY=sk-test bash install          # Non-interactive
 ```
 
 ## What Gets Installed
@@ -101,7 +100,7 @@ LITELLM_API_BASE=https://litellm-production-46bb.up.railway.app
 Set `GPD_HOME` before running the installer:
 
 ```bash
-GPD_HOME=/opt/gpd bash install/ubuntu_24_04/install.sh
+GPD_HOME=/opt/gpd bash install
 ```
 
 ## Re-running the Installer
@@ -133,18 +132,16 @@ Remove-Item -Recurse -Force "$HOME\.gpd"
 
 ```
 install-gpd/
-├── install                       # Unified installer (Ubuntu + macOS)
-├── uninstall.sh                  # Uninstaller (all platforms except Windows)
-├── common.sh                     # Shared bash functions (Ubuntu + macOS)
-├── ubuntu_24_04/
-│   └── install.sh                # Ubuntu installer (adds .deb support)
-├── macos_26_tahoe/
-│   └── install.sh                # macOS installer
+├── install                       # Unified installer (Ubuntu + macOS + other Linux)
+├── uninstall.sh                  # Uninstaller (Linux + macOS)
 └── windows_11/
     └── install.ps1               # Windows PowerShell installer
 ```
 
-`install` is a self-contained unified installer (no dependency on `common.sh`) suitable for piping from curl. The platform-specific scripts source `common.sh` and add OS-specific setup. The Windows installer is standalone PowerShell.
+`install` is a self-contained script suitable for piping from curl. It detects
+the platform at runtime, installs the GPD desktop `.deb` on Debian/Ubuntu (or
+the standalone CLI elsewhere), and auto-installs missing system deps via apt
+where available. The Windows installer is standalone PowerShell.
 
 ## Troubleshooting
 

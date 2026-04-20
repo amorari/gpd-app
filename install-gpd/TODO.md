@@ -28,6 +28,35 @@ Scripts have not been tested on actual fresh installs (no VM was available). Thi
 
 ## Follow-up Tasks
 
+### 0. Set up `download.gpd.psi.inc` (BLOCKER for launch)
+
+The README's quick-start one-liner points at `https://download.gpd.psi.inc/install`,
+which does not resolve. Options:
+
+- **Redirect** — create a CNAME/redirect from `download.gpd.psi.inc/install` to
+  `raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/install` (and similarly
+  for `install.ps1`). Simplest, no hosting needed.
+- **Self-host** — put the installer on a static bucket (S3, Cloudflare Pages) and
+  update on each release. More control, versioning.
+
+Until this is done, users must use the GitHub raw URL directly, which leaks
+the internal repo layout.
+
+### 0.5. Test on macOS (HIGH PRIORITY — no VM available)
+
+The macOS installer (`macos_26_tahoe/install.sh`) and the macOS branch of the
+unified `install` have not been tested end-to-end. The new LaTeX install step
+(`brew install --cask basictex` + `/Library/TeX/texbin/tlmgr install latexmk`)
+has no test coverage at all. Options:
+
+- Borrow a physical Mac (Apple Silicon + Intel if possible)
+- Use a GitHub Actions macOS runner for automated testing
+- Cloud Mac service (MacStadium, AWS EC2 Mac)
+
+Should verify: Homebrew guard works when brew is absent, BasicTeX install
+succeeds, tlmgr path works even when `/Library/TeX/texbin` isn't on PATH for
+the current shell.
+
 ### 1. Test on Fresh Installs (HIGH PRIORITY)
 
 Test each installer on a clean machine/VM:

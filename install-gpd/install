@@ -131,19 +131,43 @@ detect_platform() {
 # ── Prerequisites ─────────────────────────────────────────────────────────
 
 check_prerequisites() {
-    for cmd in curl tar git; do
-        command -v "$cmd" &>/dev/null || die "'$cmd' is required but not installed."
-    done
-    if [[ "$os" == "darwin" ]]; then
-        command -v unzip &>/dev/null || die "'unzip' is required. Run: xcode-select --install"
-    fi
-    if [[ "$os" == "linux" ]]; then
-        # Ensure python3-venv is available (needed for venv creation on Debian/Ubuntu)
-        if command -v dpkg &>/dev/null && ! dpkg -l python3-venv &>/dev/null 2>&1; then
-            if command -v apt-get &>/dev/null; then
-                log "Installing python3-venv..."
-                sudo apt-get install -y -qq python3-venv 2>/dev/null || true
+    # curl is needed to bootstrap — can't auto-install since we need it to
+    # fetch the installer in the first place
+    command -v curl &>/dev/null || die "'curl' is required but not installed."
+
+    if [[ "$os" == "linux" ]] && command -v apt-get &>/dev/null; then
+        # Collect missing tools and install them in a single apt transaction
+        local missing=()
+        for cmd in tar unzip git; do
+            command -v "$cmd" &>/dev/null || missing+=("$cmd")
+        done
+
+        # python3-venv: test actual venv creation (--help can exit 0 even
+        # when ensurepip is missing), use version-specific package name
+        if command -v python3 &>/dev/null; then
+            local test_venv
+            test_venv="$(mktemp -d)"
+            if ! python3 -m venv "$test_venv" &>/dev/null; then
+                local pyver
+                pyver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+                missing+=("python${pyver}-venv")
             fi
+            rm -rf "$test_venv"
+        fi
+
+        if (( ${#missing[@]} > 0 )); then
+            log "Installing system dependencies: ${missing[*]}"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq "${missing[@]}" || \
+                die "Failed to install system deps: ${missing[*]}"
+        fi
+    else
+        # Non-Debian Linux or macOS: can't auto-install, just check + die
+        for cmd in tar git; do
+            command -v "$cmd" &>/dev/null || die "'$cmd' is required but not installed."
+        done
+        if [[ "$os" == "darwin" ]]; then
+            command -v unzip &>/dev/null || die "'unzip' is required. Run: xcode-select --install"
         fi
     fi
 }
