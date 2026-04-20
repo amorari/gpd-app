@@ -15,6 +15,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import platform
 import socket
 import uuid
 from typing import Any
@@ -23,10 +24,14 @@ from typing import Any
 def _discover_socket_path() -> str:
     """Resolve the MCP socket path at call time.
 
+    macOS-only: searches under /var/folders/*/*/T/ for tauri-mcp.sock.
     Order: GPD_MCP_SOCKET env override > search under /var/folders/*/*/T/.
     Raises FileNotFoundError if no socket exists yet (caller should retry
     after launching GPD rather than connecting to a stale default).
+    Raises RuntimeError on non-macOS platforms.
     """
+    if platform.system() != "Darwin":
+        raise RuntimeError("MCP socket discovery is macOS-only")
     env = os.environ.get("GPD_MCP_SOCKET")
     if env:
         return env
@@ -62,10 +67,10 @@ class MCPClient:
         req = {
             "id": str(uuid.uuid4()),
             "command": command,
-            "payload": payload or {},
+            "payload": {} if payload is None else payload,
         }
         if self._auth:
-            req["auth"] = self._auth
+            req["authToken"] = self._auth
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(self._timeout)
         try:
@@ -116,7 +121,7 @@ class MCPClient:
         return base64.b64decode(b64)
 
     def reload(self) -> None:
-        self._call("navigate_webview", {"action": "reload"})
+        self._call("navigate_webview", {"action": "reload", "windowLabel": "main"})
 
     def navigate(self, url: str, *, window_label: str = "main") -> None:
         """Drive the webview to `url`. Uses navigate_webview.navigate."""
