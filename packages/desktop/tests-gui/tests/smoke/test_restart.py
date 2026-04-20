@@ -1,3 +1,6 @@
+import glob
+import os
+
 import pytest
 
 from gpd_tests.helpers.timings import wait_until
@@ -23,12 +26,26 @@ def test_restart_app_recovers_within_deadline(app_state, mcp):
         # Socket closes mid-call during restart; expected for this plugin build.
         pass
 
-    # Old PID must disappear (or change).
-    transitioned = wait_until(
-        lambda: (app_state.gpd_pid() or 0) != old_pid,
+    # Phase 1: wait for old PID to disappear from ps.
+    old_gone = wait_until(
+        lambda: app_state.gpd_pid() != old_pid,
         timeout_s=15.0,
     )
-    assert transitioned, f"GPD PID did not change from {old_pid} within 15s"
+    assert old_gone, f"old GPD PID {old_pid} did not disappear within 15s"
+
+    # Phase 2: wait for a new GPD process to appear.
+    new_appeared = wait_until(
+        lambda: app_state.gpd_pid() is not None,
+        timeout_s=15.0,
+    )
+    assert new_appeared, "new GPD process did not appear within 15s after old PID disappeared"
+
+    # Delete stale socket before wait_launched so MCPClient picks up the fresh one.
+    for stale in glob.glob("/var/folders/*/*/T/tauri-mcp.sock"):
+        try:
+            os.unlink(stale)
+        except OSError:
+            pass
 
     # New process must be running. wait_launched refreshes _launched_pid
     # so app_state.sidecar_pid() re-binds to the live process tree.
@@ -44,7 +61,11 @@ def test_restart_app_recovers_within_deadline(app_state, mcp):
 
     # Menu queries don't require activation — do NOT steal focus here.
     ax_client = AXClient()
+    # Accept either "New Conversation" (wave-2 i18n rename) or "New Session".
     assert wait_until(
-        lambda: ax_client.menu_item_exists("File", "New Session"),
+        lambda: (
+            ax_client.menu_item_exists("File", "New Conversation")
+            or ax_client.menu_item_exists("File", "New Session")
+        ),
         timeout_s=10.0,
-    ), "File > New Session menu not available after restart"
+    ), 'neither "File > New Conversation" nor "File > New Session" appeared after restart'
