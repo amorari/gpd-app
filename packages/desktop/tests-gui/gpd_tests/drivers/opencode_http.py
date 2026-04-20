@@ -50,6 +50,56 @@ class HTTPClient:
     def path_info(self) -> dict[str, Any]:
         return self._get("/path")
 
+    def _post(self, path: str, json: dict | list | None = None) -> Any:
+        r = self._client.post(path, json=json)
+        r.raise_for_status()
+        ct = r.headers.get("content-type", "")
+        if "json" in ct or r.text.startswith(("{", "[")):
+            return r.json()
+        return r.text
+
+    def _delete(self, path: str) -> Any:
+        r = self._client.delete(path)
+        r.raise_for_status()
+        return r.json()
+
+    def create_session(
+        self,
+        *,
+        directory: str | None = None,
+        parent_id: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if directory is not None:
+            body["directory"] = directory
+        if parent_id is not None:
+            body["parentID"] = parent_id
+        return self._post("/session", json=body)
+
+    def send_message(
+        self,
+        session_id: str,
+        *,
+        parts: list[dict[str, Any]],
+        model_id: str | None = None,
+        provider_id: str | None = None,
+        agent: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"parts": parts}
+        if model_id is not None:
+            body["modelID"] = model_id
+        if provider_id is not None:
+            body["providerID"] = provider_id
+        if agent is not None:
+            body["agent"] = agent
+        return self._post(f"/session/{session_id}/message", json=body)
+
+    def messages(self, session_id: str) -> list[dict[str, Any]]:
+        return self._get(f"/session/{session_id}/message")
+
+    def delete_session(self, session_id: str) -> bool:
+        return bool(self._delete(f"/session/{session_id}"))
+
 
 def discover_sidecar_port(
     *, pid: int | None = None, timeout_s: float = 15.0
