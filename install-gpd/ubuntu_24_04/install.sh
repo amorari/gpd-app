@@ -68,14 +68,52 @@ install_opencode() {
         return 0
     fi
 
-    local api_url="https://api.github.com/repos/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/latest"
-    local deb_url=""
-    deb_url="$(curl -fsSL "$api_url" 2>/dev/null \
-        | grep -oE '"browser_download_url":\s*"[^"]*_amd64\.deb"' \
-        | grep -oE 'https://[^"]+' \
-        | head -1)" || true
-
+    # Discover the .deb URL. GitHub's unauthenticated API limit is 60/hour/IP
+    # which we can easily hit during testing, so we try two methods:
+    #   1. Web redirect (no rate limit) -- parse the release page redirect to
+    #      get the tag, then construct the .deb URL directly.
+    #   2. API fallback -- scrape the JSON if the web method fails.
+    # Both surface their failures explicitly so the user knows WHY we fell
+    # back to the standalone CLI binary (no GUI).
     log "Checking for GPD desktop .deb release..."
+    local deb_url=""
+    local tag=""
+
+    # Method 1: web redirect (unlimited, doesn't need API)
+    tag="$(curl -fsSLI --max-time 10 "https://github.com/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/latest" 2>/dev/null \
+        | grep -i '^location:' | tail -1 | grep -oE 'tag/[^ ]*' | sed 's|tag/||' | tr -d '\r\n')" || true
+
+    if [[ -n "$tag" ]]; then
+        # Tag looks like "gpd-desktop-v1.1.1" -- extract the version
+        local ver="${tag#*-v}"
+        deb_url="https://github.com/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/download/${tag}/GPD_${ver}_amd64.deb"
+        if ! url_exists "$deb_url"; then
+            warn "Guessed .deb URL not found (tag=${tag}), trying GitHub API..."
+            deb_url=""
+        fi
+    fi
+
+    # Method 2: API fallback
+    if [[ -z "$deb_url" ]]; then
+        local api_url="https://api.github.com/repos/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/latest"
+        local api_response
+        api_response="$(curl -sSL --max-time 10 -w '\nHTTP_CODE:%{http_code}' "$api_url" 2>&1)"
+        local http_code="${api_response##*HTTP_CODE:}"
+        local body="${api_response%$'\n'HTTP_CODE:*}"
+
+        if [[ "$http_code" == "403" ]] && echo "$body" | grep -qi "rate limit"; then
+            warn "GitHub API rate limit exceeded (60 req/hour for unauthenticated IPs)."
+            warn "Wait an hour and re-run, or set a GITHUB_TOKEN env var to raise the limit."
+        elif [[ "$http_code" != "200" ]]; then
+            warn "GitHub API returned HTTP ${http_code} — cannot discover .deb release."
+        else
+            deb_url="$(echo "$body" \
+                | grep -oE '"browser_download_url":\s*"[^"]*_amd64\.deb"' \
+                | grep -oE 'https://[^"]+' \
+                | head -1)" || true
+        fi
+    fi
+
     if [[ -n "$deb_url" ]] && url_exists "$deb_url"; then
         local tmp_dir
         tmp_dir="$(mktemp -d)"
@@ -93,7 +131,15 @@ install_opencode() {
             die "GPD .deb installed but opencode-cli not found at /usr/bin/opencode-cli"
         fi
     else
-        warn "GPD .deb not found, falling back to standalone CLI binary"
+        warn ""
+        warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        warn "  GPD .deb NOT INSTALLED — falling back to standalone CLI."
+        warn "  You will get the \`gpd\` / \`opencode\` CLI but NOT the desktop"
+        warn "  app (no GUI, no menu entry). To install the GUI later:"
+        warn "    1. Wait if this was a rate limit, OR check your network"
+        warn "    2. Re-run this installer"
+        warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        warn ""
         # Fall back to the upstream CLI binary download from common.sh
         local asset
         asset="$(opencode_asset_name "$os" "$arch")"
