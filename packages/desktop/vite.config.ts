@@ -6,9 +6,10 @@ const host = process.env.TAURI_DEV_HOST
 // True when built via `tauri dev` or `tauri build --debug`. Gates the
 // vendored tauri-plugin-mcp listener wire-up in src/index.tsx so it ships
 // only when the Rust-side plugin is gated in via cfg(debug_assertions).
-// import.meta.env.DEV is false during `tauri build --debug` because Vite
-// still runs a production build, so we can't rely on it for this gate.
-const tauriDebug = process.env.TAURI_ENV_DEBUG === "true" || process.env.TAURI_DEV_HOST !== undefined
+// TAURI_DEV_HOST is intentionally excluded: it is set for mobile (iOS/Android)
+// dev which has no cfg(debug_assertions) plugin path — the Rust side never
+// emits so registering JS listeners there is both wrong and wasteful.
+const tauriDebug = process.env.TAURI_ENV_DEBUG === "true"
 
 // https://vite.dev/config/
 export default defineConfig({
