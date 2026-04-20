@@ -112,9 +112,15 @@ jobs:
       # --- Verify a model responds ---
       - name: Test API call (claude-haiku-4-5)
         shell: bash
+        env:
+          GPD_SMOKE_KEY: ${{ secrets.GPD_SMOKE_KEY }}
         run: |
+          if [ -z "$GPD_SMOKE_KEY" ]; then
+            echo "::warning::GPD_SMOKE_KEY secret not set; skipping live API call."
+            exit 0
+          fi
           RESP=$(curl -s -X POST https://litellm-production-46bb.up.railway.app/v1/chat/completions \
-            -H "Authorization: Bearer ***REDACTED-TEST-KEY***" \
+            -H "Authorization: Bearer $GPD_SMOKE_KEY" \
             -H "Content-Type: application/json" \
             -d '{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"Say hello"}],"max_tokens":10}')
           echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print('Response:', d['choices'][0]['message']['content'])" || exit 1

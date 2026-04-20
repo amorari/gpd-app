@@ -21,14 +21,33 @@
 | Tauri MCP socket | `$TMPDIR/tauri-mcp.sock` |
 
 ### Key Credentials
+
+**Never commit secrets to this repo — it's public.** Retrieve them from Railway at runtime:
+
+```bash
+railway link --project 0ddad766-1ee1-44ed-95c2-f8f7d9cb5515
+# Master key (admin access — mint/revoke virtual keys, admin UI login)
+railway variables --service litellm --kv | grep ^LITELLM_MASTER_KEY=
+# Admin UI username/password
+railway variables --service litellm --kv | grep -E "^(UI_USERNAME|UI_PASSWORD)="
+```
+
 | What | Value |
 |------|-------|
-| Test LiteLLM key | `***REDACTED-TEST-KEY***` |
-| LiteLLM master key | `***REDACTED-MASTER-KEY***` |
 | LiteLLM URL | `https://litellm-production-46bb.up.railway.app` |
-| LiteLLM admin UI | `https://litellm-production-46bb.up.railway.app/ui` (admin / ***REDACTED-UI-PASSWORD***) |
+| LiteLLM admin UI | `https://litellm-production-46bb.up.railway.app/ui` |
+| Test LiteLLM key | Mint one on-demand via `/key/generate` (see below) |
 | Download page | `https://download.gpd.psi.inc` |
 | Install script | `https://download.gpd.psi.inc/install` |
+
+Mint a short-lived test key:
+```bash
+MASTER=$(railway variables --service litellm --kv | awk -F= '/^LITELLM_MASTER_KEY=/{print $2}')
+curl -s -X POST 'https://litellm-production-46bb.up.railway.app/key/generate' \
+  -H "Authorization: Bearer $MASTER" -H 'Content-Type: application/json' \
+  -d '{"key_alias":"local-test","models":["all-models"],"max_budget":50,"budget_duration":"7d"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['key'])"
+```
 
 ### Repos
 | Repo | Branch | Purpose |
@@ -107,18 +126,18 @@ curl -s https://litellm-production-46bb.up.railway.app/health/liveliness
 
 # List models
 curl -s https://litellm-production-46bb.up.railway.app/v1/models \
-  -H "Authorization: Bearer ***REDACTED-TEST-KEY***" | python3 -m json.tool | grep '"id"'
+  -H "Authorization: Bearer $GPD_TEST_KEY" | python3 -m json.tool | grep '"id"'
 
 # Send a test message
 curl -s -X POST https://litellm-production-46bb.up.railway.app/v1/chat/completions \
-  -H "Authorization: Bearer ***REDACTED-TEST-KEY***" \
+  -H "Authorization: Bearer $GPD_TEST_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 50}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])"
 
 # Test Gemini with anyOf schema (tests sanitizeGemini fix at proxy level)
 curl -s -X POST https://litellm-production-46bb.up.railway.app/v1/chat/completions \
-  -H "Authorization: Bearer ***REDACTED-TEST-KEY***" \
+  -H "Authorization: Bearer $GPD_TEST_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini-3-flash-preview",

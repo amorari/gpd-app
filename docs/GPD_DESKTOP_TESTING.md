@@ -4,7 +4,7 @@
 - `bun tauri dev` running from `packages/desktop/` in `gpd-opencode-fresh`
 - Tauri MCP plugin connected (or alternative automation method)
 - Fresh state: `rm -rf ~/.config/gpd ~/Library/WebKit/inc.psi.gpd*`
-- LiteLLM key: `***REDACTED-TEST-KEY***`
+- LiteLLM key: set `$GPD_TEST_KEY` in your shell (mint one via `/key/generate` — see `docs/GPD_DESKTOP_CHEATSHEET.md`)
 - LiteLLM proxy: `https://litellm-production-46bb.up.railway.app`
 
 ## Testing Tools Available
@@ -73,7 +73,7 @@ Use MCP plugin as primary when available. Fall back to Accessibility APIs + scre
 2. Launch app — verify welcome screen appears (screenshot)
 3. Verify PSI Ψ logo is displayed (not OpenCode logo)
 4. Verify "Get Physics Done" text is shown (not "Build anything")
-5. Enter key: `***REDACTED-TEST-KEY***`
+5. Enter your test key (`$GPD_TEST_KEY` — mint via `/key/generate`)
 6. Click "Get Started"
 7. Verify main IDE appears (not welcome screen)
 8. Verify provider "GPD (PSI)" is visible in settings
