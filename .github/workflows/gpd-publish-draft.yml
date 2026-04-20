@@ -1,0 +1,59 @@
+name: GPD Desktop Publish Draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. gpd-desktop-v1.2.0). Leave empty to pick the newest draft."
+        required: false
+        type: string
+      mark_latest:
+        description: "Mark the published release as 'latest'"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh api "repos/$REPO/releases" \
+              --jq '[.[] | select(.draft == true and (.tag_name | startswith("gpd-desktop-v")))] | sort_by(.created_at) | reverse | .[0].tag_name // ""')
+            if [ -z "$TAG" ]; then
+              echo "::error::No draft gpd-desktop-v* release found."
+              exit 1
+            fi
+            echo "Selected newest draft tag: $TAG"
+          fi
+
+          RELEASE_JSON=$(gh api "repos/$REPO/releases/tags/$TAG")
+          IS_DRAFT=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['draft'])")
+          ASSET_COUNT=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['assets']))")
+          echo "Tag: $TAG  draft=$IS_DRAFT  assets=$ASSET_COUNT"
+
+          if [ "$IS_DRAFT" != "True" ]; then
+            echo "::warning::$TAG is already published; no action taken."
+            exit 0
+          fi
+          if [ "$ASSET_COUNT" -eq 0 ]; then
+            echo "::error::$TAG has no assets uploaded yet; refusing to publish."
+            exit 1
+          fi
+
+          MARK_LATEST_ARG=""
+          if [ "${{ inputs.mark_latest }}" = "true" ]; then
+            MARK_LATEST_ARG="--latest"
+          fi
+          gh release edit "$TAG" --draft=false $MARK_LATEST_ARG --repo "$REPO"
+          echo "Published $TAG"

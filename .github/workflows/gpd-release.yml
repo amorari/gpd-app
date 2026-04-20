@@ -16,6 +16,11 @@ on:
           - github
           - pypi
           - npm
+      skip_platforms:
+        description: "Comma-separated platform labels to skip (mac-arm,mac-intel,windows,linux)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -53,6 +58,17 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "source=${SOURCE:-manual}" >> "$GITHUB_OUTPUT"
           echo "Resolved GPD version: $VERSION (source: ${SOURCE:-manual})"
+
+          TAG="gpd-desktop-v$VERSION"
+          RELEASE_JSON=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" 2>/dev/null || echo '')
+          if [ -n "$RELEASE_JSON" ]; then
+            IS_DRAFT=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['draft'])")
+            if [ "$IS_DRAFT" = "False" ]; then
+              echo "::error::Tag $TAG already exists as a PUBLISHED release. Bump the version in get-physics-done pyproject.toml or pass an explicit 'version' input."
+              exit 1
+            fi
+            echo "::notice::Draft release for $TAG already exists; assets will be added to it."
+          fi
 
   build-cli:
     needs: resolve-version
@@ -92,6 +108,7 @@ jobs:
             label: linux
     runs-on: ${{ matrix.host }}
     timeout-minutes: 60
+    if: ${{ !contains(format(',{0},', inputs.skip_platforms), format(',{0},', matrix.label)) }}
     steps:
       - uses: actions/checkout@v4
 
