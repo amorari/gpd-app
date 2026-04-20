@@ -466,6 +466,10 @@ async fn initialize(app: AppHandle) {
             ("OPENCODE_CONFIG_DIR", gpd_config_str),
             ("OPENCODE_CONFIG_CONTENT", gpd_setup::build_config_json()),
             ("PATH", augmented_path),
+            // GPD uses a fully self-contained provider definition via OPENCODE_CONFIG_CONTENT
+            // with enabled_providers: ["gpd"], so the models.dev network fetch is wasted work.
+            // Skipping it eliminates several seconds of startup latency on cold cache.
+            ("OPENCODE_DISABLE_MODELS_FETCH", "1".to_string()),
         ],
     );
 
