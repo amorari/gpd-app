@@ -497,6 +497,8 @@ export const dict = {
   "home.recentProjects": "Nedavni projekti",
   "home.empty.title": "Nema nedavnih projekata",
   "home.empty.description": "Kreni tako što ćeš otvoriti lokalni projekat",
+  "home.newProject": "New Physics Project",
+  "home.newProject.description": "Start a new physics research project",
 
   "session.tab.session": "Sesija",
   "session.tab.review": "Izmjene",
@@ -612,6 +614,7 @@ export const dict = {
   "sidebar.project.recentSessions": "Nedavne sesije",
   "sidebar.project.viewAllSessions": "Prikaži sve sesije",
   "sidebar.project.clearNotifications": "Očisti obavijesti",
+  "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD",
 

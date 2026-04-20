@@ -498,6 +498,8 @@ export const dict = {
   "home.recentProjects": "Недавние проекты",
   "home.empty.title": "Нет недавних проектов",
   "home.empty.description": "Начните с открытия локального проекта",
+  "home.newProject": "New Physics Project",
+  "home.newProject.description": "Start a new physics research project",
 
   "session.tab.session": "Сессия",
   "session.tab.review": "Изменения",
@@ -613,6 +615,7 @@ export const dict = {
   "sidebar.project.recentSessions": "Недавние сессии",
   "sidebar.project.viewAllSessions": "Посмотреть все сессии",
   "sidebar.project.clearNotifications": "Очистить уведомления",
+  "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD",
   "settings.section.desktop": "Приложение",

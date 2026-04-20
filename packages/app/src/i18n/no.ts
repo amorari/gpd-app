@@ -498,6 +498,8 @@ export const dict = {
   "home.recentProjects": "Nylige prosjekter",
   "home.empty.title": "Ingen nylige prosjekter",
   "home.empty.description": "Kom i gang ved å åpne et lokalt prosjekt",
+  "home.newProject": "New Physics Project",
+  "home.newProject.description": "Start a new physics research project",
 
   "session.tab.session": "Sesjon",
   "session.tab.review": "Endringer",
@@ -615,6 +617,7 @@ export const dict = {
   "sidebar.project.recentSessions": "Nylige sesjoner",
   "sidebar.project.viewAllSessions": "Vis alle sesjoner",
   "sidebar.project.clearNotifications": "Fjern varsler",
+  "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD",
 

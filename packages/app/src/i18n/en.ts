@@ -529,6 +529,8 @@ export const dict = {
   "home.recentProjects": "Recent projects",
   "home.empty.title": "No recent projects",
   "home.empty.description": "Get started by opening a local project",
+  "home.newProject": "New Physics Project",
+  "home.newProject.description": "Start a new physics research project",
 
   "session.tab.session": "Session",
   "session.tab.review": "Changes",
@@ -708,6 +710,7 @@ export const dict = {
   "sidebar.project.clearNotifications": "Clear notifications",
   "sidebar.empty.title": "No projects open",
   "sidebar.empty.description": "Open a project to get started",
+  "sidebar.newProject": "New Project",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
   "debugBar.na": "n/a",

@@ -493,6 +493,8 @@ export const dict = {
   "home.recentProjects": "โปรเจกต์ล่าสุด",
   "home.empty.title": "ไม่มีโปรเจกต์ล่าสุด",
   "home.empty.description": "เริ่มต้นโดยเปิดโปรเจกต์ในเครื่อง",
+  "home.newProject": "New Physics Project",
+  "home.newProject.description": "Start a new physics research project",
 
   "session.tab.session": "เซสชัน",
   "session.tab.review": "การเปลี่ยนแปลง",
@@ -606,6 +608,7 @@ export const dict = {
   "sidebar.project.recentSessions": "เซสชันล่าสุด",
   "sidebar.project.viewAllSessions": "ดูเซสชันทั้งหมด",
   "sidebar.project.clearNotifications": "ล้างการแจ้งเตือน",
+  "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD",
 

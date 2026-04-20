@@ -491,6 +491,8 @@ export const dict = {
   "home.recentProjects": "最近專案",
   "home.empty.title": "沒有最近專案",
   "home.empty.description": "透過開啟本地專案開始使用",
+  "home.newProject": "New Physics Project",
+  "home.newProject.description": "Start a new physics research project",
 
   "session.tab.session": "工作階段",
   "session.tab.review": "變更",
@@ -602,6 +604,7 @@ export const dict = {
   "sidebar.project.recentSessions": "最近工作階段",
   "sidebar.project.viewAllSessions": "查看全部工作階段",
   "sidebar.project.clearNotifications": "清除通知",
+  "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD",
   "settings.section.desktop": "桌面",
