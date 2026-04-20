@@ -2,7 +2,7 @@
 
 End-to-end tests that drive the live GPD desktop app. Runs against an installed `/Applications/GPD.app` by default; point `GPD_APP_PATH` at `packages/desktop/src-tauri/target/debug/bundle/macos/GPD.app` (or similar) to target an in-tree dev build.
 
-**Status:** Phase 1 (smoke) is complete — 40 unit tests + 9 live-app smoke tests + an opt-in restart test. Phase 2 (surfaces, per-route) is blocked until `setupPluginListeners()` from `tauri-plugin-mcp` is wired into the desktop frontend — see the Phase 2 section below.
+**Status:** Phase 1 (smoke) is complete — 40 unit tests + 9 live-app smoke tests + an opt-in restart test. Phase 2 (surfaces, per-route) requires `setupPluginListeners()` in the webview; this branch vendors the plugin's guest-js and wires it under `import.meta.env.DEV` — see the Phase 2 section below.
 
 ## Setup
 
@@ -51,25 +51,26 @@ uv run pytest -m smoke
 - `scripts/` — tiered state reset (`--tier {0..3}`), i18n refresh, MCP token discovery.
 - `gpd_tests/fixtures/en.json` — snapshot of GPD 1.1.0's i18n dictionary (831 keys). Refresh with `uv run python scripts/refresh_en_dict.py`.
 
-## Phase 2 (blocked)
+## Phase 2
 
-Phase 2 (one test per route/dialog) needs `execute_js` / `get_page_map` / `wait_for` to actually respond. Today they time out at 5 s because `setupPluginListeners()` from `tauri-plugin-mcp/guest-js/index.ts` is never called in `packages/desktop/src/index.tsx`, so the webview never installs the listeners the Rust plugin is emitting to.
+Phase 2 (one test per route/dialog) needs `execute_js` / `get_page_map` / `wait_for` to respond. That requires `setupPluginListeners()` from `tauri-plugin-mcp/guest-js/index.ts` to run in the webview.
 
-Minimal unblocking fix (in debug builds only, matching the plugin's `#[cfg(debug_assertions)]` gate already applied in `packages/desktop/src-tauri/src/lib.rs`):
+Upstream (`psi-oss/opencode`) hasn't wired this in yet, so this branch carries a **local workaround**: the plugin's `guest-js/index.ts` is vendored at `packages/desktop/src/vendor/tauri-plugin-mcp.ts` and wired from `packages/desktop/src/index.tsx` behind `import.meta.env.DEV`. Vite tree-shakes it out of release builds, matching the Rust-side `#[cfg(debug_assertions)]` gate on the plugin in `packages/desktop/src-tauri/src/lib.rs`.
 
-```tsx
-// packages/desktop/src/index.tsx (after existing imports)
-if (import.meta.env.DEV) {
-  void (await import("tauri-plugin-mcp")).setupPluginListeners()
-}
+Refresh the vendor if the plugin repo changes:
+
+```bash
+curl -sfL https://raw.githubusercontent.com/psi-oss/tauri-plugin-mcp/main/guest-js/index.ts \
+  -o packages/desktop/src/vendor/tauri-plugin-mcp.ts
+# re-prepend the provenance header
 ```
 
-plus adding the npm dep (pin matching the Cargo rev) and either committing `dist-js/` in `psi-oss/tauri-plugin-mcp` or adding a `prepare` build script there.
+Only functional against a debug build (`cargo tauri build --debug`), since the Rust-side plugin is gated. A release build has neither the socket nor the JS listeners.
 
 ## Troubleshooting
 
 - **MCP socket missing** (`FileNotFoundError: /var/folders/.../tauri-mcp.sock`) — GPD isn't running, or you're running a release build (the plugin is gated behind `#[cfg(debug_assertions)]`). Launch a debug build.
 - **AppleScript error -1719 / "not allowed assistive access"** — grant your terminal Accessibility permission.
-- **`execute_js` timeouts** — known, see Phase 2 section above. Structural checks (menu bar, window geometry via MCP, `/global/health`) still pass.
+- **`execute_js` timeouts** — webview listeners never registered. Confirm the build is debug (dev only) and that `src/vendor/tauri-plugin-mcp.ts` is intact.
 - **Providers test skipped** — set `GPD_TEST_ANTHROPIC_KEY` and re-run.
 - **`cliclick: command not found`** — `brew install cliclick`.

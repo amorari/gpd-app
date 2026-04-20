@@ -43,6 +43,15 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
   throw new Error(t("error.dev.rootNotFound"))
 }
 
+// Dev-only: wire up tauri-plugin-mcp webview listeners. Mirrors the Rust-side
+// cfg(debug_assertions) gate on the plugin in src-tauri/src/lib.rs. Awaited so
+// the vendor module's addEventListener monkey-patch installs before render().
+// Vite tree-shakes this whole block in release builds.
+if (import.meta.env.DEV) {
+  const mcp = await import("./vendor/tauri-plugin-mcp")
+  void mcp.setupPluginListeners()
+}
+
 void initI18n()
 
 let update: Update | null = null
