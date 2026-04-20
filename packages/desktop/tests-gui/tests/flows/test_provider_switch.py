@@ -58,9 +58,19 @@ def test_provider_list_shape(http):
         f"'default' field must be a dict, got {type(default).__name__}"
     )
 
+    # If providers are present, the first one must have at least "id" and "name".
+    if providers:
+        first = providers[0]
+        assert "id" in first, (
+            f"first provider missing 'id' field: {first!r}"
+        )
+        assert "name" in first, (
+            f"first provider missing 'name' field: {first!r}"
+        )
+
 
 @pytest.mark.flows
-def test_default_provider_switch_reflected(http):
+def test_default_provider_switch_write_path_not_yet_exposed(http):
     """Provider switch round-trip: record current default, drive a change, assert.
 
     The write half is currently xfail — no safe dedicated write endpoint exists.
