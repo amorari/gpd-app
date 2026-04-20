@@ -31,6 +31,18 @@ export GPD_APP_PATH="$(pwd)/src-tauri/target/debug/bundle/macos/GPD.app"
 uv run pytest -m smoke
 ```
 
+### Release-mode security assertions
+
+After `cargo tauri build` (no `--debug`):
+
+```bash
+export GPD_APP_PATH="$(cd ../src-tauri/target/release/bundle/macos && pwd)/GPD Dev.app"
+open "$GPD_APP_PATH"
+PYTEST_RELEASE_BUILD=1 uv run pytest tests/smoke/test_release_no_mcp.py -v
+```
+
+Both assertions must pass: the Rust-side plugin is absent (no socket) **and** the Vite tree-shake worked (no vendored code in release `dist/`). These are the regression-safety net for the security fix in `src-tauri/src/lib.rs:351` plus the `__GPD_TAURI_DEBUG__` define in `vite.config.ts`.
+
 ### Environment variables
 
 - `GPD_APP_PATH` — path to the `.app` bundle. Defaults to `/Applications/GPD.app`.
