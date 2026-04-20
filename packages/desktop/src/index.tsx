@@ -16,7 +16,7 @@ import {
 } from "@opencode-ai/app"
 import type { AsyncStorage } from "@solid-primitives/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { readImage } from "@tauri-apps/plugin-clipboard-manager"
+import { readImage, writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http"
@@ -380,6 +380,11 @@ const createPlatform = (): Platform => {
     checkAppExists: async (appName: string) => {
       return commands.checkAppExists(appName)
     },
+
+    installGitMacos: () => commands.installGitMacos(),
+    installGitWindows: () => commands.installGitWindows(),
+    linuxInstallHint: (tool: string) => commands.linuxInstallHint(tool),
+    writeClipboard: (text: string) => writeText(text),
 
     async readClipboardImage() {
       const image = await readImage().catch(() => null)

@@ -87,6 +87,18 @@ export type Platform = {
 
   /** Read image from clipboard (desktop only) */
   readClipboardImage?(): Promise<File | null>
+
+  /** Launch git install on macOS (xcode-select --install). Desktop macOS only. */
+  installGitMacos?(): Promise<{ launched: boolean; message: string }>
+
+  /** Launch git install on Windows (winget). Desktop Windows only. */
+  installGitWindows?(): Promise<{ launched: boolean; message: string }>
+
+  /** Return the install shell snippet for a tool on Linux (no execution). */
+  linuxInstallHint?(tool: string): Promise<string>
+
+  /** Copy a string to the system clipboard. */
+  writeClipboard?(text: string): Promise<void>
 }
 
 export type DisplayBackend = "auto" | "wayland"
