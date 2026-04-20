@@ -99,12 +99,24 @@ git push psi-oss gpd --force-with-lease
 ### 8. Trigger a release
 
 ```bash
+# Typical case — version auto-detected from get-physics-done
+gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd
+
+# Explicit override
 gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version=<NEW_VERSION>
 ```
 
+This creates a **draft** release. Inspect it, then publish:
+
+```bash
+gh workflow run gpd-publish-draft.yml --repo psi-oss/opencode --ref gpd
+```
+
+Full release workflow reference: `docs/RELEASING.md`.
+
 ### 9. Update the download page
 
-The CI workflow auto-updates the download page version. Verify at `https://download.gpd.psi.inc`.
+The `gpd-download-page.yml` workflow fires on `release:published` and regenerates `https://download.gpd.psi.inc` automatically.
 
 ## What to Check After Rebasing
 

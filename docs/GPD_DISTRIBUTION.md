@@ -55,15 +55,16 @@ The CI release workflow auto-detects the version. Default source: **GitHub** (re
 
 **Triggering a release:**
 ```bash
-# Auto-detect version from GitHub (default)
+# Auto-detect version from GitHub (default) — creates/updates a DRAFT release
 gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd
 
-# Auto-detect from PyPI instead
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version_source=pypi
-
-# Manual override
-gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version=1.2.0
+# Publish the draft when ready
+gh workflow run gpd-publish-draft.yml --repo psi-oss/opencode --ref gpd
 ```
+
+All releases start as drafts; assets upload per-platform as each matrix job finishes. If the resolved tag collides with an already-published release, the version auto-increments as `<base>-1`, `<base>-2`, … so redrops against the same sidecar version don't overwrite published assets.
+
+Full release playbook, including publishing, redrops, contaminated releases, and per-platform diagnostics: **see `docs/RELEASING.md`**.
 
 When `github` is selected, the CI also installs `get-physics-done` directly from the GitHub repo main branch (not PyPI), so the sidecar binary contains the latest code.
 
