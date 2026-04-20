@@ -98,6 +98,22 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
 
   const last = createMemo(() => store.tab >= total() - 1)
 
+  // The primary button (Next/Submit) is redundant when every remaining
+  // question is single-choice without pending custom text — those will
+  // auto-advance/auto-submit on pick. We keep it for multi-choice, when a
+  // custom textarea is active, or as an accessibility fallback on any
+  // question whose current state can't be advanced by a click alone.
+  const primaryButtonVisible = createMemo(() => {
+    // Always show while editing free text (user needs a commit path)
+    if (store.editing) return true
+    // Always show on multi-choice (Next/Submit is the only way forward)
+    if (multi()) return true
+    // Always show if custom free-text is the currently selected answer
+    if (on()) return true
+    // Single-choice, non-custom: a click on an option auto-advances, so hide.
+    return false
+  })
+
   const customUpdate = (value: string, selected: boolean = on()) => {
     const prev = input().trim()
     const next = value.trim()
@@ -254,6 +270,10 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     if (custom) setStore("custom", store.tab, answer)
     if (!custom) setStore("customOn", store.tab, false)
     setStore("editing", false)
+    // Auto-advance for single-choice, non-custom picks.
+    // Custom picks still wait for the user to commit the textarea explicitly
+    // (avoids submitting a half-typed free-text answer).
+    if (!custom && !multi()) autoProgress()
   }
 
   const toggle = (answer: string) => {
@@ -404,6 +424,22 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     focus(pickFocus(tab))
   }
 
+  // Invoked from pick() when the user selects a single-choice option.
+  // Moves to the next question, or submits if this was the last question.
+  // Guarded so we never submit mid-edit or while a mutation is in-flight.
+  const autoProgress = () => {
+    if (sending()) return
+    if (store.editing) return
+    if (last()) {
+      submit()
+      return
+    }
+    const tab = store.tab + 1
+    setStore("tab", tab)
+    setStore("editing", false)
+    focus(pickFocus(tab))
+  }
+
   const back = () => {
     if (sending()) return
     if (store.tab <= 0) return
@@ -456,15 +492,17 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
                 {language.t("ui.common.back")}
               </Button>
             </Show>
-            <Button
-              variant={last() ? "primary" : "secondary"}
-              size="large"
-              disabled={sending()}
-              onClick={next}
-              aria-keyshortcuts="Meta+Enter Control+Enter"
-            >
-              {last() ? language.t("ui.common.submit") : language.t("ui.common.next")}
-            </Button>
+            <Show when={primaryButtonVisible()}>
+              <Button
+                variant={last() ? "primary" : "secondary"}
+                size="large"
+                disabled={sending()}
+                onClick={next}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
+              >
+                {last() ? language.t("ui.common.submit") : language.t("ui.common.next")}
+              </Button>
+            </Show>
           </div>
         </>
       }
