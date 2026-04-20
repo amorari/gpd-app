@@ -12,6 +12,7 @@ import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { useCommand } from "@/context/command"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
@@ -131,6 +132,7 @@ const showRequestError = (language: ReturnType<typeof useLanguage>, err: unknown
 export function SessionHeader() {
   const layout = useLayout()
   const command = useCommand()
+  const globalSync = useGlobalSync()
   const server = useServer()
   const platform = usePlatform()
   const language = useLanguage()
@@ -148,6 +150,17 @@ export function SessionHeader() {
     const current = project()
     if (current) return current.name || getFilename(current.worktree)
     return getFilename(projectDirectory())
+  })
+  const homedir = createMemo(() => globalSync.data.path.home)
+  const shortPath = createMemo(() => {
+    const dir = projectDirectory()
+    if (!dir) return ""
+    const home = homedir()
+    const tilded = home ? dir.replace(home, "~") : dir
+    // Truncate middle segments for very long paths: ~/a/b/.../z/project
+    const parts = tilded.split("/")
+    if (parts.length <= 5) return tilded
+    return [parts[0], parts[1], "\u2026", parts[parts.length - 2], parts[parts.length - 1]].join("/")
   })
   const hotkey = createMemo(() => command.keybind("file.open"))
   const os = createMemo(() => detectOS(platform))
@@ -270,30 +283,42 @@ export function SessionHeader() {
       <Show when={centerMount()}>
         {(mount) => (
           <Portal mount={mount()}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="small"
-              class="hidden md:flex w-[240px] max-w-full min-w-0 items-center gap-2 justify-between rounded-md border border-border-weak-base bg-surface-panel shadow-none cursor-default"
-              onClick={() => command.trigger("file.open")}
-              aria-label={language.t("session.header.searchFiles")}
-            >
-              <div class="flex min-w-0 flex-1 items-center overflow-visible">
-                <span class="flex-1 min-w-0 text-12-regular text-text-weak truncate text-left">
-                  {language.t("session.header.search.placeholder", {
-                    project: name(),
-                  })}
-                </span>
-              </div>
+            <div class="hidden md:flex flex-col items-center gap-0.5 min-w-0 max-w-[260px]">
+              <Button
+                type="button"
+                variant="ghost"
+                size="small"
+                class="flex w-full min-w-0 items-center gap-2 justify-between rounded-md border border-border-weak-base bg-surface-panel shadow-none cursor-default"
+                onClick={() => command.trigger("file.open")}
+                aria-label={language.t("session.header.searchFiles")}
+              >
+                <div class="flex min-w-0 flex-1 items-center overflow-visible">
+                  <span class="flex-1 min-w-0 text-12-regular text-text-weak truncate text-left">
+                    {language.t("session.header.search.placeholder", {
+                      project: name(),
+                    })}
+                  </span>
+                </div>
 
-              <Show when={hotkey()}>
-                {(keybind) => (
-                  <Keybind class="shrink-0 !border-0 !bg-transparent !shadow-none px-0 text-text-weaker">
-                    {keybind()}
-                  </Keybind>
-                )}
+                <Show when={hotkey()}>
+                  {(keybind) => (
+                    <Keybind class="shrink-0 !border-0 !bg-transparent !shadow-none px-0 text-text-weaker">
+                      {keybind()}
+                    </Keybind>
+                  )}
+                </Show>
+              </Button>
+              <Show when={shortPath()}>
+                <Tooltip
+                  placement="bottom"
+                  value={language.t("session.header.projectPath", { path: projectDirectory() })}
+                >
+                  <span class="text-10-regular text-text-weaker truncate w-full text-center cursor-default select-none leading-none">
+                    {shortPath()}
+                  </span>
+                </Tooltip>
               </Show>
-            </Button>
+            </div>
           </Portal>
         )}
       </Show>

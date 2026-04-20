@@ -550,6 +550,7 @@ export const dict = {
 
   "session.header.search.placeholder": "Søk i {{project}}",
   "session.header.searchFiles": "Søk etter filer",
+  "session.header.projectPath": "Project: {{path}}",
   "session.header.openIn": "Åpne i",
   "session.header.open.action": "Åpne {{app}}",
   "session.header.open.ariaLabel": "Åpne i {{app}}",
@@ -617,6 +618,7 @@ export const dict = {
   "sidebar.project.recentSessions": "Nylige sesjoner",
   "sidebar.project.viewAllSessions": "Vis alle sesjoner",
   "sidebar.project.clearNotifications": "Fjern varsler",
+  "sidebar.project.path": "{{path}}",
   "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD",
@@ -865,10 +867,10 @@ export const dict = {
   "dialog.server.add.usernamePlaceholder": "brukernavn",
   "dialog.server.add.passwordPlaceholder": "passord",
   "server.row.noUsername": "inget brukernavn",
-  "session.review.noVcs.createGit.title": "Opprett et Git-depot",
-  "session.review.noVcs.createGit.description": "Spor, gjennomgå og angre endringer i dette prosjektet",
-  "session.review.noVcs.createGit.actionLoading": "Oppretter Git-depot...",
-  "session.review.noVcs.createGit.action": "Opprett Git-depot",
+  "session.review.noVcs.createGit.title": "Initialize Git in this folder",
+  "session.review.noVcs.createGit.description": "Runs git init in {{path}}. This tracks changes, enables diffs and undo. No new folder is created — your existing files stay where they are.",
+  "session.review.noVcs.createGit.actionLoading": "Initializing Git...",
+  "session.review.noVcs.createGit.action": "Initialize Git here",
   "session.todo.progress": "{{done}} av {{total}} oppgaver fullført",
   "session.question.progress": "{{current}} av {{total}} spørsmål",
   "session.header.open.finder": "Finder",
@@ -955,4 +957,7 @@ export const dict = {
   "error.classified.timeout": "The request timed out. Try again or try a simpler prompt.",
   "error.classified.invalidRequest": "The request was rejected by the model provider.",
   "error.classified.unknown": "Something went wrong. See details for more.",
+  "gpd.firstRun.toast.title": "GPD installed files to ~/.config/gpd/",
+  "gpd.firstRun.toast.description": "Physics tools, agents, and config are stored in ~/.config/gpd/. Per-project plans are stored in .opencode/ inside each project folder. Your research files remain where you put them.",
+
 } satisfies Partial<Record<Keys, string>>

@@ -25,12 +25,15 @@ export const commands = {
 export const events = {
 	loadingWindowComplete: makeEvent<LoadingWindowComplete>("loading-window-complete"),
 	sqliteMigrationProgress: makeEvent<SqliteMigrationProgress>("sqlite-migration-progress"),
+	gpdFirstRunComplete: makeEvent<GpdFirstRunComplete>("gpd-first-run-complete"),
 };
 
 /* Types */
 export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "gpd_setup" } | { phase: "done" };
 
 export type LinuxDisplayBackend = "wayland" | "auto";
+
+export type GpdFirstRunComplete = null;
 
 export type LoadingWindowComplete = null;
 

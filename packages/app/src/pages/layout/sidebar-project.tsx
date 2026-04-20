@@ -195,11 +195,13 @@ const ProjectPreviewPanel = (props: {
   workspaceSessions: (directory: string) => ReturnType<typeof sortedRootSessions>
   ctx: ProjectSidebarContext
   language: ReturnType<typeof useLanguage>
+  shortWorktree: () => string
 }): JSX.Element => (
   <div class="-m-3 p-2 flex flex-col w-72">
-    <div class="px-4 pt-2 pb-1 flex items-center gap-2">
+    <div class="px-4 pt-2 pb-0.5 flex items-center gap-2">
       <div class="text-14-medium text-text-strong truncate grow">{displayName(props.project)}</div>
     </div>
+    <div class="px-4 pb-1 text-11-regular text-text-weaker truncate">{props.shortWorktree()}</div>
     <div class="px-4 pb-2 text-12-medium text-text-weak">{props.language.t("sidebar.project.recentSessions")}</div>
     <div class="px-2 pb-2 flex flex-col gap-2">
       <Show
@@ -306,6 +308,11 @@ export const SortableProject = (props: {
     const [data] = globalSync.child(directory, { bootstrap: false })
     return sortedRootSessions(data, props.sortNow())
   }
+  const shortWorktree = createMemo(() => {
+    const worktree = props.project.worktree
+    const home = globalSync.data.path.home
+    return home ? worktree.replace(home, "~") : worktree
+  })
   const tile = () => (
     <ProjectTile
       project={props.project}
@@ -359,6 +366,7 @@ export const SortableProject = (props: {
             workspaceSessions={workspaceSessions}
             ctx={props.ctx}
             language={language}
+            shortWorktree={shortWorktree}
           />
         </HoverCard>
       </Show>

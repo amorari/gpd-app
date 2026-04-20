@@ -397,7 +397,8 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
         .events(tauri_specta::collect_events![
             LoadingWindowComplete,
-            SqliteMigrationProgress
+            SqliteMigrationProgress,
+            GpdFirstRunComplete
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
 }
@@ -420,6 +421,11 @@ fn test_export_types() {
 
 #[derive(tauri_specta::Event, serde::Deserialize, specta::Type)]
 struct LoadingWindowComplete;
+
+/// Emitted once, after a successful GPD first-run setup, so the frontend can
+/// show an informational toast about where files were installed.
+#[derive(Clone, tauri_specta::Event, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct GpdFirstRunComplete;
 
 async fn initialize(app: AppHandle) {
     tracing::info!("Initializing app");
@@ -539,8 +545,13 @@ async fn initialize(app: AppHandle) {
             // GPD first-run setup (after server is healthy)
             if needs_gpd_setup {
                 let _ = init_tx_clone.send(InitStep::GpdSetup);
-                match gpd_setup::run_first_setup(app_clone).await {
-                    Ok(()) => tracing::info!("GPD first-run setup completed"),
+                match gpd_setup::run_first_setup(app_clone.clone()).await {
+                    Ok(()) => {
+                        tracing::info!("GPD first-run setup completed");
+                        // Notify the frontend so it can show an informational toast
+                        // about where GPD installed its files.
+                        let _ = GpdFirstRunComplete.emit(&app_clone);
+                    }
                     Err(e) => tracing::error!("GPD first-run setup failed: {e}"),
                     // Non-fatal: marker not written on failure, retries next launch
                 }

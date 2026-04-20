@@ -34,8 +34,9 @@ import { UPDATER_ENABLED } from "./updater"
 import { webviewZoom } from "./webview-zoom"
 import "./styles.css"
 import { Channel } from "@tauri-apps/api/core"
-import { commands, type InitStep } from "./bindings"
+import { commands, events, type InitStep } from "./bindings"
 import { createMenu } from "./menu"
+import { showToast } from "@opencode-ai/ui/toast"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -475,6 +476,18 @@ render(() => {
     document.addEventListener("click", handleClick)
     onCleanup(() => {
       document.removeEventListener("click", handleClick)
+    })
+
+    // Show a one-time informational toast after GPD first-run setup completes,
+    // so users know where GPD installed its files.
+    const unlisten = events.gpdFirstRunComplete.once(() => {
+      showToast({
+        title: t("gpd.firstRun.toast.title"),
+        description: t("gpd.firstRun.toast.description"),
+      })
+    })
+    onCleanup(() => {
+      void unlisten.then((fn) => fn())
     })
   })
 

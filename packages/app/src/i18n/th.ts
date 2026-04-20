@@ -544,6 +544,7 @@ export const dict = {
 
   "session.header.search.placeholder": "ค้นหา {{project}}",
   "session.header.searchFiles": "ค้นหาไฟล์",
+  "session.header.projectPath": "Project: {{path}}",
   "session.header.openIn": "เปิดใน",
   "session.header.open.action": "เปิด {{app}}",
   "session.header.open.ariaLabel": "เปิดใน {{app}}",
@@ -608,6 +609,7 @@ export const dict = {
   "sidebar.project.recentSessions": "เซสชันล่าสุด",
   "sidebar.project.viewAllSessions": "ดูเซสชันทั้งหมด",
   "sidebar.project.clearNotifications": "ล้างการแจ้งเตือน",
+  "sidebar.project.path": "{{path}}",
   "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD",
@@ -854,10 +856,10 @@ export const dict = {
   "dialog.server.add.usernamePlaceholder": "ชื่อผู้ใช้",
   "dialog.server.add.passwordPlaceholder": "รหัสผ่าน",
   "server.row.noUsername": "ไม่มีชื่อผู้ใช้",
-  "session.review.noVcs.createGit.title": "สร้าง Git repository",
-  "session.review.noVcs.createGit.description": "ติดตาม ตรวจสอบ และเลิกทำสิ่งเปลี่ยนแปลงในโปรเจกต์นี้",
-  "session.review.noVcs.createGit.actionLoading": "กำลังสร้าง Git repository...",
-  "session.review.noVcs.createGit.action": "สร้าง Git repository",
+  "session.review.noVcs.createGit.title": "Initialize Git in this folder",
+  "session.review.noVcs.createGit.description": "Runs git init in {{path}}. This tracks changes, enables diffs and undo. No new folder is created — your existing files stay where they are.",
+  "session.review.noVcs.createGit.actionLoading": "Initializing Git...",
+  "session.review.noVcs.createGit.action": "Initialize Git here",
   "session.todo.progress": "เสร็จสิ้น {{done}} จาก {{total}} รายการ",
   "session.question.progress": "{{current}} จาก {{total}} คำถาม",
   "session.header.open.finder": "Finder",
@@ -944,4 +946,6 @@ export const dict = {
   "error.classified.timeout": "The request timed out. Try again or try a simpler prompt.",
   "error.classified.invalidRequest": "The request was rejected by the model provider.",
   "error.classified.unknown": "Something went wrong. See details for more.",
+  "gpd.firstRun.toast.title": "GPD installed files to ~/.config/gpd/",
+  "gpd.firstRun.toast.description": "Physics tools, agents, and config are stored in ~/.config/gpd/. Per-project plans are stored in .opencode/ inside each project folder. Your research files remain where you put them.",
 }

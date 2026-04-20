@@ -553,10 +553,10 @@ export const dict = {
   "session.review.loadingChanges": "Loading changes...",
   "session.review.empty": "No changes in this session yet",
   "session.review.noVcs": "No Git Version Control System detected, changes not displayed",
-  "session.review.noVcs.createGit.title": "Create a Git repository",
-  "session.review.noVcs.createGit.description": "Track, review, and undo changes in this project",
-  "session.review.noVcs.createGit.actionLoading": "Creating Git repository...",
-  "session.review.noVcs.createGit.action": "Create Git repository",
+  "session.review.noVcs.createGit.title": "Initialize Git in this folder",
+  "session.review.noVcs.createGit.description": "Runs git init in {{path}}. This tracks changes, enables diffs and undo. No new folder is created — your existing files stay where they are.",
+  "session.review.noVcs.createGit.actionLoading": "Initializing Git...",
+  "session.review.noVcs.createGit.action": "Initialize Git here",
   "session.review.noSnapshot": "Snapshot tracking is disabled in config, so session changes are unavailable",
   "session.review.noChanges": "No changes",
   "session.review.noUncommittedChanges": "No uncommitted changes yet",
@@ -614,6 +614,7 @@ export const dict = {
 
   "session.header.search.placeholder": "Search {{project}}",
   "session.header.searchFiles": "Search files",
+  "session.header.projectPath": "Project: {{path}}",
   "session.header.openIn": "Open in",
   "session.header.open.action": "Open {{app}}",
   "session.header.open.ariaLabel": "Open in {{app}}",
@@ -719,6 +720,7 @@ export const dict = {
   "sidebar.project.recentSessions": "Recent sessions",
   "sidebar.project.viewAllSessions": "View all sessions",
   "sidebar.project.clearNotifications": "Clear notifications",
+  "sidebar.project.path": "{{path}}",
   "sidebar.empty.title": "No projects open",
   "sidebar.empty.description": "Open a project to get started",
   "sidebar.newProject": "New Project",
@@ -975,4 +977,7 @@ export const dict = {
   "workspace.reset.archived.one": "1 session will be archived.",
   "workspace.reset.archived.many": "{{count}} sessions will be archived.",
   "workspace.reset.note": "This will reset the workspace to match the default branch.",
+
+  "gpd.firstRun.toast.title": "GPD installed files to ~/.config/gpd/",
+  "gpd.firstRun.toast.description": "Physics tools, agents, and config are stored in ~/.config/gpd/. Per-project plans are stored in .opencode/ inside each project folder. Your research files remain where you put them.",
 }

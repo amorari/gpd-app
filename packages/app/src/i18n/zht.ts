@@ -540,6 +540,7 @@ export const dict = {
 
   "session.header.search.placeholder": "搜尋 {{project}}",
   "session.header.searchFiles": "搜尋檔案",
+  "session.header.projectPath": "Project: {{path}}",
   "session.header.openIn": "開啟於",
   "session.header.open.action": "開啟 {{app}}",
   "session.header.open.ariaLabel": "在 {{app}} 中開啟",
@@ -604,6 +605,7 @@ export const dict = {
   "sidebar.project.recentSessions": "最近工作階段",
   "sidebar.project.viewAllSessions": "查看全部工作階段",
   "sidebar.project.clearNotifications": "清除通知",
+  "sidebar.project.path": "{{path}}",
   "sidebar.newProject": "New Project",
 
   "app.name.desktop": "GPD",
@@ -848,10 +850,10 @@ export const dict = {
   "dialog.server.add.usernamePlaceholder": "使用者名稱",
   "dialog.server.add.passwordPlaceholder": "密碼",
   "server.row.noUsername": "無使用者名稱",
-  "session.review.noVcs.createGit.title": "建立 Git 儲存庫",
-  "session.review.noVcs.createGit.description": "追蹤、檢閱及復原此專案中的變更",
-  "session.review.noVcs.createGit.actionLoading": "正在建立 Git 儲存庫...",
-  "session.review.noVcs.createGit.action": "建立 Git 儲存庫",
+  "session.review.noVcs.createGit.title": "Initialize Git in this folder",
+  "session.review.noVcs.createGit.description": "Runs git init in {{path}}. This tracks changes, enables diffs and undo. No new folder is created — your existing files stay where they are.",
+  "session.review.noVcs.createGit.actionLoading": "Initializing Git...",
+  "session.review.noVcs.createGit.action": "Initialize Git here",
   "session.todo.progress": "已完成 {{done}} 個待辦事項（共 {{total}} 個）",
   "session.question.progress": "{{current}}/{{total}} 個問題",
   "session.header.open.finder": "Finder",
@@ -936,4 +938,7 @@ export const dict = {
   "error.classified.timeout": "The request timed out. Try again or try a simpler prompt.",
   "error.classified.invalidRequest": "The request was rejected by the model provider.",
   "error.classified.unknown": "Something went wrong. See details for more.",
+  "gpd.firstRun.toast.title": "GPD installed files to ~/.config/gpd/",
+  "gpd.firstRun.toast.description": "Physics tools, agents, and config are stored in ~/.config/gpd/. Per-project plans are stored in .opencode/ inside each project folder. Your research files remain where you put them.",
+
 } satisfies Partial<Record<Keys, string>>
