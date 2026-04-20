@@ -1,9 +1,12 @@
 """macOS Accessibility driver via osascript/System Events."""
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -21,6 +24,11 @@ def _osascript(script: str, *, timeout_s: float = 10.0) -> str:
     return r.stdout.strip()
 
 
+def _esc_as(s: str) -> str:
+    """Escape a string for safe embedding inside AppleScript double-quoted strings."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
 @dataclass(frozen=True)
 class MenuItem:
     menu: str
@@ -28,16 +36,21 @@ class MenuItem:
 
 
 class AXClient:
-    def __init__(self, app_name: str = "GPD") -> None:
-        self._app = app_name
+    def __init__(self, app_name: str | None = None) -> None:
+        if app_name is not None:
+            self._app = app_name
+        else:
+            app_path = os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")
+            self._app = Path(app_path).stem
 
     def activate(self) -> None:
-        _osascript(f'tell application "{self._app}" to activate')
+        _osascript(f'tell application "{_esc_as(self._app)}" to activate')
 
     def top_level_menus(self) -> list[str]:
+        app = _esc_as(self._app)
         script = (
             'set AppleScript\'s text item delimiters to "|"\n'
-            f'tell application "System Events" to tell process "{self._app}" '
+            f'tell application "System Events" to tell process "{app}" '
             f'to return (name of every menu bar item of menu bar 1) as string'
         )
         raw = _osascript(script)
@@ -48,12 +61,15 @@ class AXClient:
     def menu_item_exists(self, menu: str, item: str) -> bool:
         # Menu-bar queries work without bringing GPD frontmost — only window
         # queries require activation.
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
+        item_e = _esc_as(item)
         script = f'''
         tell application "System Events"
-          tell process "{self._app}"
+          tell process "{app}"
             try
-              set _m to menu bar item "{menu}" of menu bar 1
-              set _i to menu item "{item}" of menu 1 of _m
+              set _m to menu bar item "{menu_e}" of menu bar 1
+              set _i to menu item "{item_e}" of menu 1 of _m
               return "true"
             on error
               return "false"
@@ -64,12 +80,15 @@ class AXClient:
         return _osascript(script).strip() == "true"
 
     def menu_item_enabled(self, menu: str, item: str) -> bool:
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
+        item_e = _esc_as(item)
         script = f'''
         tell application "System Events"
-          tell process "{self._app}"
+          tell process "{app}"
             try
-              set _m to menu bar item "{menu}" of menu bar 1
-              set _i to menu item "{item}" of menu 1 of _m
+              set _m to menu bar item "{menu_e}" of menu bar 1
+              set _i to menu item "{item_e}" of menu 1 of _m
               return (enabled of _i) as string
             on error
               return "false"
@@ -80,10 +99,13 @@ class AXClient:
         return _osascript(script).strip() == "true"
 
     def click_menu_item(self, menu: str, item: str) -> None:
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
+        item_e = _esc_as(item)
         script = f'''
         tell application "System Events"
-          tell process "{self._app}"
-            click menu item "{item}" of menu 1 of menu bar item "{menu}" of menu bar 1
+          tell process "{app}"
+            click menu item "{item_e}" of menu 1 of menu bar item "{menu_e}" of menu bar 1
           end tell
         end tell
         '''
@@ -95,11 +117,13 @@ class AXClient:
         AppleScript's `missing value` entries are filtered out — they
         represent separator items and are not useful as test targets.
         """
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
         script = (
             'set AppleScript\'s text item delimiters to "|"\n'
-            f'tell application "System Events" to tell process "{self._app}" '
+            f'tell application "System Events" to tell process "{app}" '
             f'to return (name of every menu item of menu 1 of menu bar item '
-            f'"{menu}" of menu bar 1) as string'
+            f'"{menu_e}" of menu bar 1) as string'
         )
         try:
             raw = _osascript(script)
@@ -114,24 +138,44 @@ class AXClient:
         ]
 
     def enabled_items_of(self, menu: str) -> list[str]:
-        """Return names of menu items that are currently enabled."""
-        names = self.items_of(menu)
-        if not names:
-            return []
-        script = (
+        """Return names of menu items that are currently enabled.
+
+        Queries both names and enabled flags over the raw (unfiltered) item
+        list so separators ("missing value") don't cause a positional mismatch
+        between the two queries.
+        """
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
+        # Query raw names (including separator placeholders).
+        names_script = (
             'set AppleScript\'s text item delimiters to "|"\n'
-            f'tell application "System Events" to tell process "{self._app}" '
+            f'tell application "System Events" to tell process "{app}" '
+            f'to return (name of every menu item of menu 1 of menu bar item '
+            f'"{menu_e}" of menu bar 1) as string'
+        )
+        # Query enabled flags over the same unfiltered item list.
+        flags_script = (
+            'set AppleScript\'s text item delimiters to "|"\n'
+            f'tell application "System Events" to tell process "{app}" '
             f'to return (enabled of every menu item of menu 1 of menu bar '
-            f'item "{menu}" of menu bar 1) as string'
+            f'item "{menu_e}" of menu bar 1) as string'
         )
         try:
-            raw = _osascript(script)
+            raw_names = _osascript(names_script)
+            raw_flags = _osascript(flags_script)
         except RuntimeError:
             return []
-        flags = [f.strip() for f in raw.split("|")]
-        # flags length may differ from names if AppleScript emits extra
-        # entries for separators; zip truncates to the shorter sequence.
-        return [name for name, flag in zip(names, flags) if flag == "true"]
+        if not raw_names:
+            return []
+        names = [n.strip() for n in raw_names.split("|")]
+        flags = [f.strip() for f in raw_flags.split("|")]
+        # Zip positionally (both queries run over identical item list), then
+        # filter out separators ("missing value") and disabled items.
+        return [
+            name
+            for name, flag in zip(names, flags)
+            if name and name != "missing value" and flag == "true"
+        ]
 
     def main_window(self) -> dict[str, Any]:
         """Return the main window geometry via AX: {x, y, w, h, title}.
@@ -142,11 +186,10 @@ class AXClient:
         returns the same data without activation.
         """
         self.activate()
-        import time
-
+        app = _esc_as(self._app)
         for _ in range(20):
             probe = _osascript(
-                f'tell application "System Events" to tell process "{self._app}" '
+                f'tell application "System Events" to tell process "{app}" '
                 f'to return count of windows'
             )
             if probe.strip().isdigit() and int(probe) >= 1:
@@ -156,7 +199,7 @@ class AXClient:
         delim = "|||"
         script = f'''
         tell application "System Events"
-          tell process "{self._app}"
+          tell process "{app}"
             set _w to first window
             set _pos to position of _w
             set _sz to size of _w
