@@ -6,7 +6,7 @@ import pytest
 from gpd_tests.drivers.ax import AXClient
 
 
-APP_MENU_CANDIDATES = ("GPD", "GPD Dev", "GPD Beta")
+APP_MENU_CANDIDATES = ("GPD", "GPD Dev")
 
 
 def _app_menu_name(ax: AXClient) -> str | None:
@@ -19,9 +19,11 @@ def _app_menu_name(ax: AXClient) -> str | None:
 
 EXPECTED_GROUPS = [
     # About something
-    ["About GPD", "About GPD Dev", "About GPD Beta"],
+    ["About GPD", "About GPD Dev"],
+    # Settings or Preferences (⌘,)
+    ["Settings…", "Settings...", "Preferences…", "Preferences..."],
     # Quit
-    ["Quit GPD", "Quit GPD Dev", "Quit GPD Beta"],
+    ["Quit GPD", "Quit GPD Dev"],
 ]
 
 
@@ -51,7 +53,7 @@ def test_app_menu_quit_is_enabled(ax: AXClient):
     if name is None:
         pytest.skip("no application menu")
     enabled = set(ax.enabled_items_of(name))
-    quit_variants = {"Quit GPD", "Quit GPD Dev", "Quit GPD Beta"}
+    quit_variants = {"Quit GPD", "Quit GPD Dev"}
     assert quit_variants & enabled, (
         f"{name} menu has no enabled Quit; enabled set: {enabled}"
     )

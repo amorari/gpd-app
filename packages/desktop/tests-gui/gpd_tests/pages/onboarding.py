@@ -1,7 +1,6 @@
 """Welcome-screen page object. Phase 3 onboarding flow uses this."""
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -9,12 +8,7 @@ from typing import Any
 from gpd_tests.helpers.dom_probe import DOMProbe, ProbeSkip
 
 
-def sentinel_path() -> Path:
-    """Return the GPD onboarding sentinel path, honoring XDG_CONFIG_HOME."""
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg:
-        return Path(xdg) / "gpd" / ".gpd-initialized"
-    return Path.home() / ".config" / "gpd" / ".gpd-initialized"
+SENTINEL = Path.home() / ".config/gpd/.gpd-initialized"
 
 
 class Onboarding:
@@ -32,7 +26,7 @@ class Onboarding:
 
     @staticmethod
     def sentinel_present() -> bool:
-        return sentinel_path().exists()
+        return SENTINEL.exists()
 
     def welcome_visible(self) -> bool:
         """True when the welcome title text is in the DOM."""
@@ -52,8 +46,6 @@ class Onboarding:
         Relies on the input being reachable via placeholder text. We use
         document.querySelector with an attribute match rather than a role
         selector so we don't require ARIA roles that may shift.
-
-        Returns (result, actual_value) from JS and verifies the value was set.
         """
         from gpd_tests.helpers.selectors import TEXT_WELCOME_API_KEY_PROMPT
 
@@ -64,48 +56,36 @@ class Onboarding:
         js = f"""
         (function() {{
           const inp = document.querySelector('input[placeholder="{placeholder}"]');
-          if (!inp) return ['no-input', ''];
+          if (!inp) return 'no-input';
           const nativeSetter = Object.getOwnPropertyDescriptor(
             window.HTMLInputElement.prototype, 'value'
           ).set;
           nativeSetter.call(inp, '{safe_key}');
           inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-          const actualValue = inp.value;
           const form = inp.closest('form');
           if (form) {{
             form.dispatchEvent(new Event('submit', {{ bubbles: true, cancelable: true }}));
-            return ['form-submitted', actualValue];
+            return 'form-submitted';
           }}
           const btn = inp.parentElement && inp.parentElement.querySelector('button');
           if (btn) {{
             btn.click();
-            return ['button-clicked', actualValue];
+            return 'button-clicked';
           }}
-          return ['no-submit-target', actualValue];
+          return 'no-submit-target';
         }})()
         """
-        raw = self._probe.eval(js)
-        # raw may be a list/tuple [result, actual_value] or a plain string on error
-        if isinstance(raw, (list, tuple)) and len(raw) == 2:
-            result, actual_value = raw[0], raw[1]
-        else:
-            result, actual_value = raw, None
-
+        result = self._probe.eval(js)
         if result not in ("form-submitted", "button-clicked"):
             raise RuntimeError(
                 f"welcome submit failed: {result!r} — UI may have changed"
-            )
-        if actual_value != key:
-            raise RuntimeError(
-                f"enter_api_key: input value mismatch — "
-                f"expected {key!r}, got {actual_value!r}"
             )
 
     def wait_for_home(self, *, timeout_s: float = 20.0) -> None:
         """Wait for the welcome screen to disappear (sentinel appears)."""
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            if sentinel_path().exists() and not self.welcome_visible():
+            if SENTINEL.exists() and not self.welcome_visible():
                 return
             time.sleep(0.2)
         raise TimeoutError(

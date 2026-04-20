@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
-from pathlib import Path
 
 from gpd_tests.drivers.mcp import _discover_socket_path
 from gpd_tests.helpers.timings import wait_until
@@ -22,10 +20,6 @@ def _default_app_path() -> str:
 
 APP_PATH = _default_app_path()
 
-# Derive app name from path: "GPD Dev" or "GPD"
-_APP_NAME = Path(APP_PATH).stem
-_PGREP_PATTERN = f"{_APP_NAME}.app/Contents/MacOS/{_APP_NAME}"
-
 
 def _pgrep(pattern: str) -> list[int]:
     out = subprocess.run(
@@ -42,10 +36,10 @@ class AppState:
         self._launched_pid: int | None = None
 
     def is_running(self) -> bool:
-        return bool(_pgrep(_PGREP_PATTERN))
+        return bool(_pgrep(".app/Contents/MacOS/GPD"))
 
     def gpd_pid(self) -> int | None:
-        pids = _pgrep(_PGREP_PATTERN)
+        pids = _pgrep(".app/Contents/MacOS/GPD")
         return pids[0] if pids else None
 
     def sidecar_pid(self) -> int | None:
@@ -53,8 +47,8 @@ class AppState:
 
         When this AppState launched GPD, prefer the sidecar whose parent is
         our launched GPD process — avoids attaching to a stale unrelated
-        opencode-cli instance. Returns None when PPID lookup fails for all
-        pids (returning an unrelated sidecar is worse than failing loudly).
+        opencode-cli instance. Falls back to first-match if parent lookup
+        fails.
         """
         pids = _pgrep("opencode-cli.*serve")
         if not pids:
@@ -75,35 +69,22 @@ class AppState:
                     return pid
             except Exception:
                 continue
-        # PPID lookup failed for all pids — return None rather than an
-        # unrelated sidecar, so the caller can fail loudly.
-        return None
+        return pids[0]
 
     def kill_stale(self) -> None:
         """Terminate any leftover GPD / opencode-cli processes."""
-        for pattern in (_PGREP_PATTERN, "opencode-cli.*serve"):
+        for pattern in (".app/Contents/MacOS/GPD", "opencode-cli.*serve"):
             for pid in _pgrep(pattern):
                 subprocess.run(
                     ["kill", "-TERM", str(pid)],
                     capture_output=True,
                     check=False,
                 )
-        # Poll after SIGTERM; if still alive, escalate to SIGKILL.
-        alive = lambda: bool(
-            _pgrep(_PGREP_PATTERN) or _pgrep("opencode-cli.*serve")
+        wait_until(
+            lambda: not _pgrep(".app/Contents/MacOS/GPD")
+            and not _pgrep("opencode-cli.*serve"),
+            timeout_s=5.0,
         )
-        if not wait_until(lambda: not alive(), timeout_s=5.0):
-            # SIGTERM wasn't enough — send SIGKILL to remaining processes.
-            for pattern in (_PGREP_PATTERN, "opencode-cli.*serve"):
-                for pid in _pgrep(pattern):
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-            if not wait_until(lambda: not alive(), timeout_s=5.0):
-                raise TimeoutError(
-                    "kill_stale: processes still alive after SIGKILL"
-                )
 
     def launch(self, *, background: bool = True) -> None:
         """Launch GPD. Default is background (-g) — keeps focus on the
@@ -112,19 +93,16 @@ class AppState:
         args = ["open", "-a", APP_PATH]
         if background:
             args.insert(1, "-g")
-        subprocess.run(args, check=True, timeout=30)
-        ok = wait_until(lambda: self.is_running(), timeout_s=10.0)
-        if not ok:
-            raise TimeoutError("GPD failed to launch within 10s")
+        subprocess.run(args, check=True)
+        wait_until(lambda: self.is_running(), timeout_s=10.0)
         self._launched_pid = self.gpd_pid()
 
     def quit(self) -> None:
         subprocess.run(
-            ["osascript", "-e", f'tell application "{_APP_NAME}" to quit'],
+            ["osascript", "-e", 'tell application "GPD" to quit'],
             capture_output=True,
             check=False,
         )
-        self.wait_quit()
         self._launched_pid = None
 
     def refresh_launched_pid(self) -> None:

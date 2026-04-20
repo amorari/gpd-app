@@ -45,23 +45,14 @@ class HTTPClient:
         return self._get("/session")
 
     def providers(self) -> dict[str, Any]:
-        """Return provider configuration from the server.
-
-        The API returns ``{providers: [...], default: {...}}``.
-        """
         return self._get("/config/providers")
 
-    def path_info(self, *, directory: str | None = None) -> dict[str, Any]:
-        params = {"directory": directory} if directory is not None else None
-        r = self._client.get("/path", params=params)
-        r.raise_for_status()
-        return r.json()
+    def path_info(self) -> dict[str, Any]:
+        return self._get("/path")
 
     def _post(self, path: str, json: dict | list | None = None) -> Any:
         r = self._client.post(path, json=json)
         r.raise_for_status()
-        if r.status_code == 204 or not r.content:
-            return None
         ct = r.headers.get("content-type", "")
         if "json" in ct or r.text.startswith(("{", "[")):
             return r.json()
@@ -70,8 +61,6 @@ class HTTPClient:
     def _delete(self, path: str) -> Any:
         r = self._client.delete(path)
         r.raise_for_status()
-        if r.status_code == 204 or not r.content:
-            return None
         return r.json()
 
     def create_session(
@@ -109,8 +98,7 @@ class HTTPClient:
         return self._get(f"/session/{session_id}/message")
 
     def delete_session(self, session_id: str) -> bool:
-        result = self._delete(f"/session/{session_id}")
-        return result is None or bool(result)
+        return bool(self._delete(f"/session/{session_id}"))
 
 
 def discover_sidecar_port(
