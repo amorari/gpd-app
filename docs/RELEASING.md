@@ -34,28 +34,33 @@ Builds are uploaded to the draft release **as each platform finishes**, so mac-i
 
 ---
 
-## How version resolution works
+## Two versions, decoupled
 
-The release workflow decides what tag to ship **in the `resolve-version` job**. Order of precedence:
+A release carries two versions — **desktop** and **sidecar** (the bundled `get-physics-done` Python package) — and they are intentionally allowed to drift:
 
-1. **Explicit override** — `-f version=X.Y.Z` input wins.
-2. **Auto-detect** — reads from the source selected by the `version_source` input (default: `github`):
-   - `github` — `pyproject.toml` on `psi-oss/get-physics-done@main`
-   - `pypi` — latest `get-physics-done` on pypi.org
-   - `npm` — latest `get-physics-done` on npm
-3. **Collision handling** — if the chosen `gpd-desktop-v<base>` tag already exists:
-   - If it's a **draft**, the workflow appends its assets to that draft.
-   - If it's **published**, the workflow increments a suffix: `1.1.0` → `1.1.0-1` → `1.1.0-2` → …, stopping at the first available slot (absent or draft). Hard cap is `-100` before the job fails.
+- **Desktop version** drives the tag, asset filenames, and the app's reported version. It's what the auto-updater compares.
+- **Sidecar version** is reported in the release body for clarity. It's the version of `get-physics-done` available at build time (and what fresh installs will start with).
 
-So the tag-to-version shape is:
+The release workflow's `resolve-version` job always resolves the sidecar version from `version_source` (default: `github` — reads `pyproject.toml` on `psi-oss/get-physics-done@main`; can also be `pypi` or `npm`). The desktop version then takes the explicit `version` input if provided, otherwise follows the sidecar.
+
+### When to override
+
+- **Desktop-only patch releases** (UI copy fix, bug fix, translation, etc. — no sidecar change): bump desktop independently with `-f version=<next-patch>`. The auto-updater will promote this to existing installs. The release body still accurately reports which sidecar version is bundled.
+- **Sidecar release** (new `get-physics-done` on PyPI / GitHub): leave `version` empty, let desktop follow.
+
+### Tag collision handling
+
+If the chosen `gpd-desktop-v<version>` tag already exists:
+- If it's a **draft**, the workflow appends its assets to that draft.
+- If it's **published**, the workflow appends a redrop suffix: `1.1.0` → `1.1.0-1` → `1.1.0-2` → …, stopping at the first available slot. Hard cap `-100`.
+
+Tag shape:
 
 ```
-gpd-desktop-v<gpd-version>[-<redrop-counter>]
+gpd-desktop-v<desktop-version>[-<redrop-counter>]
 ```
 
-A `1.1.0-1` tag means "first desktop redrop against the `get-physics-done` 1.1.0 sidecar". Use this when you need to re-ship desktop without a new sidecar release.
-
-⚠️ **Caveat on auto-updaters:** asset filenames DO include the `-N` suffix (`GPD_1.1.0-1_aarch64.dmg`), and the app's reported version matches the tag. Auto-updates DO run — the updater plugin is registered whenever the CI build has `TAURI_SIGNING_PRIVATE_KEY` set (see `constants.rs:UPDATER_ENABLED`), and `latest.json` is signed and points at the newest release assets. What *doesn't* work is the promotion from `1.1.0` → `1.1.0-N`: semver treats `1.1.0-1` as a *pre-release* of `1.1.0` and sorts it *below* the base version, so a user already on `1.1.0` sees the update feed, decides `1.1.0-1` is older, and stays put. Use a real patch bump (e.g. `1.1.1`) if you need the updater to actually promote the new build. Treat `-N` suffixes as "fresh-install only" deliveries (download page, new machines).
+⚠️ **The redrop suffix (`-N`) does NOT reach existing installs via auto-update.** semver treats `1.1.0-1` as a *pre-release of* `1.1.0` and sorts it *below*; the updater concludes the new build is older. Auto-update is otherwise healthy — the plugin is registered whenever CI has `TAURI_SIGNING_PRIVATE_KEY` (see `constants.rs:UPDATER_ENABLED`), and `latest.json` is signed. Treat `-N` suffixes as "fresh-install only" deliveries (download page, new machines). For patch releases that need to promote, always use a real semver bump (`1.1.1`, `1.2.0`, etc.).
 
 ---
 
@@ -74,17 +79,27 @@ RUN_ID=$(gh run list --repo psi-oss/opencode --workflow gpd-release.yml --limit 
 gh run watch $RUN_ID --repo psi-oss/opencode
 ```
 
-### Redrop — same sidecar version, desktop-only fix
+### Desktop-only patch — keeps same sidecar, needs to reach existing installs
 
-Just re-run the workflow. The collision handler will pick the next `-N` suffix automatically. No version input needed.
+Pick the next desktop patch version explicitly so the auto-updater promotes it:
 
-### Explicit version override
+```bash
+gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version=1.1.1
+```
+
+The release body will still say "Bundled sidecar: get-physics-done v1.1.0" (whatever the sidecar is at build time).
+
+### Redrop — same sidecar, fresh-install only
+
+Just re-run the workflow with no input. The collision handler picks the next `-N` suffix automatically. Auto-update will NOT promote this to existing installs (see caveat above); only fresh downloads from the site get it.
+
+### Explicit version override (general case)
 
 ```bash
 gh workflow run gpd-release.yml --repo psi-oss/opencode --ref gpd -f version=1.2.0
 ```
 
-Only use this when intentionally diverging from the sidecar version.
+Use this whenever the desktop version is intentionally diverging from the sidecar.
 
 ### Reading from PyPI instead of GitHub
 

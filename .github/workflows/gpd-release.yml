@@ -27,6 +27,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       base_version: ${{ steps.version.outputs.base_version }}
+      sidecar_version: ${{ steps.version.outputs.sidecar_version }}
       source: ${{ steps.version.outputs.source }}
     steps:
       - id: version
@@ -35,26 +36,37 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Always resolve the sidecar (get-physics-done) version from the
+          # requested source. This is reported in the release body regardless
+          # of whether the desktop version is overridden.
+          SOURCE="${{ inputs.version_source || 'github' }}"
+          echo "Resolving sidecar version from: $SOURCE"
+          case "$SOURCE" in
+            pypi)
+              SIDECAR_VERSION=$(curl -s https://pypi.org/pypi/get-physics-done/json | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
+              ;;
+            github)
+              SIDECAR_VERSION=$(gh api repos/psi-oss/get-physics-done/contents/pyproject.toml --jq '.content' | base64 -d | grep '^version' | head -1 | grep -oP '"\K[^"]+')
+              ;;
+            npm)
+              SIDECAR_VERSION=$(curl -s https://registry.npmjs.org/get-physics-done | python3 -c "import sys,json; print(json.load(sys.stdin)['dist-tags']['latest'])")
+              ;;
+          esac
+          echo "Sidecar version (get-physics-done): $SIDECAR_VERSION"
+
+          # Desktop version can be overridden independently of the sidecar so
+          # desktop-only patch releases can ship (the auto-updater only
+          # promotes a proper semver increase, so -N pre-release suffixes
+          # cannot be used to reach existing installs).
           if [ -n "${{ inputs.version }}" ]; then
             BASE_VERSION="${{ inputs.version }}"
-            SOURCE="manual"
-            echo "Using manual version: $BASE_VERSION"
+            RESOLVE_SOURCE="manual"
+            echo "Desktop version override: $BASE_VERSION"
           else
-            SOURCE="${{ inputs.version_source || 'github' }}"
-            echo "Auto-detecting GPD version from: $SOURCE"
-            case "$SOURCE" in
-              pypi)
-                BASE_VERSION=$(curl -s https://pypi.org/pypi/get-physics-done/json | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
-                ;;
-              github)
-                BASE_VERSION=$(gh api repos/psi-oss/get-physics-done/contents/pyproject.toml --jq '.content' | base64 -d | grep '^version' | head -1 | grep -oP '"\K[^"]+')
-                ;;
-              npm)
-                BASE_VERSION=$(curl -s https://registry.npmjs.org/get-physics-done | python3 -c "import sys,json; print(json.load(sys.stdin)['dist-tags']['latest'])")
-                ;;
-            esac
+            BASE_VERSION="$SIDECAR_VERSION"
+            RESOLVE_SOURCE="$SOURCE"
+            echo "Desktop version follows sidecar: $BASE_VERSION"
           fi
-          echo "Base GPD version: $BASE_VERSION"
 
           REPO="${{ github.repository }}"
           CANDIDATE="$BASE_VERSION"
@@ -82,16 +94,17 @@ jobs:
           done
 
           if [ -z "$RESOLVED" ]; then
-            echo "::error::Exhausted -N suffixes 1..100 for $BASE_VERSION. Bump get-physics-done version."
+            echo "::error::Exhausted -N suffixes 1..100 for $BASE_VERSION. Pass an explicit version input."
             exit 1
           fi
           CANDIDATE="$RESOLVED"
 
           VERSION="$CANDIDATE"
-          echo "Resolved release version: $VERSION (tag: gpd-desktop-v$VERSION, base: $BASE_VERSION, source: $SOURCE)"
+          echo "Resolved desktop release: $VERSION (tag: gpd-desktop-v$VERSION, base: $BASE_VERSION, sidecar: $SIDECAR_VERSION, source: $RESOLVE_SOURCE)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          echo "sidecar_version=$SIDECAR_VERSION" >> "$GITHUB_OUTPUT"
+          echo "source=$RESOLVE_SOURCE" >> "$GITHUB_OUTPUT"
 
   build-cli:
     needs: resolve-version
@@ -212,7 +225,10 @@ jobs:
           args: --target ${{ matrix.target }} --config ./src-tauri/tauri.prod.conf.json
           tagName: gpd-desktop-v${{ needs.resolve-version.outputs.version }}
           releaseName: "GPD v${{ needs.resolve-version.outputs.version }}"
-          releaseBody: "GPD Desktop App v${{ needs.resolve-version.outputs.version }} — Physics Research Workspace by PSI"
+          releaseBody: |
+            GPD Desktop App v${{ needs.resolve-version.outputs.version }} — Physics Research Workspace by PSI
+
+            **Bundled sidecar:** get-physics-done v${{ needs.resolve-version.outputs.sidecar_version }}
           releaseDraft: true
           prerelease: false
           updaterJsonPreferNsis: true
