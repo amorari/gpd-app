@@ -9,25 +9,44 @@ import sys
 import time
 from pathlib import Path
 
-HOME = Path(os.environ["HOME"])
+from scripts._bundle import app_name as _app_name
+from scripts._bundle import bundle_id as _bundle_id
+
+HOME = Path.home()
+
+# XDG_DATA_HOME respects the XDG Base Directory Specification.
+_XDG_DATA_HOME = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share"))
+# XDG_CONFIG_HOME respects the XDG Base Directory Specification.
+_XDG_CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
 
 _TIER_1 = [
-    HOME / ".local/share/opencode/opencode.db",
-    HOME / ".local/share/opencode/opencode.db-wal",
-    HOME / ".local/share/opencode/opencode.db-shm",
+    _XDG_DATA_HOME / "opencode/opencode.db",
+    _XDG_DATA_HOME / "opencode/opencode.db-wal",
+    _XDG_DATA_HOME / "opencode/opencode.db-shm",
 ]
 
-_TIER_2_EXTRAS = [
-    HOME / "Library/Application Support/inc.psi.gpd",
-    HOME / "Library/WebKit/inc.psi.gpd",
-    HOME / "Library/Caches/inc.psi.gpd",
-    HOME / "Library/Logs/inc.psi.gpd",
-    HOME / ".local/share/opencode/auth.json",
-]
 
-_TIER_3_EXTRAS = [
-    HOME / ".config/gpd/.gpd-initialized",
-]
+def _tier_2_extras() -> list[Path]:
+    """Return tier-2 extra paths, using the bundle ID derived from GPD_APP_PATH.
+
+    Previously hardcoded to inc.psi.gpd, which made the tier-2 reset a no-op
+    on debug builds (inc.psi.gpd.dev). Now derived dynamically.
+    """
+    bid = _bundle_id()
+    return [
+        HOME / "Library/Application Support" / bid,
+        HOME / "Library/WebKit" / bid,
+        HOME / "Library/Caches" / bid,
+        HOME / "Library/Logs" / bid,
+        _XDG_DATA_HOME / "opencode/auth.json",
+    ]
+
+
+def _tier_3_extras() -> list[Path]:
+    """Return tier-3 extra paths, respecting XDG_CONFIG_HOME."""
+    return [
+        _XDG_CONFIG_HOME / "gpd/.gpd-initialized",
+    ]
 
 
 def paths_for_tier(tier: int) -> list[Path]:
@@ -35,20 +54,10 @@ def paths_for_tier(tier: int) -> list[Path]:
         return []
     paths = list(_TIER_1)
     if tier >= 2:
-        paths.extend(_TIER_2_EXTRAS)
+        paths.extend(_tier_2_extras())
     if tier >= 3:
-        paths.extend(_TIER_3_EXTRAS)
+        paths.extend(_tier_3_extras())
     return paths
-
-
-def _app_name() -> str:
-    """Derive the macOS application name from GPD_APP_PATH.
-
-    Returns "GPD Dev" for a debug bundle and "GPD" for the release bundle.
-    Tauri names the binary inside Contents/MacOS/ identically to the .app stem.
-    """
-    app_path = os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")
-    return Path(app_path).stem
 
 
 def stop_gpd() -> None:
@@ -60,6 +69,7 @@ def stop_gpd() -> None:
         check=False,
     )
     pattern = f"{name}.app/Contents/MacOS/{name}"
+    # Poll up to 10 s for graceful exit.
     for _ in range(100):
         out = subprocess.run(
             ["pgrep", "-f", pattern],
@@ -71,13 +81,52 @@ def stop_gpd() -> None:
             return
         time.sleep(0.1)
 
+    # Graceful quit timed out — SIGKILL remaining PIDs.
+    out = subprocess.run(
+        ["pgrep", "-f", pattern],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    pids = out.stdout.strip().split()
+    if pids:
+        subprocess.run(["kill", "-KILL", *pids], check=False)
+
+    # Poll up to 3 more seconds for the SIGKILL to take effect.
+    for _ in range(30):
+        out = subprocess.run(
+            ["pgrep", "-f", pattern],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if not out.stdout.strip():
+            return
+        time.sleep(0.1)
+
+    raise RuntimeError(
+        f"GPD process still alive after SIGKILL (pattern: {pattern!r}). "
+        "Manual intervention required."
+    )
+
 
 def start_gpd() -> None:
     # -g = background, so resets don't steal focus from the developer.
     # Honor GPD_APP_PATH for in-tree dev builds.
     app_path = os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")
     name = _app_name()
-    subprocess.run(["open", "-g", "-a", app_path], check=False)
+    result = subprocess.run(
+        ["open", "-g", "-a", app_path],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"'open -g -a {app_path}' failed (exit {result.returncode}): "
+            f"{result.stderr.strip()}"
+        )
 
     # Verify the main process came up.
     binary_pattern = f"{name}.app/Contents/MacOS/{name}"
