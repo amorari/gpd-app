@@ -67,7 +67,17 @@ export function setCursorPosition(parent: HTMLElement, position: number) {
     if (isText && remaining <= length) {
       const range = document.createRange()
       const selection = window.getSelection()
-      range.setStart(node, remaining)
+      // Translate logical offset (which ignores \u200B) to the physical offset
+      // in the text node (which may contain \u200B characters due to WebKit
+      // merging adjacent text nodes with sentinel characters).
+      const raw = node.textContent ?? ""
+      let logical = 0
+      let physical = 0
+      while (logical < remaining && physical < raw.length) {
+        if (raw[physical] !== "\u200B") logical++
+        physical++
+      }
+      range.setStart(node, physical)
       range.collapse(true)
       selection?.removeAllRanges()
       selection?.addRange(range)
@@ -130,8 +140,16 @@ export function setRangeEdge(parent: HTMLElement, range: Range, edge: "start" | 
     const isBreak = node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "BR"
 
     if (isText && remaining <= length) {
-      if (edge === "start") range.setStart(node, remaining)
-      if (edge === "end") range.setEnd(node, remaining)
+      // Translate logical offset to physical offset accounting for \u200B.
+      const raw = node.textContent ?? ""
+      let logical = 0
+      let physical = 0
+      while (logical < remaining && physical < raw.length) {
+        if (raw[physical] !== "\u200B") logical++
+        physical++
+      }
+      if (edge === "start") range.setStart(node, physical)
+      if (edge === "end") range.setEnd(node, physical)
       return
     }
 

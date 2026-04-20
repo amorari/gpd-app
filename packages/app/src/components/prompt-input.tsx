@@ -684,12 +684,24 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent ?? ""
         if (!text.includes("\u200B")) return true
-        if (text !== "\u200B") return false
 
-        const prev = node.previousSibling
-        const next = node.nextSibling
-        const prevIsBr = prev?.nodeType === Node.ELEMENT_NODE && (prev as HTMLElement).tagName === "BR"
-        return !!prevIsBr && !next
+        // The canonical form is a standalone "\u200B" text node immediately
+        // after a <br> and at the end of the editor.
+        if (text === "\u200B") {
+          const prev = node.previousSibling
+          const next = node.nextSibling
+          const prevIsBr = prev?.nodeType === Node.ELEMENT_NODE && (prev as HTMLElement).tagName === "BR"
+          return !!prevIsBr && !next
+        }
+
+        // WebKit may merge adjacent text nodes so the sentinel appears at the
+        // end of a non-empty text node (e.g. "hello\u200B").  Treat this as
+        // still-normalised so we don't trigger a full DOM re-render that would
+        // make the \u200B visible.
+        if (text.endsWith("\u200B")) return true
+
+        // Any other placement of \u200B is unexpected — force reconciliation.
+        return false
       }
       if (node.nodeType !== Node.ELEMENT_NODE) return false
       const el = node as HTMLElement
@@ -855,6 +867,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const handleInput = () => {
     const rawParts = parseFromDOM()
     const images = imageAttachments()
+
+    // When the browser fires an `input` event due to DOM normalization triggered
+    // by cursor movement (e.g. WebKit merging text nodes on arrow-key press)
+    // without any actual content change, skip the state update entirely.  This
+    // prevents spurious re-renders that make the \u200B sentinel visible.
+    const currentNonImage = prompt.current().filter((part) => part.type !== "image")
+    if (isPromptEqual(rawParts, currentNonImage)) {
+      return
+    }
+
     const cursorPosition = getCursorPosition(editorRef)
     const rawText =
       rawParts.length === 1 && rawParts[0]?.type === "text"
