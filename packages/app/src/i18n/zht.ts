@@ -25,6 +25,7 @@ export const dict = {
   "theme.scheme.light": "淺色",
   "theme.scheme.dark": "深色",
 
+  "command.navigation.home": "Home",
   "command.sidebar.toggle": "切換側邊欄",
   "command.project.open": "開啟專案",
   "command.provider.connect": "連接提供者",
@@ -590,6 +591,7 @@ export const dict = {
   "common.key.esc": "ESC",
   "sidebar.menu.toggle": "切換選單",
   "sidebar.nav.projectsAndSessions": "專案與工作階段",
+  "sidebar.home": "Home",
   "sidebar.settings": "設定",
   "sidebar.help": "說明",
   "sidebar.workspaces.enable": "啟用工作區",

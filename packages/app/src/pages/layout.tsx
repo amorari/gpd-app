@@ -1012,6 +1012,13 @@ export default function Layout(props: ParentProps) {
   command.register("layout", () => {
     const commands: CommandOption[] = [
       {
+        id: "navigation.home",
+        title: language.t("command.navigation.home"),
+        category: language.t("command.category.view"),
+        keybind: "mod+shift+h",
+        onSelect: () => navigate("/"),
+      },
+      {
         id: "sidebar.toggle",
         title: language.t("command.sidebar.toggle"),
         category: language.t("command.category.view"),
@@ -2351,6 +2358,8 @@ export default function Layout(props: ParentProps) {
       openProjectKeybind={() => command.keybind("project.open")}
       onOpenProject={chooseProject}
       renderProjectOverlay={projectOverlay}
+      homeLabel={() => language.t("sidebar.home")}
+      onGoHome={() => navigate("/")}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}

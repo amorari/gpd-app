@@ -24,6 +24,7 @@ export const dict = {
   "theme.scheme.light": "Lys",
   "theme.scheme.dark": "Mørk",
 
+  "command.navigation.home": "Home",
   "command.sidebar.toggle": "Veksle sidepanel",
   "command.project.open": "Åpne prosjekt",
   "command.provider.connect": "Koble til leverandør",
@@ -603,6 +604,7 @@ export const dict = {
 
   "sidebar.menu.toggle": "Veksle meny",
   "sidebar.nav.projectsAndSessions": "Prosjekter og sesjoner",
+  "sidebar.home": "Home",
   "sidebar.settings": "Innstillinger",
   "sidebar.help": "Hjelp",
   "sidebar.workspaces.enable": "Aktiver arbeidsområder",

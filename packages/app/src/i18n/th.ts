@@ -21,6 +21,7 @@ export const dict = {
   "theme.scheme.light": "สว่าง",
   "theme.scheme.dark": "มืด",
 
+  "command.navigation.home": "Home",
   "command.sidebar.toggle": "สลับแถบข้าง",
   "command.project.open": "เปิดโปรเจกต์",
   "command.provider.connect": "เชื่อมต่อผู้ให้บริการ",
@@ -594,6 +595,7 @@ export const dict = {
 
   "sidebar.menu.toggle": "สลับเมนู",
   "sidebar.nav.projectsAndSessions": "โปรเจกต์และเซสชัน",
+  "sidebar.home": "Home",
   "sidebar.settings": "การตั้งค่า",
   "sidebar.help": "ช่วยเหลือ",
   "sidebar.workspaces.enable": "เปิดใช้งานพื้นที่ทำงาน",
