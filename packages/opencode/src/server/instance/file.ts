@@ -1,12 +1,16 @@
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import { Effect } from "effect"
+import path from "path"
 import z from "zod"
 import { AppRuntime } from "../../effect/app-runtime"
+import { Bus } from "../../bus"
 import { File } from "../../file"
+import { FileWatcher } from "../../file/watcher"
 import { Ripgrep } from "../../file/ripgrep"
 import { LSP } from "../../lsp"
 import { Instance } from "../../project/instance"
+import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 
 export const FileRoutes = lazy(() =>
@@ -205,6 +209,55 @@ export const FileRoutes = lazy(() =>
           }),
         )
         return c.json(content)
+      },
+    )
+    .post(
+      "/file/edit-line",
+      describeRoute({
+        summary: "Edit a single line in a file",
+        description:
+          "Replace one line of a file with new content, using optimistic concurrency against the prior line value.",
+        operationId: "file.editLine",
+        responses: {
+          200: {
+            description: "Edit applied",
+            content: {
+              "application/json": {
+                schema: resolver(File.EditLineResult),
+              },
+            },
+          },
+          409: {
+            description: "Conflict: the current line no longer matches oldContent",
+            content: {
+              "application/json": {
+                schema: resolver(File.EditLineConflict),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          path: z.string(),
+          line: z.number().int().positive(),
+          oldContent: z.string(),
+          newContent: z.string(),
+        }),
+      ),
+      async (c) => {
+        const body = c.req.valid("json")
+        const result = await AppRuntime.runPromise(File.Service.use((svc) => svc.editLine(body)))
+        if (!result.ok) {
+          return c.json(result, 409)
+        }
+        // Notify watchers so open editors refresh their view.
+        const full = path.join(Instance.directory, body.path)
+        await Bus.publish(File.Event.Edited, { file: full }).catch(() => {})
+        await Bus.publish(FileWatcher.Event.Updated, { file: full, event: "change" }).catch(() => {})
+        return c.json(result, 200)
       },
     ),
 )

@@ -24,6 +24,13 @@ export const commands = {
 	linuxInstallHint: (tool: string) => __TAURI_INVOKE<string>("linux_install_hint", { tool }),
 	repairGpdVenv: () => __TAURI_INVOKE<null>("repair_gpd_venv"),
 	installTectonic: () => __TAURI_INVOKE<string>("install_tectonic"),
+	detectTexCompiler: () => __TAURI_INVOKE<TexCompilerInfo>("detect_tex_compiler"),
+	detectTexRoot: (startFile: string) => __TAURI_INVOKE<string>("detect_tex_root", { startFile }),
+	compileTex: (projectId: string, texFile: string, rootFile: string | null) => __TAURI_INVOKE<TexCompileResult>("compile_tex", { projectId, texFile, rootFile }),
+	synctexForward: (synctexPath: string, page: number, x: number, y: number) => __TAURI_INVOKE<SyncTexResult>("synctex_forward", { synctexPath, page, x, y }),
+	synctexReverse: (synctexPath: string, sourceFile: string, line: number) => __TAURI_INVOKE<SyncTexResult>("synctex_reverse", { synctexPath, sourceFile, line }),
+	parseTexLog: (logPath: string) => __TAURI_INVOKE<TexLogParseResult>("parse_tex_log", { logPath }),
+	readTexArtifactBase64: (path: string) => __TAURI_INVOKE<string>("read_tex_artifact_base64", { path }),
 };
 
 /** Events */
@@ -32,6 +39,7 @@ export const events = {
 	loadingWindowComplete: makeEvent<LoadingWindowComplete>("loading-window-complete"),
 	sqliteMigrationProgress: makeEvent<SqliteMigrationProgress>("sqlite-migration-progress"),
 	tectonicDownloadProgress: makeEvent<TectonicDownloadProgress>("tectonic-download-progress"),
+	texCompileProgress: makeEvent<TexCompileProgress>("tex-compile-progress"),
 };
 
 /* Types */
@@ -73,6 +81,22 @@ export type ServerReadyData = {
 
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" };
 
+export type SyncTexResult = {
+		
+	/**
+ * For forward (PDF → source): the resolved source file.
+ */
+file: string | null,
+		line: number | null,
+		
+	/**
+ * For reverse (source → PDF): page and fractional coordinates (points).
+ */
+page: number | null,
+		x: number | null,
+		y: number | null,
+	};
+
 /**
  * Progress payload emitted under the `tectonic-download-progress` event
  * while the Tectonic archive is being streamed from GitHub.
@@ -93,6 +117,128 @@ loaded: number,
  * Total bytes advertised by the server, or 0 if unknown.
  */
 total: number,
+	};
+
+/**
+ * Progress event emitted while a compile is running so the Build pane can
+ * show a spinner with a human-readable phase.
+ */
+export type TexCompileProgress = {
+		
+	/**
+ * One of: "starting", "running", "bibbing", "finalizing", "done", "error".
+ */
+status: string,
+		
+	/**
+ * 0-100, best-effort. We don't parse log byte counts — this is a coarse
+ * estimate derived from the phase so the progress bar at least moves.
+ */
+percent: number,
+		
+	/**
+ * Short translated-by-frontend message ID or prose describing the phase.
+ */
+message: string,
+	};
+
+export type TexCompileResult = {
+		status: TexCompileStatus,
+		
+	/**
+ * Absolute path to the produced PDF, if any.
+ */
+pdfPath: string | null,
+		
+	/**
+ * Absolute path to the `.synctex.gz` file, if any.
+ */
+synctexPath: string | null,
+		
+	/**
+ * Absolute path to the `.log` file, if any.
+ */
+logPath: string | null,
+		
+	/**
+ * Which compiler was used.
+ */
+compilerKind: string | null,
+		compilerPath: string | null,
+		
+	/**
+ * Wall-clock duration of the compile in milliseconds.
+ */
+durationMs: number,
+		errors: TexDiagnostic[],
+		warnings: TexDiagnostic[],
+		
+	/**
+ * The `.tex` file that was actually used as the root.
+ */
+rootFile: string,
+		
+	/**
+ * The output directory used (under the GPD cache).
+ */
+outDir: string,
+	};
+
+export type TexCompileStatus = 
+	/**
+ * Compile exit 0, PDF exists.
+ */
+"success" | 
+	/**
+ * Compile produced a PDF despite warnings or non-fatal errors.
+ */
+"success_with_warnings" | 
+	/**
+ * Compile failed — no PDF, or PDF missing after run.
+ */
+"error" | 
+	/**
+ * No compiler found on the system. UI should show install CTA.
+ */
+"no_compiler" | 
+	/**
+ * User cancelled an in-flight compile.
+ */
+"cancelled";
+
+export type TexCompilerInfo = {
+		kind: string,
+		path: string | null,
+		
+	/**
+ * True iff `latexmk` was also found on PATH — we prefer it when
+ * available because it handles the bib/glossary multi-pass dance.
+ */
+hasLatexmk: boolean,
+		
+	/**
+ * True iff `bibtex` is on PATH (or bundled with the resolved compiler).
+ */
+hasBibtex: boolean,
+		
+	/**
+ * True iff the `synctex` CLI is on PATH. Without it, we cannot support
+ * bidirectional navigation even if `.synctex.gz` was generated.
+ */
+hasSynctex: boolean,
+	};
+
+export type TexDiagnostic = {
+		severity: string,
+		file: string | null,
+		line: number | null,
+		message: string,
+	};
+
+export type TexLogParseResult = {
+		errors: TexDiagnostic[],
+		warnings: TexDiagnostic[],
+		rawLog: string,
 	};
 
 export type WslConfig = {

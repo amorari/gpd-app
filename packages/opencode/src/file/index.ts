@@ -83,6 +83,28 @@ export namespace File {
     ),
   }
 
+  export const EditLineResult = z
+    .object({
+      ok: z.literal(true),
+      content: z.string(),
+    })
+    .meta({
+      ref: "FileEditLineResult",
+    })
+  export type EditLineResult = z.infer<typeof EditLineResult>
+
+  export const EditLineConflict = z
+    .object({
+      ok: z.literal(false),
+      reason: z.literal("conflict"),
+      currentContent: z.string(),
+      currentLineContent: z.string().optional(),
+    })
+    .meta({
+      ref: "FileEditLineConflict",
+    })
+  export type EditLineConflict = z.infer<typeof EditLineConflict>
+
   const log = Log.create({ service: "file" })
 
   const binary = new Set([
@@ -340,6 +362,12 @@ export namespace File {
       dirs?: boolean
       type?: "file" | "directory"
     }) => Effect.Effect<string[]>
+    readonly editLine: (input: {
+      path: string
+      line: number
+      oldContent: string
+      newContent: string
+    }) => Effect.Effect<EditLineResult | EditLineConflict>
   }
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/File") {}
@@ -661,8 +689,61 @@ export namespace File {
         return output
       })
 
+      const editLine = Effect.fn("File.editLine")(function* (input: {
+        path: string
+        line: number
+        oldContent: string
+        newContent: string
+      }) {
+        const full = path.join(Instance.directory, input.path)
+
+        if (!Instance.containsPath(full)) throw new Error("Access denied: path escapes project directory")
+        if (input.line < 1) throw new Error("Line numbers are 1-indexed")
+        if (input.oldContent.includes("\n") || input.newContent.includes("\n")) {
+          throw new Error("editLine only supports single-line edits")
+        }
+
+        const stat = yield* appFs.stat(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (!stat) throw new Error(`File not found: ${input.path}`)
+        if (stat.type === "Directory") throw new Error(`Path is a directory, not a file: ${input.path}`)
+
+        const current = yield* appFs.readFileString(full)
+        const ending = current.includes("\r\n") ? "\r\n" : "\n"
+        const lines = current.split(/\r?\n/)
+        // Preserve trailing-newline convention: if the file ends with a newline, split produces
+        // a trailing empty element. Don't treat that as an editable line.
+        const editableCount = current.endsWith(ending) || current.endsWith("\n") ? lines.length - 1 : lines.length
+
+        if (input.line > editableCount) {
+          return {
+            ok: false as const,
+            reason: "conflict" as const,
+            currentContent: current,
+          } satisfies EditLineConflict
+        }
+
+        const actualLine = lines[input.line - 1] ?? ""
+        if (actualLine !== input.oldContent) {
+          return {
+            ok: false as const,
+            reason: "conflict" as const,
+            currentContent: current,
+            currentLineContent: actualLine,
+          } satisfies EditLineConflict
+        }
+
+        lines[input.line - 1] = input.newContent
+        const next = lines.join(ending)
+        yield* appFs.writeFileString(full, next)
+
+        return {
+          ok: true as const,
+          content: next,
+        } satisfies EditLineResult
+      })
+
       log.info("init")
-      return Service.of({ init, status, read, list, search })
+      return Service.of({ init, status, read, list, search, editLine })
     }),
   )
 
@@ -692,5 +773,14 @@ export namespace File {
 
   export async function search(input: { query: string; limit?: number; dirs?: boolean; type?: "file" | "directory" }) {
     return runPromise((svc) => svc.search(input))
+  }
+
+  export async function editLine(input: {
+    path: string
+    line: number
+    oldContent: string
+    newContent: string
+  }): Promise<EditLineResult | EditLineConflict> {
+    return runPromise((svc) => svc.editLine(input))
   }
 }

@@ -2,7 +2,9 @@ mod cli;
 mod constants;
 mod dependencies;
 mod gpd_setup;
+mod project_fs;
 mod tectonic;
+mod tex_compiler;
 #[cfg(target_os = "linux")]
 pub mod linux_display;
 #[cfg(target_os = "linux")]
@@ -355,6 +357,9 @@ pub fn run() {
             // Hold the guard in managed state so it lives for the app's lifetime,
             // ensuring all buffered logs are flushed on shutdown.
             handle.manage(logging::init(&log_dir));
+            // Shared cancel-aware TeX compile state so a second Compile
+            // click aborts an in-flight compile instead of racing it.
+            handle.manage(tex_compiler::TexCompileState::new());
 
             builder.mount_events(&handle);
             tauri::async_runtime::spawn(initialize(handle));
@@ -400,13 +405,21 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             dependencies::install_git_windows,
             dependencies::linux_install_hint,
             gpd_setup::repair_gpd_venv,
-            tectonic::install_tectonic
+            tectonic::install_tectonic,
+            tex_compiler::detect_tex_compiler,
+            tex_compiler::detect_tex_root,
+            tex_compiler::compile_tex,
+            tex_compiler::synctex_forward,
+            tex_compiler::synctex_reverse,
+            tex_compiler::parse_tex_log,
+            tex_compiler::read_tex_artifact_base64
         ])
         .events(tauri_specta::collect_events![
             LoadingWindowComplete,
             SqliteMigrationProgress,
             GpdFirstRunComplete,
-            tectonic::TectonicDownloadProgress
+            tectonic::TectonicDownloadProgress,
+            tex_compiler::TexCompileProgress
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
 }

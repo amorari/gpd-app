@@ -116,6 +116,85 @@ export type Platform = {
 
   /** Delete the GPD venv + init marker and re-run first-run setup. Desktop only. */
   repairGpdVenv?(): Promise<void>
+
+  /**
+   * TeX compilation surface. Desktop only. Lets the Build pane detect a
+   * compiler, compile a `.tex` file to PDF, and do bidirectional SyncTeX
+   * navigation between source and rendered output.
+   */
+  tex?: {
+    detectCompiler(): Promise<TexCompilerInfo>
+    detectRoot(startFile: string): Promise<string>
+    compile(input: { projectId: string; texFile: string; rootFile: string | null }): Promise<TexCompileResult>
+    synctexForward(input: { synctexPath: string; page: number; x: number; y: number }): Promise<SyncTexResult>
+    synctexReverse(input: { synctexPath: string; sourceFile: string; line: number }): Promise<SyncTexResult>
+    parseLog(logPath: string): Promise<TexLogParseResult>
+    /**
+     * Read a build artifact (PDF, log) and return it as a base64 string.
+     * The backend verifies the path lives under the GPD tex-builds cache.
+     */
+    readArtifactBase64(path: string): Promise<string>
+    /**
+     * Subscribe to compile progress events. Returns an unsubscribe callback.
+     */
+    onProgress(cb: (payload: TexCompileProgress) => void): Promise<() => void>
+  }
+}
+
+export type TexCompileStatus =
+  | "success"
+  | "success_with_warnings"
+  | "error"
+  | "no_compiler"
+  | "cancelled"
+
+export type TexDiagnostic = {
+  severity: string
+  file: string | null
+  line: number | null
+  message: string
+}
+
+export type TexCompileResult = {
+  status: TexCompileStatus
+  pdfPath: string | null
+  synctexPath: string | null
+  logPath: string | null
+  compilerKind: string | null
+  compilerPath: string | null
+  durationMs: number
+  errors: TexDiagnostic[]
+  warnings: TexDiagnostic[]
+  rootFile: string
+  outDir: string
+}
+
+export type TexCompilerInfo = {
+  kind: string
+  path: string | null
+  hasLatexmk: boolean
+  hasBibtex: boolean
+  hasSynctex: boolean
+}
+
+export type SyncTexResult = {
+  file: string | null
+  line: number | null
+  page: number | null
+  x: number | null
+  y: number | null
+}
+
+export type TexLogParseResult = {
+  errors: TexDiagnostic[]
+  warnings: TexDiagnostic[]
+  rawLog: string
+}
+
+export type TexCompileProgress = {
+  status: string
+  percent: number
+  message: string
 }
 
 export type DisplayBackend = "auto" | "wayland"

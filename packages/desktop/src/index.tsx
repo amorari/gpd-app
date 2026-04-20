@@ -391,6 +391,20 @@ const createPlatform = (): Platform => {
         cb(event.payload)
       })
     },
+    tex: {
+      detectCompiler: () => commands.detectTexCompiler(),
+      detectRoot: (startFile) => commands.detectTexRoot(startFile),
+      compile: ({ projectId, texFile, rootFile }) => commands.compileTex(projectId, texFile, rootFile),
+      synctexForward: ({ synctexPath, page, x, y }) => commands.synctexForward(synctexPath, page, x, y),
+      synctexReverse: ({ synctexPath, sourceFile, line }) => commands.synctexReverse(synctexPath, sourceFile, line),
+      parseLog: (logPath) => commands.parseTexLog(logPath),
+      readArtifactBase64: (path) => commands.readTexArtifactBase64(path),
+      onProgress: async (cb) => {
+        return events.texCompileProgress.listen((event) => {
+          cb(event.payload)
+        })
+      },
+    },
     writeClipboard: (text: string) => writeText(text),
 
     async readClipboardImage() {

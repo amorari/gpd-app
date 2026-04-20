@@ -4637,6 +4637,55 @@ export type FileStatusResponses = {
 
 export type FileStatusResponse = FileStatusResponses[keyof FileStatusResponses]
 
+export type FileEditLineResult = {
+  ok: true
+  content: string
+}
+
+export type FileEditLineConflict = {
+  ok: false
+  reason: "conflict"
+  currentContent: string
+  currentLineContent?: string
+}
+
+export type FileEditLineData = {
+  body: {
+    path: string
+    line: number
+    oldContent: string
+    newContent: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/edit-line"
+}
+
+export type FileEditLineErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Conflict
+   */
+  409: FileEditLineConflict
+}
+
+export type FileEditLineError = FileEditLineErrors[keyof FileEditLineErrors]
+
+export type FileEditLineResponses = {
+  /**
+   * Edit applied
+   */
+  200: FileEditLineResult
+}
+
+export type FileEditLineResponse = FileEditLineResponses[keyof FileEditLineResponses]
+
 export type EventSubscribeData = {
   body?: never
   path?: never
