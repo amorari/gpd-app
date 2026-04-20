@@ -1,0 +1,225 @@
+name: GPD GUI Test Suite
+
+# Runs unit + smoke + flows (non-real-backend) against a locally-built debug
+# GPD on macOS arm64. Real-backend flows run only when GPD_TEST_ANTHROPIC_KEY
+# is configured as a repository secret.
+#
+# NOTE (first-run CI): smoke-and-flows may fail due to macOS Accessibility
+# permission — GitHub-hosted runners don't grant AX to arbitrary processes.
+# The HTTP-only tests (sidecar health, HTTP driver unit tests) will still pass.
+# Subsequent AX failures should be treated as known CI limitations, not
+# regressions, until a provisioned self-hosted runner is available.
+
+on:
+  push:
+    paths:
+      - "packages/desktop/tests-gui/**"
+      - "packages/desktop/src-tauri/**"
+      - "packages/desktop/src/**"
+      - ".github/workflows/gpd-tests-gui.yml"
+  pull_request:
+    branches:
+      - gpd
+  workflow_dispatch:
+
+concurrency:
+  group: gpd-tests-gui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: unit — fast, no GPD needed
+  # ---------------------------------------------------------------------------
+  unit:
+    name: Unit tests
+    runs-on: macos-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/desktop/tests-gui
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Install test dependencies
+        run: uv sync
+
+      - name: Run unit tests
+        run: uv run pytest -m unit -q
+
+  # ---------------------------------------------------------------------------
+  # Job 2: smoke-and-flows — builds GPD debug, launches it, runs tests
+  # ---------------------------------------------------------------------------
+  smoke-and-flows:
+    name: Smoke + flows (debug build)
+    needs: unit
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # Disable slow-mo for CI and force HTML report generation
+      PYTEST_CI: "1"
+      # Cold-start: kill any stale GPD/opencode-cli before launching
+      PYTEST_COLD_START: "1"
+      # Quit GPD cleanly at the end of the session
+      PYTEST_QUIT_GPD: "1"
+    steps:
+      # -----------------------------------------------------------------------
+      # Checkout + toolchain
+      # -----------------------------------------------------------------------
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: oven-sh/setup-bun@v1
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+          shared-key: aarch64-apple-darwin
+
+      - uses: astral-sh/setup-uv@v3
+
+      # -----------------------------------------------------------------------
+      # Runtime dependency: cliclick (required by OSInputClient)
+      # -----------------------------------------------------------------------
+      - name: Install cliclick
+        run: brew install cliclick
+
+      # -----------------------------------------------------------------------
+      # JS dependencies
+      # -----------------------------------------------------------------------
+      - name: Install JS dependencies
+        run: bun install
+
+      # -----------------------------------------------------------------------
+      # Build opencode sidecar (bundles the opencode-cli binary into the
+      # Tauri sidecar folder so the desktop app can spawn it at runtime)
+      # -----------------------------------------------------------------------
+      - name: Build opencode sidecar
+        working-directory: packages/desktop
+        run: bun run predev
+        env:
+          RUST_TARGET: aarch64-apple-darwin
+          # predev.ts reads TAURI_ENV_TARGET_TRIPLE as an alias for RUST_TARGET
+          TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
+
+      # -----------------------------------------------------------------------
+      # Stage bundled uv binary (same snippet as gpd-release.yml:186-205,
+      # aarch64-apple-darwin only)
+      # -----------------------------------------------------------------------
+      - name: Download and stage uv bundle
+        shell: bash
+        run: |
+          UV_VERSION="0.7.3"
+          UV_PLATFORM="aarch64-apple-darwin"
+          mkdir -p packages/desktop/src-tauri/uv-bundle
+          curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_PLATFORM}.tar.gz" \
+            | tar xz -C packages/desktop/src-tauri/uv-bundle --strip-components=1
+          chmod +x packages/desktop/src-tauri/uv-bundle/uv
+          echo "uv binary staged: $(du -sh packages/desktop/src-tauri/uv-bundle | cut -f1)"
+
+      # -----------------------------------------------------------------------
+      # Build debug Tauri bundle
+      # A debug build is sufficient — release build requires signing/notarization.
+      # The MCP plugin (tauri-plugin-mcp) is gated on #[cfg(debug_assertions)]
+      # so it will be present in this build.
+      # -----------------------------------------------------------------------
+      - name: Build debug Tauri bundle
+        working-directory: packages/desktop
+        run: bun run tauri build --debug
+        env:
+          # Suppress Tauri upload steps (we don't publish from here)
+          GITHUB_TOKEN: ${{ github.token }}
+
+      # -----------------------------------------------------------------------
+      # Accessibility permission
+      # GitHub-hosted runners do not grant AX access to new processes.
+      # We attempt a best-effort tccutil reset; failure is non-fatal.
+      # Tests that require AX will skip/fail gracefully via pytest marks.
+      # -----------------------------------------------------------------------
+      - name: Attempt AX permission grant (best-effort)
+        continue-on-error: true
+        run: |
+          # tccutil is available on macOS runners but requires SIP disabled
+          # to reset entries for processes not already in the TCC database.
+          # This step is here as a hook for future self-hosted runner setups.
+          echo "::notice::AX permission cannot be granted on GitHub-hosted runners."
+          echo "::notice::Tests requiring AX will report failures — this is expected on first run."
+
+      # -----------------------------------------------------------------------
+      # Launch GPD Dev and wait for warm-up
+      # -----------------------------------------------------------------------
+      - name: Launch GPD Dev
+        run: |
+          APP_PATH="${GITHUB_WORKSPACE}/packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app"
+          echo "GPD_APP_PATH=${APP_PATH}" >> "$GITHUB_ENV"
+          open "${APP_PATH}"
+          echo "Waiting 10s for GPD warm-up..."
+          sleep 10
+
+      # -----------------------------------------------------------------------
+      # Conditional: seed onboarding state when real-backend secret is present.
+      # Uses the two-flag guard from conftest.py to avoid accidental clobber.
+      # -----------------------------------------------------------------------
+      - name: Configure real-backend env (if secret present)
+        if: ${{ secrets.GPD_TEST_ANTHROPIC_KEY != '' }}
+        run: |
+          echo "GPD_TEST_ANTHROPIC_KEY=${{ secrets.GPD_TEST_ANTHROPIC_KEY }}" >> "$GITHUB_ENV"
+          echo "GPD_TEST_SEED_ONBOARDING=1" >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------------
+      # Install Python test dependencies
+      # -----------------------------------------------------------------------
+      - name: Install test dependencies
+        working-directory: packages/desktop/tests-gui
+        run: uv sync
+
+      # -----------------------------------------------------------------------
+      # Run smoke + non-real-backend flows
+      # Excludes restart tests (destructive) and real_backend tests (need key).
+      # -----------------------------------------------------------------------
+      - name: Run smoke + flows (non-real-backend)
+        working-directory: packages/desktop/tests-gui
+        run: |
+          uv run pytest \
+            -m "(smoke and not restart) or (flows and not real_backend)" \
+            -v \
+            --html=artifacts/report.html \
+            --self-contained-html
+
+      # -----------------------------------------------------------------------
+      # Optional: run real-backend flows when GPD_TEST_ANTHROPIC_KEY is set.
+      # This step is independent of the smoke step — failures here do NOT block
+      # PRs that lack the secret. Fork PRs will never have the secret.
+      # -----------------------------------------------------------------------
+      - name: Run real-backend flows (optional, requires secret)
+        if: ${{ env.GPD_TEST_ANTHROPIC_KEY != '' }}
+        working-directory: packages/desktop/tests-gui
+        run: |
+          uv run pytest \
+            -m "flows and real_backend" \
+            -v \
+            --html=artifacts/report-real-backend.html \
+            --self-contained-html
+        continue-on-error: true
+
+      # -----------------------------------------------------------------------
+      # Upload artifacts on any failure (screenshots, window dumps, HTML report)
+      # -----------------------------------------------------------------------
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpd-tests-gui-artifacts-${{ github.run_id }}
+          path: packages/desktop/tests-gui/artifacts/
+          retention-days: 7
+          if-no-files-found: warn

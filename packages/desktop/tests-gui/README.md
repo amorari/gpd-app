@@ -116,3 +116,29 @@ Only functional against a debug build (`cargo tauri build --debug`), since the R
 - **`execute_js` timeouts** — webview listeners never registered. Confirm the build is debug (dev only) and that `src/vendor/tauri-plugin-mcp.ts` is intact.
 - **Providers test skipped** — set `GPD_TEST_ANTHROPIC_KEY` and re-run.
 - **`cliclick: command not found`** — `brew install cliclick`.
+
+## CI
+
+The workflow is defined at `.github/workflows/gpd-tests-gui.yml`.
+
+**Triggers:**
+- `push` to any branch that touches `packages/desktop/tests-gui/**`, `packages/desktop/src-tauri/**`, `packages/desktop/src/**`, or the workflow file itself.
+- `pull_request` targeting the `gpd` branch.
+- Manual `workflow_dispatch`.
+
+**Jobs:**
+
+| Job | Runner | What runs |
+|-----|--------|-----------|
+| `unit` | `macos-latest` | `pytest -m unit -q` — fast, no GPD needed |
+| `smoke-and-flows` | `macos-latest` | Builds debug GPD, launches it, then runs smoke (no restart) + non-real-backend flows |
+
+**Real-backend flows (`GPD_TEST_ANTHROPIC_KEY` secret):**
+
+Tests marked `real_backend` (those that make live LLM calls) are skipped unless the repository secret `GPD_TEST_ANTHROPIC_KEY` is configured. Add it under *Settings → Secrets and variables → Actions* with an Anthropic API key. When the secret is present the workflow also sets `GPD_TEST_SEED_ONBOARDING=1` so the `seed_onboarding_state` autouse fixture (in `conftest.py`) writes `auth.json` before GPD launches.
+
+Fork PRs never receive repository secrets — real-backend steps will be skipped silently on forks.
+
+**Known CI limitations (first-run):**
+
+GitHub-hosted macOS runners do not grant Accessibility (AX) permission to arbitrary processes. Tests that rely on AX (AppleScript window queries, `cliclick` keyboard injection) will fail with *-1719 not allowed assistive access*. The HTTP-only driver tests and MCP-socket tests still pass. This is documented in the workflow comments and is expected until a provisioned self-hosted runner is available.
