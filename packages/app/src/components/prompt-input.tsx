@@ -560,6 +560,20 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
   const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
+  const agentByName = createMemo(() => {
+    const map = new Map<string, ReturnType<typeof local.agent.list>[number]>()
+    for (const agent of local.agent.list()) {
+      map.set(agent.name, agent)
+    }
+    return map
+  })
+  function prettyAgentName(name: string): string {
+    const stripped = name.startsWith("gpd-") ? name.slice(4) : name
+    return stripped
+      .split(/[-_]/)
+      .map((part) => (part.length > 0 ? part[0].toUpperCase() + part.slice(1) : part))
+      .join(" ")
+  }
 
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!option) return
@@ -1478,16 +1492,32 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       size="normal"
                       options={agentNames()}
                       current={local.agent.current()?.name ?? ""}
+                      label={(value) => prettyAgentName(value)}
                       onSelect={(value) => {
                         local.agent.set(value)
                         restoreFocus()
                       }}
-                      class="capitalize max-w-[160px] text-text-base"
+                      class="max-w-[160px] text-text-base"
+                      contentClass="max-w-[22rem]"
                       valueClass="truncate text-13-regular text-text-base"
                       triggerStyle={control()}
                       triggerProps={{ "data-action": "prompt-agent" }}
                       variant="ghost"
-                    />
+                    >
+                      {(value) => {
+                        const agent = value ? agentByName().get(value) : undefined
+                        const color = agent?.color
+                        return (
+                          <div class="flex items-center gap-2 min-w-0">
+                            <div
+                              class="size-2 rounded-full shrink-0"
+                              style={{ "background-color": color ?? "var(--icon-weak-base)" }}
+                            />
+                            <span class="truncate">{value ? prettyAgentName(value) : ""}</span>
+                          </div>
+                        )
+                      }}
+                    </Select>
                   </TooltipKeybind>
                 </div>
                 <Show when={store.mode !== "shell"}>
