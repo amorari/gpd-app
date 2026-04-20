@@ -27,6 +27,7 @@ export type ProjectSidebarContext = {
   openSidebar: () => void
   closeProject: (directory: string) => void
   showEditProjectDialog: (project: LocalProject) => void
+  showDeleteProjectDialog: (project: LocalProject) => void
   toggleProjectWorkspaces: (project: LocalProject) => void
   workspacesEnabled: (project: LocalProject) => boolean
   workspaceIds: (project: LocalProject) => string[]
@@ -64,6 +65,7 @@ const ProjectTile = (props: {
   onProjectFocus: (worktree: string) => void
   navigateToProject: (directory: string) => void
   showEditProjectDialog: (project: LocalProject) => void
+  showDeleteProjectDialog: (project: LocalProject) => void
   toggleProjectWorkspaces: (project: LocalProject) => void
   workspacesEnabled: (project: LocalProject) => boolean
   closeProject: (directory: string) => void
@@ -177,6 +179,13 @@ const ProjectTile = (props: {
             onSelect={() => props.closeProject(props.project.worktree)}
           >
             <ContextMenu.ItemLabel>{props.language.t("common.close")}</ContextMenu.ItemLabel>
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            data-action="project-delete-menu"
+            data-project={base64Encode(props.project.worktree)}
+            onSelect={() => props.showDeleteProjectDialog(props.project)}
+          >
+            <ContextMenu.ItemLabel>{props.language.t("sidebar.project.delete")}</ContextMenu.ItemLabel>
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
@@ -328,6 +337,7 @@ export const SortableProject = (props: {
       onProjectFocus={props.ctx.onProjectFocus}
       navigateToProject={props.ctx.navigateToProject}
       showEditProjectDialog={props.ctx.showEditProjectDialog}
+      showDeleteProjectDialog={props.ctx.showDeleteProjectDialog}
       toggleProjectWorkspaces={props.ctx.toggleProjectWorkspaces}
       workspacesEnabled={props.ctx.workspacesEnabled}
       closeProject={props.ctx.closeProject}

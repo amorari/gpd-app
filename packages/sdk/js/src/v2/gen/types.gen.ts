@@ -33,6 +33,13 @@ export type EventProjectUpdated = {
   properties: Project
 }
 
+export type EventProjectDeleted = {
+  type: "project.deleted"
+  properties: {
+    id: string
+  }
+}
+
 export type EventServerInstanceDisposed = {
   type: "server.instance.disposed"
   properties: {
@@ -1100,6 +1107,7 @@ export type GlobalEvent = {
   workspace?: string
   payload:
     | EventProjectUpdated
+    | EventProjectDeleted
     | EventServerInstanceDisposed
     | EventInstallationUpdated
     | EventInstallationUpdateAvailable
@@ -2012,6 +2020,7 @@ export type File = {
 
 export type Event =
   | EventProjectUpdated
+  | EventProjectDeleted
   | EventServerInstanceDisposed
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
@@ -2485,6 +2494,40 @@ export type ProjectUpdateResponses = {
 }
 
 export type ProjectUpdateResponse = ProjectUpdateResponses[keyof ProjectUpdateResponses]
+
+export type ProjectDeleteData = {
+  body?: never
+  path: {
+    projectID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/{projectID}"
+}
+
+export type ProjectDeleteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProjectDeleteError = ProjectDeleteErrors[keyof ProjectDeleteErrors]
+
+export type ProjectDeleteResponses = {
+  /**
+   * Project deleted
+   */
+  204: void
+}
+
+export type ProjectDeleteResponse = ProjectDeleteResponses[keyof ProjectDeleteResponses]
 
 export type PtyListData = {
   body?: never

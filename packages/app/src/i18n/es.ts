@@ -979,4 +979,10 @@ export const dict = {
   "gpdSkills.category.projectManagement": "Project Management",
   "gpdSkills.category.knowledge": "Knowledge",
   "gpdSkills.category.more": "More",
+  "sidebar.project.delete": "Delete Project",
+  "dialog.confirmDelete.title": "Delete {{name}}?",
+  "dialog.confirmDelete.description":
+    "Delete {{name}}? This removes the project from GPD. Files in the project folder are NOT deleted.",
+  "dialog.confirmDelete.confirm": "Delete",
+  "dialog.confirmDelete.cancel": "Cancel",
 }
