@@ -1091,7 +1091,7 @@ export default function Layout(props: ParentProps) {
       },
       {
         id: "gpd.resetKey",
-        title: "Change GPD API Key",
+        title: language.t("sidebar.resetKey"),
         category: language.t("command.category.settings"),
         onSelect: () => {
           localStorage.removeItem("gpd.key.saved")
@@ -2454,6 +2454,7 @@ export default function Layout(props: ParentProps) {
         localStorage.removeItem("gpd.key.saved")
         window.location.reload()
       }}
+      resetKeyLabel={() => language.t("sidebar.resetKey")}
       renderPanel={() =>
         mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
       }

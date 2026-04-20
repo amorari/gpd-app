@@ -535,19 +535,19 @@ export const SettingsGeneral: Component = () => {
 
     return (
       <div class="flex flex-col gap-1">
-        <h3 class="text-14-medium text-text-strong pb-2">Account</h3>
+        <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.account.title")}</h3>
 
         <SettingsList>
           <SettingsRow
-            title="API Key"
-            description="Clear your saved API key and return to the welcome screen."
+            title={language.t("settings.account.accessKey.title")}
+            description={language.t("settings.account.accessKey.description")}
           >
             <Button
               size="small"
               variant="secondary"
               onClick={handleChangeApiKey}
             >
-              Change API Key
+              {language.t("sidebar.resetKey")}
             </Button>
           </SettingsRow>
         </SettingsList>

@@ -11,6 +11,7 @@ import { Persist, persisted, removePersisted } from "@/utils/persist"
 import { decode64 } from "@/utils/base64"
 import { same } from "@/utils/same"
 import { rejectUnsafeProjectPath } from "@/utils/project-path"
+import { useLanguage } from "./language"
 import { showToast } from "@opencode-ai/ui/toast"
 import { createScrollPersistence, type SessionScroll } from "./layout-scroll"
 import { createPathHelpers } from "./file/path"
@@ -141,6 +142,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     const globalSync = useGlobalSync()
     const server = useServer()
     const platform = usePlatform()
+    const language = useLanguage()
 
     const isRecord = (value: unknown): value is Record<string, unknown> =>
       typeof value === "object" && value !== null && !Array.isArray(value)
@@ -600,8 +602,8 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           const rejection = rejectUnsafeProjectPath(root, globalSync.data.path.home)
           if (rejection) {
             showToast({
-              title: "Can't open that folder as a project",
-              description: rejection,
+              title: language.t("project.rejection.title"),
+              description: language.t(rejection.key as never, rejection.params ?? {}),
               variant: "error",
               icon: "close",
             })

@@ -1,31 +1,41 @@
 /**
  * Guard against opening dangerous directories as GPD projects.
  *
- * Returns an error string if the path is unsafe, otherwise `null`.
- * Callers should refuse to open the project and surface the error to the user.
+ * Returns a translation descriptor if the path is unsafe, otherwise `null`.
+ * Callers should refuse to open the project and surface the rejection via
+ * `language.t(result.key, result.params)`.  Truthiness-only callers can use
+ * `!!rejectUnsafeProjectPath(...)`.
  */
-export function rejectUnsafeProjectPath(path: string | undefined | null, homedir: string | undefined): string | null {
-  if (path == null) return "No directory selected."
+export type ProjectPathRejection = {
+  key: string
+  params?: Record<string, string>
+}
+
+export function rejectUnsafeProjectPath(
+  path: string | undefined | null,
+  homedir: string | undefined,
+): ProjectPathRejection | null {
+  if (path == null) return { key: "project.rejection.none" }
   const p = path.trim()
-  if (!p) return "No directory selected."
+  if (!p) return { key: "project.rejection.none" }
 
   if (p === "." || p === "..") {
-    return "That directory can't be opened as a project."
+    return { key: "project.rejection.invalid" }
   }
 
   // Unix / macOS root
   if (p === "/") {
-    return "The filesystem root (/) cannot be opened as a project."
+    return { key: "project.rejection.filesystemRoot" }
   }
 
   // Windows drive roots: C:\, C:/, D:\, etc.
   if (/^[a-zA-Z]:[\\/]?$/.test(p)) {
-    return "A drive root cannot be opened as a project."
+    return { key: "project.rejection.driveRoot" }
   }
 
   // Unexpanded tilde
   if (p === "~") {
-    return "Please choose a specific project folder, not your home directory."
+    return { key: "project.rejection.unexpandedTilde" }
   }
 
   // User's home directory itself + standard "catch-all" subdirectories
@@ -35,7 +45,7 @@ export function rejectUnsafeProjectPath(path: string | undefined | null, homedir
     const h = homedir.replace(/[\\/]+$/, "")
     const n = p.replace(/[\\/]+$/, "")
     if (n === h) {
-      return "Please choose a specific project folder, not your home directory."
+      return { key: "project.rejection.homeDir" }
     }
     const forbiddenHomeSubdirs = [
       "Documents", "Downloads", "Desktop", "Library", "Applications",
@@ -43,7 +53,7 @@ export function rejectUnsafeProjectPath(path: string | undefined | null, homedir
     ]
     for (const sub of forbiddenHomeSubdirs) {
       if (n === `${h}/${sub}` || n === `${h}\\${sub}`) {
-        return `Please choose a specific project folder inside ~/${sub}, not ~/${sub} itself.`
+        return { key: "project.rejection.homeSubdir", params: { sub } }
       }
     }
   }
@@ -52,7 +62,7 @@ export function rejectUnsafeProjectPath(path: string | undefined | null, homedir
   const forbiddenParents = ["/Users", "/home", "/Applications", "/System", "/Library", "/private", "/var", "/tmp", "/etc", "/bin", "/usr", "/opt"]
   const normalized = p.replace(/[\\/]+$/, "")
   if (forbiddenParents.includes(normalized)) {
-    return "That system directory cannot be opened as a project."
+    return { key: "project.rejection.systemDir" }
   }
 
   return null

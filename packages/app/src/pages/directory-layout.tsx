@@ -89,8 +89,8 @@ export default function Layout(props: ParentProps) {
     if (rejectedPath === dir) return
     rejectedPath = dir
     showToast({
-      title: "Can't open that folder as a project",
-      description: reason,
+      title: language.t("project.rejection.title"),
+      description: language.t(reason.key as never, reason.params ?? {}),
       variant: "error",
       icon: "close",
     })
