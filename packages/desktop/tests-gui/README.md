@@ -81,6 +81,7 @@ Both assertions must pass: the Rust-side plugin is absent (no socket) **and** th
 - `PYTEST_QUIT_GPD=1` — quit GPD at end of session (default: leave running).
 - `PYTEST_COLD_START=1` — kill stale GPD/opencode-cli before launching (use in CI; avoid locally).
 - `PYTEST_RUN_DESTRUCTIVE_FLOWS=1` — opt in to the onboarding flow (mutates `~/.config/gpd` and `auth.json`).
+- `GPD_TEST_SEED_ONBOARDING=1` — seed `auth.json` + sentinel for the session (requires `GPD_TEST_ANTHROPIC_KEY`). Both flags must be set; the two-flag guard avoids surprise writes on a developer's laptop.
 
 ## Layout
 

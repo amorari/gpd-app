@@ -27,6 +27,65 @@ from gpd_tests.helpers.timings import wait_until
 from gpd_tests.pages.app_state import AppState
 
 
+@pytest.fixture(scope="session", autouse=True)
+def seed_onboarding_state(request):
+    """Seed auth.json + onboarding sentinel so GPD doesn't first-run.
+
+    Opt in via two env vars together:
+      GPD_TEST_SEED_ONBOARDING=1  AND  GPD_TEST_ANTHROPIC_KEY=<key>
+
+    The two-flag guard avoids accidentally clobbering a dev's real
+    auth.json. When both are set, this fixture writes the key to
+    `~/.local/share/opencode/auth.json` (mode 0o600) and ensures
+    `~/.config/gpd/.gpd-initialized` exists, backing up and restoring
+    both on teardown.
+    """
+    if os.environ.get("GPD_TEST_SEED_ONBOARDING") != "1":
+        yield
+        return
+    key = os.environ.get("GPD_TEST_ANTHROPIC_KEY")
+    if not key:
+        yield
+        return
+
+    import json
+    import shutil
+
+    auth_path = Path.home() / ".local/share/opencode/auth.json"
+    sentinel_path = Path.home() / ".config/gpd/.gpd-initialized"
+
+    auth_path.parent.mkdir(parents=True, exist_ok=True)
+    sentinel_path.parent.mkdir(parents=True, exist_ok=True)
+
+    auth_backup: Path | None = None
+    created_sentinel = False
+
+    if auth_path.exists():
+        auth_backup = auth_path.with_suffix(".json.bak-test-session")
+        shutil.copy2(auth_path, auth_backup)
+
+    auth_path.write_text(
+        json.dumps({"gpd": {"type": "api", "key": key}}) + "\n"
+    )
+    auth_path.chmod(0o600)
+
+    if not sentinel_path.exists():
+        sentinel_path.write_text("seeded-by-tests-gui\n")
+        created_sentinel = True
+
+    def restore():
+        if auth_backup and auth_backup.exists():
+            shutil.copy2(auth_backup, auth_path)
+            auth_backup.unlink()
+        elif auth_path.exists():
+            auth_path.unlink()
+        if created_sentinel and sentinel_path.exists():
+            sentinel_path.unlink()
+
+    request.addfinalizer(restore)
+    yield
+
+
 @pytest.fixture(scope="session")
 def app_state() -> "AppState":
     state = AppState()
