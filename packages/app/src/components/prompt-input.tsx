@@ -1586,6 +1586,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       />
                     </TooltipKeybind>
                   </div>
+                  <div data-component="prompt-gpd-skills-control">
+                    <Tooltip placement="top" gutter={4} value={language.t("dock.gpdSkills")}>
+                      <Button
+                        data-action="prompt-gpd-skills"
+                        type="button"
+                        variant="ghost"
+                        size="normal"
+                        style={control()}
+                        class="text-13-regular text-text-base"
+                        onClick={() => {
+                          void import("@/components/dialog-gpd-skills").then((x) => {
+                            dialog.show(() => <x.DialogGpdSkills />)
+                          })
+                        }}
+                        aria-label={language.t("dock.gpdSkills")}
+                      >
+                        <Icon name="sparkles" size="small" class="shrink-0" />
+                        <span class="truncate">{language.t("dock.gpdSkills")}</span>
+                      </Button>
+                    </Tooltip>
+                  </div>
                 </Show>
               </div>
             </div>
