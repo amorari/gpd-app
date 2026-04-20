@@ -2,7 +2,7 @@
 
 End-to-end tests that drive the live GPD desktop app. Runs against an installed `/Applications/GPD.app` by default; point `GPD_APP_PATH` at `packages/desktop/src-tauri/target/debug/bundle/macos/GPD.app` (or similar) to target an in-tree dev build.
 
-**Status:** Phase 1 (smoke) is complete — 40 unit tests + 9 live-app smoke tests + an opt-in restart test. Phase 2 (surfaces, per-route) requires `setupPluginListeners()` in the webview; this branch vendors the plugin's guest-js and wires it under `import.meta.env.DEV` — see the Phase 2 section below. Phase 3 (flows) is complete with 5 end-to-end flow files: create-session, theme-switch, deep-link, onboarding, and provider-switch.
+**Status:** Phase 1 (smoke) is complete — 40 unit tests + 9 live-app smoke tests + an opt-in restart test. Phase 2 (surfaces, per-route) is complete — 9 surface test files covering all primary routes and dialogs; run with `-m surfaces`. Phase 3 (flows) is complete with 5 end-to-end flow files: create-session, theme-switch, deep-link, onboarding, and provider-switch.
 
 ## Setup
 
@@ -48,6 +48,16 @@ The live LLM test (`test_new_session.py`) requires GPD's debug build to be runni
 export GPD_APP_PATH="$(pwd)/src-tauri/target/debug/bundle/macos/GPD.app"
 uv run pytest -m smoke
 ```
+
+### Phase 2 — Surfaces
+
+```bash
+uv run pytest -m surfaces                               # all surface tests
+uv run pytest -m "surfaces and not steals_focus"        # backgrounded default (recommended)
+uv run pytest -m "surfaces and steals_focus"            # focus-stealing (⌘, etc.) — briefly brings GPD to front
+```
+
+Current surface coverage: `test_loading`, `test_home`, `test_project`, `test_session`, `test_dialog_settings` (`steals_focus`), `test_dialog_edit_project`, `test_dialog_select_server`, `test_dialog_select_provider`, `test_dialog_select_directory`. Many DOM-probing tests skip gracefully when the `execute_js` bridge is unresponsive — structural route checks still run and assert URL reachability via MCP `navigate_webview`.
 
 ### Release-mode security assertions
 
