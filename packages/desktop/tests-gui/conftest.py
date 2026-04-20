@@ -8,23 +8,35 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
 REPO_ROOT = Path(__file__).parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from gpd_tests.drivers.ax import AXClient
-from gpd_tests.drivers.mcp import MCPClient, MCPError
-from gpd_tests.drivers.opencode_http import (
-    HTTPClient,
-    discover_sidecar_credentials,
-    discover_sidecar_port,
-)
-from gpd_tests.drivers.os_input import OSInputClient
 from gpd_tests.helpers import artifacts
 from gpd_tests.helpers.timings import wait_until
-from gpd_tests.pages.app_state import AppState
+
+
+# Module-level reference to the session-scoped AppState, set by the fixture.
+_session_app_state: Optional["AppState"] = None  # noqa: F821
+
+
+def pytest_configure(config):
+    """Guard against accidental parallel execution that would corrupt state."""
+    if config.pluginmanager.hasplugin("xdist") and getattr(config.option, "dist", "no") != "no":
+        raise pytest.UsageError(
+            "This suite is single-instance only; pytest-xdist would corrupt state."
+        )
+
+
+def _is_skipped(item) -> bool:
+    """Return True if the item is unconditionally or conditionally skipped."""
+    for m in item.iter_markers("skipif"):
+        if m.args and m.args[0]:
+            return True
+    return bool(item.get_closest_marker("skip"))
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -51,27 +63,25 @@ def seed_onboarding_state(request):
     import json
     import shutil
 
+    from gpd_tests.pages.onboarding import sentinel_path
+
     auth_path = Path.home() / ".local/share/opencode/auth.json"
-    sentinel_path = Path.home() / ".config/gpd/.gpd-initialized"
+    _sentinel_path = sentinel_path()
 
     auth_path.parent.mkdir(parents=True, exist_ok=True)
-    sentinel_path.parent.mkdir(parents=True, exist_ok=True)
+    _sentinel_path.parent.mkdir(parents=True, exist_ok=True)
 
     auth_backup: Path | None = None
     created_sentinel = False
 
     if auth_path.exists():
         auth_backup = auth_path.with_suffix(".json.bak-test-session")
+        if auth_backup.exists():
+            raise RuntimeError(
+                f"Backup file already exists: {auth_backup}. "
+                "A previous test session may not have cleaned up properly."
+            )
         shutil.copy2(auth_path, auth_backup)
-
-    auth_path.write_text(
-        json.dumps({"gpd": {"type": "api", "key": key}}) + "\n"
-    )
-    auth_path.chmod(0o600)
-
-    if not sentinel_path.exists():
-        sentinel_path.write_text("seeded-by-tests-gui\n")
-        created_sentinel = True
 
     def restore():
         if auth_backup and auth_backup.exists():
@@ -79,16 +89,31 @@ def seed_onboarding_state(request):
             auth_backup.unlink()
         elif auth_path.exists():
             auth_path.unlink()
-        if created_sentinel and sentinel_path.exists():
-            sentinel_path.unlink()
+        if created_sentinel and _sentinel_path.exists():
+            _sentinel_path.unlink()
 
+    # Register finalizer BEFORE writing, so teardown runs even if setup fails.
     request.addfinalizer(restore)
+
+    auth_path.write_text(
+        json.dumps({"gpd": {"type": "api", "key": key}}) + "\n"
+    )
+    auth_path.chmod(0o600)
+
+    if not _sentinel_path.exists():
+        _sentinel_path.write_text("seeded-by-tests-gui\n")
+        created_sentinel = True
+
     yield
 
 
 @pytest.fixture(scope="session")
-def app_state() -> "AppState":
+def app_state():
+    global _session_app_state
+    from gpd_tests.pages.app_state import AppState
+
     state = AppState()
+    _session_app_state = state
     # Cold-start mode: kill any stale GPD/opencode-cli before launching. Opt
     # in via PYTEST_COLD_START=1 so local interactive runs don't clobber the
     # user's live session.
@@ -100,11 +125,12 @@ def app_state() -> "AppState":
     yield state
     if os.environ.get("PYTEST_QUIT_GPD") == "1":
         state.quit()
-        state.wait_quit()
 
 
 @pytest.fixture
-def mcp(app_state) -> MCPClient:
+def mcp(app_state):
+    from gpd_tests.drivers.mcp import MCPClient, MCPError
+
     client = MCPClient()
     try:
         client.ping()
@@ -128,7 +154,9 @@ def mcp(app_state) -> MCPClient:
 
 
 @pytest.fixture
-def ax(app_state) -> AXClient:
+def ax(app_state):
+    from gpd_tests.drivers.ax import AXClient
+
     # No eager activate() — that would steal focus from the caller. Driver
     # methods that need window focus (main_window, click_menu_item) call
     # activate() themselves; menu queries work backgrounded.
@@ -136,7 +164,13 @@ def ax(app_state) -> AXClient:
 
 
 @pytest.fixture
-def http(app_state) -> HTTPClient:
+def http(app_state):
+    from gpd_tests.drivers.opencode_http import (
+        HTTPClient,
+        discover_sidecar_credentials,
+        discover_sidecar_port,
+    )
+
     def _sidecar_ready() -> bool:
         return app_state.sidecar_pid() is not None
 
@@ -170,9 +204,15 @@ def http(app_state) -> HTTPClient:
     client.close()
 
 
-@pytest.fixture(scope="session")
-def os_input() -> OSInputClient:
-    return OSInputClient()
+@pytest.fixture
+def os_input():
+    """Function-scoped OS input driver. Skipped if cliclick is missing."""
+    try:
+        from gpd_tests.drivers.os_input import OSInputClient
+        client = OSInputClient()
+    except Exception as e:
+        pytest.skip(f"OSInputClient unavailable (cliclick missing?): {e}")
+    return client
 
 
 # --- Marker-driven reset hook -------------------------------------------
@@ -185,6 +225,10 @@ def pytest_runtest_setup(item):
     wipe the requested tier's paths, restart (backgrounded), and invalidate
     the session-scoped driver fixtures so they rebuild against the fresh app.
     """
+    # Skip reset entirely for tests that are already being skipped.
+    if _is_skipped(item):
+        return
+
     tier_marker = item.get_closest_marker("tier")
     fresh = item.get_closest_marker("fresh_app") is not None
     tier: int | None = None
@@ -200,18 +244,15 @@ def pytest_runtest_setup(item):
     # Let the fresh app come up before the next fixture use. The driver
     # fixtures below are function-scoped so they rediscover socket path,
     # HTTP port, and creds on the next test.
-    fresh = AppState()
-    fresh.wait_launched(timeout_s=20.0)
-    # Refresh the session-scoped app_state fixture's _launched_pid so that
+    from gpd_tests.pages.app_state import AppState
+
+    fresh_state = AppState()
+    fresh_state.wait_launched(timeout_s=20.0)
+    # Refresh the session-scoped app_state's _launched_pid so that
     # sidecar_pid() keeps tracking the live process tree instead of a stale
     # PID from before the reset.
-    try:
-        session_app_state = item._request.getfixturevalue("app_state")
-        session_app_state.refresh_launched_pid()
-    except Exception:
-        # Fixture not yet created or request not available; the first test
-        # that uses app_state will see the fresh state naturally.
-        pass
+    if _session_app_state is not None:
+        _session_app_state.refresh_launched_pid()
 
 
 # --- Reporting hooks -----------------------------------------------------
