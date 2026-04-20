@@ -148,6 +148,76 @@ function Invoke-Download {
 
 # ── OpenCode CLI ───────────────────────────────────────────────────────────
 
+# Install the GPD desktop app via the Tauri NSIS .exe installer.
+# The filename includes the version so we use the web redirect on
+# /releases/latest to discover the tag without hitting the rate-limited API.
+function Get-GpdLatestTag {
+    try {
+        $req = [System.Net.WebRequest]::Create("https://github.com/$OpenCodeOrg/$OpenCodeRepo/releases/latest")
+        $req.Method = "HEAD"
+        $req.AllowAutoRedirect = $false
+        $r = $req.GetResponse()
+        $loc = $r.Headers["Location"]
+        $r.Close()
+        if ($loc -match 'tag/([^/]+)') { return $Matches[1] }
+    } catch {
+        return $null
+    }
+    return $null
+}
+
+function Install-GpdDesktop {
+    param([string]$Arch)
+
+    if ($Arch -ne "x64") {
+        Write-Warn "GPD desktop .exe only available for x64 - skipping."
+        return $false
+    }
+
+    # Standard Tauri per-user install path
+    $tauriPath = Join-Path $env:LOCALAPPDATA "Programs\GPD\GPD.exe"
+    if (Test-Path $tauriPath) {
+        Write-Success "GPD desktop app already installed at $tauriPath"
+        return $true
+    }
+
+    $tag = Get-GpdLatestTag
+    if (-not $tag) {
+        Write-Warn "Could not discover GPD release tag - skipping desktop app."
+        return $false
+    }
+
+    $ver = $tag -replace '.*-v', ''
+    $setupFile = "GPD_" + $ver + "_x64-setup.exe"
+    $setupUrl = "https://github.com/$OpenCodeOrg/$OpenCodeRepo/releases/download/$tag/$setupFile"
+
+    if (-not (Test-UrlExists $setupUrl)) {
+        Write-Warn "GPD desktop .exe not found at $setupUrl"
+        return $false
+    }
+
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "gpd-desktop-$(Get-Random)"
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+    $dlPath = Join-Path $tmpDir $setupFile
+
+    try {
+        Invoke-Download -Url $setupUrl -Destination $dlPath
+        Write-Log "Installing GPD desktop app (silent install, ~40MB)..."
+        $proc = Start-Process -FilePath $dlPath -ArgumentList "/S" -Wait -PassThru
+        if ($proc.ExitCode -ne 0) {
+            Write-Warn "GPD desktop installer exit code $($proc.ExitCode)"
+            return $false
+        }
+        Write-Success "GPD desktop app installed"
+        return $true
+    } catch {
+        Write-Warn "GPD desktop install failed: $_"
+        return $false
+    } finally {
+        Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Install-OpenCode {
     param([string]$Arch)
 
@@ -670,8 +740,9 @@ function Invoke-GpdInstall {
     Install-LaTeX
     Write-Host ""
 
-    # Step 2: OpenCode CLI binary
-    Write-Log "Step 2/7: Installing OpenCode CLI..."
+    # Step 2: GPD desktop + CLI binary
+    Write-Log "Step 2/7: Installing GPD desktop app and CLI..."
+    Install-GpdDesktop -Arch $arch | Out-Null
     Install-OpenCode -Arch $arch
     Write-Host ""
 
