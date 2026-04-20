@@ -2,7 +2,7 @@ import pytest
 
 
 NON_APP_MENUS = {"File", "Edit", "View", "Help"}
-APP_MENU_CANDIDATES = {"GPD", "GPD Dev"}
+APP_MENU_CANDIDATES = {"GPD", "GPD Dev", "GPD Beta"}
 
 
 @pytest.mark.smoke
