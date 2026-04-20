@@ -2,7 +2,7 @@
 
 End-to-end tests that drive the live GPD desktop app. Runs against an installed `/Applications/GPD.app` by default; point `GPD_APP_PATH` at `packages/desktop/src-tauri/target/debug/bundle/macos/GPD.app` (or similar) to target an in-tree dev build.
 
-**Status:** Phase 1 (smoke) is complete — 40 unit tests + 9 live-app smoke tests + an opt-in restart test. Phase 2 (surfaces, per-route) is complete — 9 surface test files covering all primary routes and dialogs; run with `-m surfaces`. Phase 3 (flows) is complete with 5 end-to-end flow files: create-session, theme-switch, deep-link, onboarding, and provider-switch.
+**Status:** Phase 1 (smoke) is complete — 40 unit tests + 9 live-app smoke tests + an opt-in restart test. Phase 2 (surfaces, per-route) is complete — 9 surface test files covering all primary routes and dialogs; run with `-m surfaces`. Phase 3 (flows) is complete with 5 end-to-end flow files: create-session, theme-switch, deep-link, onboarding, and provider-switch; Phase 5 (broad menu coverage) adds AX-only menu sweeps that stay green even when the JS bridge is unavailable.
 
 ## Setup
 
@@ -58,6 +58,19 @@ uv run pytest -m "surfaces and steals_focus"            # focus-stealing (⌘, e
 ```
 
 Current surface coverage: `test_loading`, `test_home`, `test_project`, `test_session`, `test_dialog_settings` (`steals_focus`), `test_dialog_edit_project`, `test_dialog_select_server`, `test_dialog_select_provider`, `test_dialog_select_directory`. Many DOM-probing tests skip gracefully when the `execute_js` bridge is unresponsive — structural route checks still run and assert URL reachability via MCP `navigate_webview`.
+
+### Phase 5 — Broad (menu coverage)
+
+AX-only tests that iterate GPD's macOS menu bar. No JS bridge required, so these work reliably even when the welcome overlay blocks `execute_js`.
+
+```bash
+uv run pytest -m broad -v                               # menu sweep + per-menu expectations
+uv run pytest -m "broad and not steals_focus" -v        # skip anything that would steal focus
+```
+
+Tests cover: every top-level menu is non-empty; File has New-Conversation / Open / Close-Window concepts; Edit has clipboard standards (Undo/Redo/Cut/Copy/Paste/Select-All); View is non-empty + soft-check for full-screen/zoom/reload; Help is non-empty; the application menu (`GPD` or `GPD Dev`) exposes About, Settings, and an enabled Quit entry.
+
+Drift tolerance: each concept accepts multiple label variants, so upstream i18n sweeps don't break the suite.
 
 ### Release-mode security assertions
 
