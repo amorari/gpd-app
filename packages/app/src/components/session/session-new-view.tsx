@@ -2,11 +2,13 @@ import { For, Show, createMemo } from "solid-js"
 import { DateTime } from "luxon"
 import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { Icon, type IconProps } from "@opencode-ai/ui/icon"
 import { Mark } from "@opencode-ai/ui/logo"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
+import { rejectUnsafeProjectPath } from "@/utils/project-path"
 
 const MAIN_WORKTREE = "main"
 const CREATE_WORKTREE = "create"
@@ -60,6 +62,7 @@ interface NewSessionViewProps {
 export function NewSessionView(props: NewSessionViewProps) {
   const sync = useSync()
   const sdk = useSDK()
+  const globalSync = useGlobalSync()
   const language = useLanguage()
   const prompt = usePrompt()
 
@@ -74,10 +77,16 @@ export function NewSessionView(props: NewSessionViewProps) {
     if (options().includes(selection)) return selection
     return MAIN_WORKTREE
   })
-  const projectRoot = createMemo(() => sync.project?.worktree ?? sdk.directory)
+  const projectRoot = createMemo(() => {
+    const worktree = sync.project?.worktree
+    const home = globalSync.data.path.home
+    if (worktree && !rejectUnsafeProjectPath(worktree, home)) return worktree
+    return sdk.directory
+  })
   const isWorktree = createMemo(() => {
     const project = sync.project
     if (!project) return false
+    if (rejectUnsafeProjectPath(project.worktree, globalSync.data.path.home)) return false
     return sdk.directory !== project.worktree
   })
 
