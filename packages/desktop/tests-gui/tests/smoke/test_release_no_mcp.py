@@ -21,8 +21,23 @@ import pytest
 RELEASE_BUILD = os.environ.get("PYTEST_RELEASE_BUILD") == "1"
 
 
+def _bundle_id(app_path: str) -> str:
+    out = subprocess.run(
+        [
+            "/usr/libexec/PlistBuddy",
+            "-c",
+            "Print CFBundleIdentifier",
+            f"{app_path}/Contents/Info.plist",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
 def _socket_matches() -> list[str]:
-    return glob.glob("/var/folders/*/*/T/tauri-mcp.sock")
+    return glob.glob("/var/folders/**/tauri-mcp.sock", recursive=True)
 
 
 def _gpd_pid() -> int | None:
@@ -49,10 +64,15 @@ def test_release_build_has_no_mcp_socket():
         '(e.g. `open "$GPD_APP_PATH"`)'
     )
     app_path_env = os.environ.get("GPD_APP_PATH", "")
-    assert "target/release" in app_path_env or "target\\release" in app_path_env, (
+    bundle_id = _bundle_id(app_path_env) if app_path_env else ""
+    if bundle_id in ("inc.psi.gpd.dev", "inc.psi.gpd.beta"):
+        pytest.skip(
+            f"skipping release-socket check: bundle id {bundle_id!r} is not a release build"
+        )
+    assert bundle_id == "inc.psi.gpd", (
         "GPD_APP_PATH does not point at a release build: "
-        f"{app_path_env!r} — a debug build WOULD expose the socket and "
-        "this test's assertion would be meaningless"
+        f"bundle id {bundle_id!r} (from {app_path_env!r}) — a debug or beta build "
+        "WOULD expose the socket and this test's assertion would be meaningless"
     )
     sockets = _socket_matches()
     assert not sockets, (
