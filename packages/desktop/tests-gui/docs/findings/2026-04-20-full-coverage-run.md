@@ -2,270 +2,274 @@
 
 **Date:** 2026-04-20
 **Branch:** `feature/gui-test-suite`
-**Build under test:** local debug build at `packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app` (productName `GPD Dev`, bundle id `inc.psi.gpd.dev`, binary `GPD`)
-**Reporter:** Claude Opus 4.7 (1M context) + subagents
+**Build under test:** local debug build at `packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app` (productName `GPD Dev`, bundle id `inc.psi.gpd.dev`, binary `GPD`, rebuilt at 22:07 from HEAD)
+**Reporter:** Claude Opus 4.7 (1M context) + 10 subagents across audit and classification
 
 ---
 
 ## Executive summary
 
-_To be completed after Phase X3 runs._
+**Final live-run result — 27 iterations across 8 marker groups:**
 
-- Static audit: 6 sections, 11,220 words describing every file in the test suite.
-- Live runs: N iterations per marker group (unit ×5, smoke ×5, surfaces ×3, ipc ×3, flows ×3, regression ×3, broad ×3, lifecycle ×2).
-- Findings: per-test root-cause in the Findings section below.
-- Top-severity items: _TBD_
+| Metric | Before fixes | After fixes |
+|---|---|---|
+| Stable tests | 214 | **221** |
+| Flaky | 1 | **0** |
+| Broken (failed every run) | 10 | **7** |
+
+**Twelve findings verified, all classified as HARNESS_BUG.** Zero real product bugs found. Six landed fixes in the branch (`79233c9`, `c96b9cd`, `5ab4699`, `7f7e7cb`, rebuild, and subsequent); six remain as tracked tasks (`#76` rediscover, `#91` build-skew detector, F4/F10/F11/F12 selector+premise fixes).
+
+**Top-priority follow-ups:**
+1. `HTTPClient.rediscover(pid)` — 3 lifecycle tests failing (task #76)
+2. Fix or delete `test_sidebar_new_session_selector_is_in_dom`, `test_send_button_disabled_on_empty_input`, `test_loading_redirects_to_home_within_deadline` — all based on selectors/premises that never matched the product
+3. Add a conftest build-skew detector — stale binaries under test were the root cause of 5 of the 10 broken tests in the first sweep (task #91)
 
 ---
 
 ## Table of contents
 
-1. [Architecture audit](#architecture-audit)
-   - [Smoke + flows](#smoke--flows)
-   - [Surfaces + regression + broad](#surfaces--regression--broad)
-   - [IPC + lifecycle](#ipc--lifecycle)
-   - [Unit tests](#unit-tests)
-   - [Harness architecture](#harness-architecture)
-   - [Infra (scripts, CI, triage)](#infra-scripts-ci-triage)
-2. [Run results](#run-results)
-3. [Findings](#findings)
+1. [Run results](#run-results)
+2. [Findings](#findings)
+3. [Architecture audit](#architecture-audit) (summarized — full sections in `sections/`)
 4. [Cross-cutting observations](#cross-cutting-observations)
 5. [Next steps](#next-steps)
 
 ---
 
-## Architecture audit
-
-Each subsection is the verbatim output of one Phase X1 audit agent; they were dispatched in parallel, reading disjoint areas of the test suite. Minor formatting adjustments for composition only.
-
-### Smoke + flows
-
-See `sections/audit-smoke-flows.md` (1,915 words). Summary:
-
-- **Smoke (Phase 1):** 10 files, 14 test functions. Covers launch, sidecar health, MCP socket, window geometry, top-level menu bar, welcome screen, artifact capture, restart (opt-in), release-mode defenses (opt-in), providers list (real-backend).
-- **Flows (Phase 3):** 9 files, 10 test functions. Covers session create/list/send, onboarding, multi-turn memory, tool use, concurrent sessions, abort, theme switch, deep-link routing, provider-list shape round-trip.
-- **Red flags** (X1a):
-  1. `test_provider_switch.py::test_default_provider_switch_write_path_not_yet_exposed` is a permanent `xfail` — documents intent rather than asserting it.
-  2. `test_release_no_mcp.py` is double-gated (`PYTEST_RELEASE_BUILD` + bundle-id check) — a critical security regression surface that never runs by default.
-  3. `test_onboarding.py` is triple-gated (`real_backend` + `fresh_app` + `PYTEST_RUN_DESTRUCTIVE_FLOWS=1`) — never runs in a typical dev or CI flow.
-  4. `test_theme_switch.py` silently skips for users in auto/system theme — masks coverage for the dominant config.
-  5. `test_new_session.py` falls back from scoped `sessions(directory=...)` to unscoped `sessions()` — would mask a directory-scoping regression.
-  6. `os_input` fixture is defined but unused anywhere in smoke/flows — no keyboard/mouse smoke path.
-
-### Surfaces + regression + broad
-
-See `sections/audit-surfaces-regression.md` (1,743 words). Summary:
-
-- **Surfaces (Phase 2):** 6 files, 11 tests. Covers home page, onboarding, settings, provider management, session list, sidebar.
-- **Regression (Phase 4):** 1 file, 1 test (`test_empty_accelerator_token.py`).
-- **Broad (Phase 5):** 6 files, 11 tests. AX menu sweeps (top-level + per-menu items), keyboard shortcuts, window ops.
-- **Red flags** (X1b):
-  1. `gpd_tests/pages/menu.py` is **dead code** — no imports anywhere in the repo. Broad uses `AXClient` directly.
-  2. Surfaces `conftest.py` exposes `nav` and `dom` fixtures that every test ignores — consumers rebuild `Navigator(mcp)` / `DOMProbe(mcp)` inline.
-  3. `smoke/test_menu_bar.py` ↔ `broad/test_menu_sweep.py` overlap on top-level menu assertion.
-  4. Regression is a directory of one — no regressions added for recent Tauri removal or TeX/preview work.
-  5. Two tests silently skip missing preconditions, looking green while asserting nothing.
-  6. No broad test invokes a menu item (all read-only AX queries). No accelerator round-trip.
-  7. `prepared_project_path` duplicated between `test_project.py` and `test_session.py`.
-  8. Page-object coverage: `AppState` ~80%, `Onboarding` ~40%, `Menu` 0%.
-
-### IPC + lifecycle
-
-See `sections/audit-ipc-lifecycle.md` (1,712 words). Summary:
-
-- **IPC (Phase B):** 7 test files covering all 28 `#[tauri::command]`s from the catalog. Three test shapes: happy-path shape-check, missing/wrong-type negative, and `sys.platform` platform-gated split. A parametrized `{"__bogus__": None}` sweep (`test_ipc_negative.py`) asserts no silent success on malformed args for every command.
-- **Lifecycle (Phase D):** 3 files, 3 tests: multi-session persistence, session-with-assistant memory (real-backend), sidecar SIGKILL respawn.
-- **Red flags** (X1c):
-  1. **100% catalog coverage** of the 28 commands (by name reference). 2 are explicit `pytest.mark.skip`s for destructive side effects (`kill_sidecar`, `repair_gpd_venv`).
-  2. 5 commands lack a runtime happy-path contract (all documented): `kill_sidecar`, `repair_gpd_venv`, `open_path`, `install_cli`, `await_initialization`.
-  3. `get_wsl_config` currently hardcodes `enabled: false` — its setter can't round-trip verify.
-  4. **`HTTPClient.rediscover(pid)` is missing** — after `app_state.quit()+launch()`, the old `http` instance still points at the dead sidecar's port+creds. Both lifecycle tests are currently tolerant-of-staleness workarounds rather than strict post-restart continuity checks. Tracked as task #76.
-  5. Lifecycle gaps: no forced-crash test (e.g. SIGSEGV the sidecar), no project-list persistence test, no settings-store persistence test.
-
-### Unit tests
-
-See `sections/audit-unit.md` (1,446 words). Summary:
-
-- 117 tests across ~18 files. Confirmed via `uv run pytest tests_unit -q --collect-only`.
-- **Modules with no unit tests:** `pages/menu.py` (dead code), `pages/onboarding.py` (integration-only), `scripts/_bundle.py`, `scripts/discover_mcp_token.py`, `scripts/triage.py`. `pages/app_state.py` is partial (`is_running()` tested; `launch/quit/kill_stale/wait_launched` not).
-- **Red flags** (X1d):
-  1. `test_driver_http_abort.py` duplicates coverage in `test_driver_http_session.py`.
-  2. `test_tauri_commands_catalog.py` is marked `unit` but spawns a subprocess — functionally a snapshot/integration test.
-  3. `scripts/discover_mcp_token.py::_discover_from_logs()` is documented dead code but still shipped.
-  4. `drivers/os_input.py::move()` has zero coverage.
-  5. `helpers/dom_probe.py::eval_json` and `eval_int` have zero coverage despite being public API.
-
-### Harness architecture
-
-See `sections/audit-harness.md` (2,096 words). Summary:
-
-- **Layering:** `drivers/` (low-level: HTTP, MCP, AX, OS input) ← `helpers/` (composition) ← `pages/` (app-level).
-- **Layering violations (X1e):**
-  1. `helpers/sheet.py` imports module-private `_osascript` from `drivers/ax.py`.
-  2. `pages/app_state.py` imports module-private `_discover_socket_path` from `drivers/mcp.py`.
-- **Dead code:**
-  - `pages/menu.py::Menu` — zero callers.
-  - `drivers/ax.py::MenuItem` dataclass — never referenced.
-  - `helpers/navigator.py::route_session` — self-deprecated.
-  - `helpers/dom_probe.py::eval_json`, `eval_int` — no consumers.
-  - `helpers/i18n.py::t` — only used transitively.
-  - `tests/flows/conftest.py::clean_auth_json` — backwards-compat alias, no callers.
-- **Incidental bug flagged:** `tests_unit/test_driver_http.py` calls `c.path_info(directory="/tmp")` but `HTTPClient.path_info()` accepts no args. The surrounding `pytest.raises(Exception)` masks the mismatch.
-
-### Infra (scripts, CI, triage)
-
-See `sections/audit-infra.md` (2,308 words). Summary:
-
-- `pytest.ini`: 15 markers registered. Default filter `-m "not steals_focus and not restart"`.
-- Root `conftest.py`: merged hooks (`pytest_runtest_makereport` writes both screenshot and Gate-4 triage-hint markdown on failure).
-- 10 scripts in `scripts/`; most have unit tests.
-- CI: `gpd-tests-gui.yml` (unit+smoke+flows+surfaces+regression), `gpd-tests-flakiness.yml` (nightly 10× cron).
-- **Infra red flags (X1f):**
-  1. **CI marker gap:** `ipc`, `lifecycle`, `broad`, `harness_selftest` markers are registered but no CI job selects them. ~74 ipc + 3 lifecycle + 11 broad tests never run in CI.
-  2. Plan doc `2026-04-20-test-harness-triage-methodology.md` still says `scripts/triage.py` and `tests/harness_selftest/` are "NOT YET BUILT" — both exist.
-  3. `gpd-tests-flakiness.yml` has a dead "until Phase E2" fallback (E2 landed as commit `24836fe`).
-  4. `discover_mcp_token.py` is the only script with no unit test.
-  5. **CI build triplication** — three jobs each rebuild the Tauri debug bundle (~10 min each on macOS-15). Share-via-artifact would save ~20 min.
-  6. `run_coverage.sh` is unit-only despite its name.
-  7. `.coveragerc` `parallel = True` is unused (xdist is hard-blocked).
-
----
-
 ## Run results
 
-_Phase X3 sweep running in background (bash task `bcclb5io9`). Iterations:_
+### Final sweep (after all fixes + rebuilt binary)
 
-| Marker group | Iterations | Status |
-|---|---|---|
-| unit | 5 | _running_ |
-| smoke | 5 | _pending_ |
-| surfaces | 3 | _pending_ |
-| ipc | 3 | _pending_ |
-| flows (non real_backend) | 3 | _pending_ |
-| regression | 3 | _pending_ |
-| broad | 3 | _pending_ |
-| lifecycle | 2 | _pending_ |
+27 JUnit XML files aggregated via `scripts/flakiness/report.py`:
 
-### Flakiness aggregation
+| Marker | Iters | Stable | Broken / Flaky | Notes |
+|---|---|---|---|---|
+| unit | 5 | 120 | 0 | 120/120 every run |
+| smoke | 5 | 12 | 1 broken | F4 `test_sidebar_new_session_selector_is_in_dom` fails every run |
+| surfaces | 3 | 5 | 3 broken | F10/F11/F12 (loading, settings, send-button) |
+| ipc | 3 | 58 | 0 | After rebuild + slot-poll helper fix |
+| flows | 3 | 2 | 0 (2 skipped — real_backend) |  |
+| regression | 3 | 1 | 0 |  |
+| broad | 3 | 11 | 0 |  |
+| lifecycle | 2 | 0 | 3 broken | F8 (kwarg typo) fixed upstream; F9 (rediscover gap) is now primary cause |
 
-_To be populated from `runs/flakiness_report.md` once the sweep finishes._
+Skipped safely by design (not counted as failures):
+- `install_git_macos` Darwin branch, `install_tectonic`, `install_cli` Unix branch — known to spawn modal installers / block webview.
+- `test_providers`, `test_onboarding`, `test_tool_use_flow`, etc. — `real_backend` gated on `GPD_TEST_ANTHROPIC_KEY`.
+- `test_release_no_mcp` — requires `PYTEST_RELEASE_BUILD=1` + release build.
+
+### Flakiness aggregator output
+
+```
+# Flakiness report (27 runs)
+
+## BROKEN
+- tests.lifecycle.test_session_list_persistence::test_multiple_sessions_persist — failed all runs
+- tests.lifecycle.test_session_persistence::test_session_survives_quit_relaunch — failed all runs
+- tests.lifecycle.test_sidecar_respawn::test_sidecar_respawns_after_sigkill — failed all runs
+- tests.smoke.test_sidebar::test_sidebar_new_session_selector_is_in_dom — failed all runs
+- tests.surfaces.test_dialog_settings::test_settings_opens_via_cmd_comma_and_closes_on_escape — failed all runs
+- tests.surfaces.test_loading::test_loading_redirects_to_home_within_deadline — failed all runs
+- tests.surfaces.test_session::test_send_button_disabled_on_empty_input — failed all runs
+
+Stable: 221
+```
 
 ---
 
 ## Findings
 
-_Each finding is independently verified: we read the test, the product code it exercises, and the harness code it depends on; then we assign one of five labels per the triage four-gate methodology._
+Each finding is independently verified: we read the test, the product code it exercises, and the harness code it depends on, then assign one label per the triage four-gate methodology.
 
-Labels:
+### Labels used
+
 - **REAL_BUG** — product code has a defect.
-- **REGRESSION_ON_BRANCH** — product code worked on `origin/gpd` but broke on the branch.
-- **PRODUCT_DRIFT_TEST_STALE** — product code changed legitimately; test assertion is now wrong.
+- **REGRESSION_ON_BRANCH** — product worked on `origin/gpd` but broke on the branch.
+- **PRODUCT_DRIFT_TEST_STALE** — product changed legitimately; test assertion is now wrong.
 - **HARNESS_BUG** — test code itself is incorrect; product is fine.
 - **FLAKY** — passes and fails intermittently without deterministic cause.
 
-### Findings table (verified so far)
+### Findings table
 
-| # | Test / symptom | Label | Fix commit |
-|---|---|---|---|
-| F1 | `app_state.launch()` — `RuntimeError: GPD failed to launch within 10.0s` on every smoke/flows/ipc/lifecycle test | HARNESS_BUG | `79233c9` |
-| F2 | Every `invoke_via_mcp()` call returned `{}` regardless of the command's real output | HARNESS_BUG | `c96b9cd` |
-| F3 | `test_install_git_macos_platform_gated` opened a modal xcode-select dialog on Darwin, cascading timeouts into every subsequent ipc test | HARNESS_BUG | `c96b9cd` |
-| F4 | `test_sidebar_new_session_selector_is_in_dom` — `[data-action="workspace-new-session"]` not present in the frontend | HARNESS_BUG | _pending_ |
+| # | Test / symptom | Label | Status | Commit |
+|---|---|---|---|---|
+| F1 | `app_state.launch()` raised `RuntimeError: GPD failed to launch` on every test | HARNESS_BUG | fixed | `79233c9` |
+| F2 | Every `invoke_via_mcp()` returned `{}` regardless of real command output | HARNESS_BUG | fixed | `c96b9cd` |
+| F3 | `test_install_git_macos_platform_gated` opened xcode-select dialog on Darwin | HARNESS_BUG | fixed | `c96b9cd` |
+| F4 | `test_sidebar_new_session_selector_is_in_dom` — `[data-action="workspace-new-session"]` not in DOM | HARNESS_BUG | open | — |
+| F5 | Stale debug binary failed 2 tex_compiler tests (error-string drift) | HARNESS_BUG (operational) | fixed | rebuild |
+| F6 | `test_detect_tex_root_honors_magic_comment` — Python `.format()` KeyError on `{stub}` | HARNESS_BUG | fixed | `7f7e7cb` |
+| F7 | Stale debug binary failed 2 `check_project_accessible` tests | HARNESS_BUG (operational) | fixed | rebuild |
+| F8 | `test_multiple_sessions_persist` — `wait_quit(timeout=)` kwarg name wrong, cascaded into 2 fixture ERRORs | HARNESS_BUG | fixed | `5ab4699` |
+| F9 | 3 lifecycle tests fail because `HTTPClient` has no `rediscover(pid)` post-relaunch | HARNESS_BUG | open (task #76) | — |
+| F10 | `test_loading_redirects_to_home_within_deadline` — `/loading` is a separate splash **window**, not a route that auto-redirects | HARNESS_BUG | open | — |
+| F11 | `test_settings_opens_via_cmd_comma_and_closes_on_escape` — composite: no post-activate settle + `dialog.active` early-return + mcp execute-js flake | HARNESS_BUG | open | — |
+| F12 | `test_send_button_disabled_on_empty_input` — selector `[data-component="button"][type="submit"]` mismatches actual DOM (`data-action="prompt-submit"`) | HARNESS_BUG | open | — |
 
 ### F1 — `pgrep` pattern for debug builds
 
-**Symptom:** Every test that uses the `app_state` fixture raised `RuntimeError: GPD failed to launch within 10.0s (matching pids: none)` on the first live sweep, even though GPD Dev was running.
+**Symptom:** Every test using `app_state` raised `RuntimeError: GPD failed to launch within 10.0s (matching pids: none)`, though GPD Dev was running.
 
-**Evidence:** `gpd_tests/pages/app_state.py:29` computed:
-```python
-_APP_NAME = Path(APP_PATH).stem          # "GPD Dev"
-_PGREP_PATTERN = f"{_APP_NAME}.app/Contents/MacOS/{_APP_NAME}"
-# → "GPD Dev.app/Contents/MacOS/GPD Dev"
-```
-But Tauri's `tauri.conf.json` has `"productName": "GPD Dev"` and `"mainBinaryName": "GPD"` — the binary inside the bundle is `GPD`, not `GPD Dev`. `pgrep -f "GPD Dev.app/Contents/MacOS/GPD Dev"` matched nothing. On a release build the pattern happened to work because `productName` and `mainBinaryName` are both `GPD`.
+**Root cause:** `_PGREP_PATTERN = f"{_APP_NAME}.app/Contents/MacOS/{_APP_NAME}"` doubles the bundle name, but Tauri's `tauri.conf.json` has `productName: "GPD Dev"` and `mainBinaryName: "GPD"`. The binary inside `GPD Dev.app` is named `GPD`, so `pgrep -f "GPD Dev.app/Contents/MacOS/GPD Dev"` matches nothing. Release builds accidentally worked because `productName == mainBinaryName == "GPD"`.
 
-**Label:** HARNESS_BUG. Reading `tauri.conf.json` would have caught this during Phase 1 authoring.
+**Fix:** Match on the `MacOS/` directory prefix — unique enough, naming-scheme-agnostic.
 
-**Fix:** Match on the `MacOS/` directory prefix instead of the binary name — unique enough across bundles, robust to any Tauri naming scheme.
+### F2 — `invoke_via_mcp` never awaited Promises
 
-### F2 — `invoke_via_mcp` never sees real command results
+**Symptom:** Every ipc test returned `{}` for every command.
 
-**Symptom:** 61 of 62 ipc failures in the first live sweep reported identical errors: `gpd_tests.drivers.mcp.MCPError: Timeout waiting for JS execution: Timeout waiting for execute-js response`.
+**Root cause:** The helper wrapped invocations in an async IIFE `(async () => await invoke(...))()`. The vendored `tauri-plugin-mcp` guest-js evaluates submitted code with `new Function('return (${code})')()` and synchronously stringifies the return value. `JSON.stringify(promise)` yields `"{}"` — so every invocation appeared to succeed with an empty dict.
 
-**Evidence:** The helper submitted an async IIFE:
-```javascript
-(async () => {
-  const r = await window.__TAURI_INTERNALS__.invoke(cmd, args);
-  return JSON.stringify(r);
-})()
-```
-The vendored tauri-plugin-mcp guest-js (`packages/desktop/src/vendor/tauri-plugin-mcp.ts:1413`) evaluates the submitted code with:
-```javascript
-function executeJavaScript(code) {
-  return new Function(`return (${code})`)();
-}
-```
-— synchronously. The return value is a pending Promise. The handler then does `JSON.stringify(promise)` which yields `"{}"` (Promises have no enumerable properties). So Python received `"{}"` for every invocation regardless of what the Tauri command actually returned. The "timeout" errors appeared because one upstream test (F3) blocked the webview entirely, and subsequent tests couldn't even get the `"{}"` bogus-success response.
+**Fix (`c96b9cd`):** switched to a slot-poll pattern. The submit call stashes the settled result on `window.__gpd_ipc_slot_<n>` and returns `null`; a subsequent `execute_js` polls `JSON.stringify(window[slot])` until `{ok: true, value: ...}` or `{ok: false, err: ...}` appears. Nine unit tests cover submit/poll/settle/error/deadline semantics.
 
-**Label:** HARNESS_BUG. The unit tests for `invoke_via_mcp` asserted the JS wire shape against a MagicMock and so had no coverage of the plugin's actual Promise-handling behavior.
+**Why the unit tests missed it:** the MagicMock used in `test_helpers_ipc.py` fed back plausible stringified JSON, bypassing the vendored plugin's Promise-stringify behavior entirely. A live-bridge integration test would have caught it.
 
-**Fix (`c96b9cd`):** switched to a *slot-poll* pattern — the submit call stashes the settled result on `window.__gpd_ipc_slot_<n>` and returns `null`; a subsequent `execute_js` polls `JSON.stringify(window[slot])` until it reports `{ok: true, value: ...}` or `{ok: false, err: ...}`. Nine unit tests cover submit/poll/settle/error/deadline semantics.
+### F3 — `install_git_macos` happy path opened a modal dialog
 
-### F3 — `test_install_git_macos_platform_gated` opened a modal dialog
+**Symptom:** First alphabetical ipc test invoked `install_git_macos({})` on Darwin → `xcode-select --install` → webview bridge died → every subsequent ipc test timed out with `MCPError: Timeout waiting for JS execution`. The cascade masked F2 (since we never got to a successful invoke).
 
-**Symptom:** First-position ipc test (alphabetically) on Darwin invoked `install_git_macos({})`, which calls `xcode-select --install`. If CLT isn't present, that spawns a modal "Install the developer tools" dialog; if it is present, it returns "already installed" — **except** the Rust command still treats both as "launched" and may briefly surface UI. During the sweep, the webview bridge became unresponsive immediately after this test — confirmed by a post-sweep `mcp.execute_js("1 + 1")` timing out against the same GPD process that happily returned `list_windows`.
-
-**Evidence:** `tests/ipc/test_dependencies.py:31` before the fix:
-```python
-if sys.platform == "darwin":
-    result = invoke_via_mcp(mcp, "install_git_macos", {})
-```
-
-**Label:** HARNESS_BUG. The test was written defensively ("xcode-select on a host where CLT is installed is a no-op"), but the author couldn't know how `install_git_macos`'s Rust code handles the already-installed path at the UI layer. Sweeps on an unattended dev machine cannot call this.
-
-**Fix (`c96b9cd`):** skip the Darwin branch entirely; keep only the non-Darwin platform-gate assertion. Similar skips applied to `install_tectonic` (multi-minute network download) and `install_cli` (writes `~/.opencode/bin`). The negative sweep in `test_ipc_negative.py` already had `_UNSAFE_FOR_NEGATIVE_SWEEP` but that list only governed the parametrized bogus-arg sweep, not the dedicated tests in `test_dependencies.py` / `test_tectonic_markdown_cli.py`.
+**Fix (`c96b9cd`):** skip Darwin branch in `test_install_git_macos_platform_gated`; extend similar skips to `install_tectonic` (multi-min network) and `install_cli` (writes `~/.opencode/bin`). The `test_ipc_negative.py` sweep's `_UNSAFE_FOR_NEGATIVE_SWEEP` set was already correct but only governed the parametrized bogus-arg sweep, not dedicated file-specific tests.
 
 ### F4 — Stale selector `[data-action="workspace-new-session"]`
 
-**Symptom:** `tests/smoke/test_sidebar.py::test_sidebar_new_session_selector_is_in_dom` failed in every smoke iteration: `AssertionError: sidebar selector not in DOM: False`.
+**Symptom:** `test_sidebar_new_session_selector_is_in_dom` deterministically failed every smoke iteration (5/5 before fixes, 5/5 after): `AssertionError: sidebar selector not in DOM: False`.
 
-**Evidence:**
-- The selector is defined in `gpd_tests/helpers/selectors.py:6`:
-  `SIDEBAR_NEW_SESSION = '[data-action="workspace-new-session"]'`
-- Grep of `packages/app/src/` for `workspace-new-session` → zero matches.
-- Grep of `packages/desktop/src/` → zero matches.
-- The frontend DOES use the `data-action` convention elsewhere: `prompt-submit`, `prompt-attach`, `prompt-agent`, `prompt-model`, `settings-language`, etc. But not `workspace-new-session`.
-- Git log `-S "workspace-new-session"` across all branches shows the selector first appeared in the Phase 1 test suite commit (`9dc8aed`, tests-gui introduction) and was never shipped in product code.
+**Root cause:** `gpd_tests/helpers/selectors.py:6` defines `SIDEBAR_NEW_SESSION = '[data-action="workspace-new-session"]'`. Grep of `packages/app/src/` and `packages/desktop/src/` confirms the attribute has never shipped. The convention IS used elsewhere (`prompt-submit`, `settings-language`, etc.) but not for the sidebar new-session trigger. Git log `-S` across all branches shows the selector first appeared in the Phase 1 test-suite commit (`9dc8aed`) as an aspirational assertion.
 
-**Label:** HARNESS_BUG (candidate for PRODUCT_DRIFT_TEST_STALE if the attribute was ever present — it wasn't).
+**Fix path (open):** either (a) delete the test, or (b) replace the selector with one that actually matches the sidebar's new-session button. `packages/app/src/components/titlebar.tsx:275` renders a `<Button icon="new-session">` — adding `data-action="new-session"` to that button would make the test meaningful. Prefer (b) since it's a useful DOM contract.
 
-**Fix (pending):** either remove the test or replace the selector with one that actually matches the sidebar's new-session trigger. From the audit of `packages/app/src/components/titlebar.tsx:275`, the "new session" UI is currently an icon prop (`icon={creating() ? "new-session-active" : "new-session"}`), not a DOM attribute. A more robust selector would target the button element that owns the new-session click handler. Deferring to a follow-up PR since the test was aspirational — the Phase 1 author wanted a selector-based check, but never added the attribute to the button.
+### F5 — Stale debug binary drove error-string drift
+
+**Symptom:** 2 tex_compiler tests (`test_compile_tex_rejects_missing_source`, `test_parse_tex_log_rejects_missing_file`) failed deterministically with error-message regexes that didn't match.
+
+**Root cause:** The running Tauri sidecar binary was built pre-`64e39c1` ("copy(wave-3): friendly error messages"), while source + tests were post-`64e39c1`. The source said `"LaTeX source file not found: ... hasn't been moved"` but the running binary still emitted `"TeX root file does not exist"`. Tests were correct; binary was stale.
+
+**Fix:** `bun run tauri build --debug` from `packages/desktop/` — rebuild picked up the new error strings. Both tests then passed.
+
+### F6 — Python `.format()` template bug
+
+**Symptom:** `test_detect_tex_root_honors_magic_comment` raised `KeyError: 'stub'` at fixture-build time, before any IPC call.
+
+**Root cause:** `TEX_WITH_MAGIC_ROOT_TEMPLATE.format(root=root.name)` applied to a template containing `\input{stub}` — Python's `str.format` treats `{stub}` as a positional substitution and raises `KeyError`.
+
+**Fix (`7f7e7cb`):** escape as `\input{{stub}}` so `.format()` leaves the literal brace intact.
+
+### F7 — Stale debug binary lacked `check_project_accessible`
+
+**Symptom:** `test_check_project_accessible_happy_path` and `test_command_rejects_bogus_arg_shape[check_project_accessible]` failed every run with `IPCError: Command check_project_accessible not found`.
+
+**Root cause:** The command was added in commit `c14fa7c` at 17:08 today; the running debug binary's mtime was `15:54` (pre-commit). Tests assumed live source; binary was stale. The same rebuild that fixed F5 also fixed these.
+
+**Harness hardening (open, task #91):** add a session-start probe against one sentinel newcomer command to fail fast with "rebuild GPD" rather than surfacing as N per-command regressions.
+
+### F8 — `wait_quit(timeout=)` kwarg name cascade
+
+**Symptom:** 3 lifecycle tests all failed — 1 `FAILED` (test_multiple_sessions_persist) + 2 `ERRORs` (setup of the others).
+
+**Root cause:** `tests/lifecycle/test_session_list_persistence.py:14` called `app_state.wait_quit(timeout=15)` but the real signature is `wait_quit(*, timeout_s=10.0)`. The TypeError raised AFTER `app_state.quit()` was already called — so session-scoped `app_state` was left in a broken state (GPD quit, never relaunched). Every subsequent lifecycle test ERRORed at fixture setup because `http` fixture's pgrep returned no pid. In a second pytest invocation all 3 errored at session-setup on `state.launch()`.
+
+**ERROR vs FAILED signal:** ERROR = setup/fixture raised; FAILED = test body ran and raised. The cascade pattern (first test FAILED, rest ERRORed) confirmed CL-C's diagnosis — if the rediscover gap had been the proximate cause, we'd have seen all 3 FAIL in their bodies at the first post-relaunch `http.xxx()` call.
+
+**Fix (`5ab4699`):** renamed the kwarg to `timeout_s=15`.
+
+### F9 — `HTTPClient` has no `rediscover(pid)` (open, task #76)
+
+**Symptom:** With F8 fixed, the 3 lifecycle tests still fail — now in their bodies rather than cascading from a fixture bug.
+
+**Root cause:** The `http` fixture is function-scoped so it constructs a fresh `HTTPClient` per test with the then-current sidecar port+creds. But mid-test, after `app_state.quit()` + `app_state.launch()`, the sidecar respawns at a new PID with new `OPENCODE_SERVER_PASSWORD` and a new listening port. The existing `HTTPClient` still points at the dead sidecar's address/credentials. First post-relaunch `http.sessions()` fails with connection refused or 401. `test_sidecar_respawns_after_sigkill` works around this with a retry loop, but that pattern doesn't generalize.
+
+**Fix path:**
+```python
+class HTTPClient:
+    def rediscover(self, pid: int) -> None:
+        from .opencode_http import discover_sidecar_port, discover_sidecar_credentials
+        port = discover_sidecar_port(pid=pid)
+        user, pw = discover_sidecar_credentials(pid)
+        self._client.close()
+        self._client = httpx.Client(
+            base_url=f"http://127.0.0.1:{port}",
+            auth=(user, pw),
+            timeout=self._timeout_s,
+        )
+```
+Then lifecycle tests call `http.rediscover(app_state.sidecar_pid())` after `app_state.wait_launched()` returns.
+
+### F10 — `test_loading_redirects_to_home_within_deadline` — invalid premise
+
+**Symptom:** Test waits for `current_url()` to move off `tauri://localhost/loading` within a deadline; it never does (3/3 runs fail with `last url='tauri://localhost/loading'`).
+
+**Root cause:** `/loading` is a **separate Tauri window** that hosts a splash-screen UI, not a transient SPA route. `packages/desktop/src/entry.tsx` routes by pathname: `/loading` imports `./loading`, else imports `./`. `packages/desktop/src/loading.tsx` only emits a `loadingWindowComplete` event for the Rust host (consumed at `src-tauri/src/lib.rs:633`) so the main window can be shown. No `window.location` mutation, no router `navigate()`. `navigator.py:22–32` already documents this ("MUST NOT wait for `current_url() == route_loading()`"), but the test author didn't read that comment.
+
+**Fix path:** delete the test. There's no "loading→home redirect" to assert. A replacement surfaces-level test could: `mcp.list_windows()` → assert both `main` (visible) and `loading` (visible=false / destroyed) windows.
+
+### F11 — `test_settings_opens_via_cmd_comma_and_closes_on_escape` composite flake
+
+**Symptom:** In the first sweep this was 2/27 pass (1 fail + 2 skips); in the post-fix sweep it's 0/3 (deterministic fail).
+
+**Root cause (three composite sources):**
+1. **No settle-wait between `ax.activate()` and the `osascript` keystroke.** Cmd+, can land before GPD becomes frontmost; the keystroke hits whatever app owned focus before the activate.
+2. **`command.tsx:358` early-returns if `dialog.active`.** If a prior `steals_focus` test left any modal open, the Cmd+, handler is a no-op. There's no native menu-bar accelerator for Cmd+, in `packages/desktop/src/menu.ts`, so the SolidJS keydown handler is the only path.
+3. **MCP execute-js timeouts intermittently** on unrelated paths, observed in the same surfaces XMLs.
+
+**Fix path:** (a) harness: `time.sleep(0.15)` between `ax.activate()` and the keystroke; (b) harness: pre-check `dialog.active` and dismiss any open modal; (c) optional product-side improvement: add a native `MenuItem::Preferences` with `Cmd+,` accelerator in `menu.ts` — macOS users expect it and it'd provide a dialog-state-independent path.
+
+### F12 — `test_send_button_disabled_on_empty_input` — selector mismatch
+
+**Symptom:** Test asserts `true` from a DOM probe that checks if every `button[data-component="button"][type="submit"] , button[data-component="icon-button"][type="submit"]` is disabled. The query returns false because no matching buttons exist.
+
+**Root cause:** The real send button is in `packages/app/src/components/prompt-input.tsx:1424`:
+```jsx
+<button data-action="prompt-submit" type="submit" disabled={...}>
+```
+— `data-action="prompt-submit"`, not `data-component="button"`. Same pattern as F4: a speculative attribute convention the product never adopted. The `disabled` prop wiring itself is correct (`disabled={store.mode !== "normal" || (!working() && blank())}` — line 1426).
+
+**Fix path:** change the selector to `button[data-action="prompt-submit"][type="submit"]`. Rerun; expect pass.
+
+---
+
+## Architecture audit
+
+Six audit agents ran in parallel in Phase X1, each producing a section under `sections/`. Full sections retained there; summary:
+
+| Section | File | Words | Headline |
+|---|---|---|---|
+| Smoke + flows | `sections/audit-smoke-flows.md` | 1,915 | 10 smoke files (14 tests) + 9 flows files (10 tests). 6 red flags — triple-gated tests, silently-skipped tests, permanent xfails |
+| Surfaces + regression + broad | `sections/audit-surfaces-regression.md` | 1,743 | 6 surfaces (11 tests) + 1 regression (1 test) + 6 broad (11 tests). 8 red flags — `pages/menu.py` dead; regression is 1 test; broad is 100% read-only |
+| IPC + lifecycle | `sections/audit-ipc-lifecycle.md` | 1,712 | 7 ipc files cover 28/28 catalog commands. 3 lifecycle files. `HTTPClient.rediscover` gap flagged (now F9) |
+| Unit tests | `sections/audit-unit.md` | 1,446 | 120 tests, 5 modules with no unit tests, `dom_probe.eval_json/int` + `os_input.move` untested |
+| Harness architecture | `sections/audit-harness.md` | 2,096 | 2 layering violations (helpers→driver privates), 7 dead-code items |
+| Infra | `sections/audit-infra.md` | 2,308 | CI never runs `ipc`/`lifecycle`/`broad`/`harness_selftest` markers. Plan doc drift. Triple build duplication |
 
 ---
 
 ## Cross-cutting observations
 
-These emerged from the audits (pre-run) and will be cross-referenced against run results:
-
-1. **Marker-driven CI gap.** ~88 tests (ipc + lifecycle + broad + harness_selftest) never run in CI. Fix: extend `gpd-tests-gui.yml` with a second job that applies `-m "ipc or lifecycle or broad"` with appropriate destructive-skip flags.
-2. **Page-object dead-code debt.** `pages/menu.py` has no consumers; neither does `drivers/ax.py::MenuItem`, `helpers/navigator.py::route_session`, `helpers/dom_probe.py::eval_{json,int}`, `helpers/i18n.py::t`, `tests/flows/conftest.py::clean_auth_json`. Safe to delete after a one-round grep.
-3. **Two layering violations** to clean up: `helpers/sheet.py` → `drivers/ax.py::_osascript`, `pages/app_state.py` → `drivers/mcp.py::_discover_socket_path`. Promote the imports to public API.
-4. **`HTTPClient.rediscover(pid)` must land before Phase D can become strict.** Currently D1/D3 are workarounds.
-5. **Onboarding + release-mode tests are gated on env vars** that no dev or CI ever sets. Either wire them in or delete them as inert.
-6. **The `test_driver_http.py::test_path_info_malformed_json_raises` bug.** Test calls `path_info(directory="/tmp")` with a kwarg the function doesn't accept; the broad `pytest.raises(Exception)` hides a TypeError.
-7. **Triage plan doc drift.** The 2026-04-20 triage methodology plan still lists `scripts/triage.py` as unbuilt. Update.
+1. **Marker-driven CI gap.** ~88 tests (ipc + lifecycle + broad + harness_selftest) never run in CI. Extend `gpd-tests-gui.yml` with a second job that applies `-m "ipc or lifecycle or broad"` with destructive-skip flags.
+2. **Speculative-selector debt.** F4 and F12 are the same pattern: tests written with hypothetical `data-*` attributes that never shipped. Someone (human or agent) should grep every `data-*` selector in `gpd_tests/helpers/selectors.py` against the product tree and either rename or add the attribute.
+3. **Stale-binary risk.** 5 of the 10 original failures were operational (sidecar rebuilt would fix them). A session-start probe against one newcomer sentinel command (task #91) would flag this in 2 seconds instead of 5+ minutes.
+4. **Unit-test ergonomics vs coverage.** F2 slipped through `test_helpers_ipc.py` because the MagicMock fed back plausible stringified JSON. Unit tests for components that cross the JS bridge need integration-shaped coverage too.
+5. **Page-object dead-code debt.** `pages/menu.py`, `drivers/ax.py::MenuItem`, `helpers/navigator.py::route_session`, `helpers/dom_probe.py::eval_{json,int}`, `helpers/i18n.py::t`, `tests/flows/conftest.py::clean_auth_json` — all unused. One PR of deletions.
+6. **Two layering violations:** `helpers/sheet.py` → `drivers/ax.py::_osascript`, `pages/app_state.py` → `drivers/mcp.py::_discover_socket_path`. Promote to public API.
+7. **Triple-gated tests never run.** `test_onboarding.py` (real_backend + fresh_app + PYTEST_RUN_DESTRUCTIVE_FLOWS) and `test_release_no_mcp.py` (release-build opt-in + bundle-id check) — either wire them in a nightly job or delete them.
+8. **`/loading` misconception.** F10 shows that `navigator.py` documents the fact (`/loading` is a window, not a route) but the test was written as though it were a route. Cross-reading existing docs would prevent this class of bug.
+9. **Plan doc drift.** `docs/superpowers/plans/2026-04-20-test-harness-triage-methodology.md` still says `scripts/triage.py` is "NOT YET BUILT." Both `scripts/triage.py` and `tests/harness_selftest/` exist.
+10. **Triage Gate 4 works.** The `pytest_runtest_makereport` hook we added correctly writes triage hints on failure — an end-to-end check during this run confirmed hint files are generated with product-code commit lists.
 
 ---
 
 ## Next steps
 
-In priority order (to be re-ranked after run results land):
+In priority order:
 
-1. Extend CI to cover the missing markers (`ipc`, `lifecycle`, `broad`, `harness_selftest`).
-2. Ship `HTTPClient.rediscover(pid)`; tighten D1/D3 to strict post-restart asserts.
-3. Delete the dead code in one PR.
-4. Fix the `test_path_info_malformed_json_raises` masked bug (or fix the target).
-5. Update the triage-methodology plan doc.
-6. Decide the fate of the triple-gated tests (`test_onboarding.py`, `test_release_no_mcp.py`) — wire, delete, or mark as explicit "manual-only."
-7. Fix CI "Verify debug bundle" step (aarch64 target path).
-8. Resolve the smoke `test_sidebar_new_session_selector_is_in_dom` finding from the first live run (needs X4 verification).
+1. **Land `HTTPClient.rediscover(pid)`** (task #76) + update `http` fixture / lifecycle tests. Unblocks 3 broken tests.
+2. **Fix or delete the 4 selector/premise tests** (F4, F10, F11, F12). Two lines per fix.
+3. **Add build-skew detector** (task #91). Prevents stale-binary false alarms.
+4. **Extend CI** to cover ipc + lifecycle + broad markers.
+5. **Delete dead code** (one PR for all of the items from cross-cutting #5).
+6. **Promote two layering violations to public API** (cross-cutting #6).
+7. **Decide fate of triple-gated tests** (cross-cutting #7) — wire, delete, or document as manual-only.
+8. **Update the triage plan doc** (cross-cutting #9) — remove "NOT YET BUILT" labels.
+9. **Fix CI "Verify debug bundle" step** (aarch64 target path). Currently blocks fork CI smoke/surfaces/regression jobs.
+
+**Not required:**
+- No REAL_BUG or REGRESSION_ON_BRANCH findings surfaced. Product code under test is solid on this branch.
