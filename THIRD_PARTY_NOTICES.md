@@ -50,7 +50,7 @@ fork copyright are preserved in the root `LICENSE` file.
 
 ## npm / Bun packages
 
-Total: 832 packages. UNKNOWN license: 7.
+Total: 828 packages. UNKNOWN license: 1.
 
 ### @actions/core@1.11.1 — MIT
 - **Repository:** https://github.com/actions/toolkit
@@ -11824,15 +11824,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 </details>
 
-### @openauthjs/openauth@0.0.0-20250322224806 — UNKNOWN
-
-### @opencode-ai/plugin@workspace:packages/plugin — UNKNOWN
-
-### @opencode-ai/sdk@workspace:packages/sdk/js — UNKNOWN
-
-### @opencode-ai/ui@workspace:packages/ui — UNKNOWN
-
-### @opencode-ai/util@workspace:packages/util — UNKNOWN
+### @openauthjs/openauth@0.0.0-20250322224806 — MIT (manual override; source: https://github.com/openauthjs/openauth/blob/master/LICENSE)
 
 ### @openrouter/ai-sdk-provider@2.5.1 — Apache-2.0
 - **Repository:** https://github.com/OpenRouterTeam/ai-sdk-provider
@@ -40213,7 +40205,7 @@ THE SOFTWARE.
 
 </details>
 
-### poe-oauth@0.0.6 — UNKNOWN
+### poe-oauth@0.0.6 — MIT (manual override; source: https://www.npmjs.com/package/poe-oauth)
 - **Repository:** https://github.com/poe-platform/poe-code
 
 ### postcss-selector-parser@6.1.2 — MIT

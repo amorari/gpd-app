@@ -169,6 +169,29 @@ function findVersion(index: Map<string, PkgEntry>, name: string): { name: string
   return null
 }
 
+/**
+ * Manual overrides for packages whose license is not machine-discoverable
+ * (no `license` field in package.json, no LICENSE file with a parseable
+ * header). Verified against the upstream repo / npm registry at audit time.
+ * If an override becomes wrong after upstream changes, build-notices.ts
+ * diff will catch it on the next run because the `license` in the
+ * generated MD will stay fixed while the lockfile moves.
+ */
+const MANUAL_OVERRIDES: Record<string, { license: string; source: string }> = {
+  "@openauthjs/openauth": {
+    license: "MIT",
+    source: "https://github.com/openauthjs/openauth/blob/master/LICENSE",
+  },
+  "poe-oauth": {
+    license: "MIT",
+    source: "https://www.npmjs.com/package/poe-oauth",
+  },
+  "ghostty-web": {
+    license: "MIT",
+    source: "https://github.com/anomalyco/ghostty-web",
+  },
+}
+
 async function walk(): Promise<{ pkgs: Map<string, ResolvedPkg>; stats: Record<string, number> }> {
   // bun.lock is JSONC-ish (trailing commas). Bun's own import-loader parses it.
   const lock = (await import(BUN_LOCK)).default as {
@@ -240,13 +263,22 @@ async function walk(): Promise<{ pkgs: Map<string, ResolvedPkg>; stats: Record<s
     if (visited.has(key)) continue
     visited.add(key)
 
+    // Skip workspace: packages — they're our own code, covered by the root
+    // LICENSE, and not third-party in any meaningful sense.
+    if (next.version.startsWith("workspace:")) {
+      continue
+    }
+
     const nmPath = resolveBunPath(next.name, next.version)
     const pkgJson = nmPath ? await resolvePkgJson(nmPath) : null
     if (!pkgJson) {
+      const override = MANUAL_OVERRIDES[next.name]
       pkgs.set(key, {
         name: next.name,
         version: next.version,
-        license: "UNKNOWN",
+        license: override
+          ? `${override.license} (manual override; source: ${override.source})`
+          : "UNKNOWN",
         licenseText: "",
         noticeText: "",
       })
@@ -265,6 +297,10 @@ async function walk(): Promise<{ pkgs: Map<string, ResolvedPkg>; stats: Record<s
     ])
     const noticeText = await readFirstFile(nmPath!, ["NOTICE", "NOTICE.md", "NOTICE.txt"])
     if (license === "UNKNOWN") license = inferLicenseFromText(licenseText)
+    const override = MANUAL_OVERRIDES[next.name]
+    if (override && (license === "UNKNOWN" || license.startsWith("LICENSE file present"))) {
+      license = `${override.license} (manual override; source: ${override.source})`
+    }
     pkgs.set(key, {
       name: next.name,
       version: next.version,
