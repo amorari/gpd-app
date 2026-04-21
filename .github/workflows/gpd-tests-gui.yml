@@ -201,12 +201,13 @@ jobs:
       # Uses the two-flag guard from conftest.py to avoid accidental clobber.
       # -----------------------------------------------------------------------
       - name: Configure real-backend env (if secret present)
-        if: ${{ secrets.GPD_TEST_ANTHROPIC_KEY != '' }}
         env:
           ANTHROPIC_KEY: ${{ secrets.GPD_TEST_ANTHROPIC_KEY }}
         run: |
-          echo "GPD_TEST_ANTHROPIC_KEY=$ANTHROPIC_KEY" >> "$GITHUB_ENV"
-          echo "GPD_TEST_SEED_ONBOARDING=1" >> "$GITHUB_ENV"
+          if [ -n "$ANTHROPIC_KEY" ]; then
+            echo "GPD_TEST_ANTHROPIC_KEY=$ANTHROPIC_KEY" >> "$GITHUB_ENV"
+            echo "GPD_TEST_SEED_ONBOARDING=1" >> "$GITHUB_ENV"
+          fi
 
       # -----------------------------------------------------------------------
       # Run smoke + non-real-backend flows
