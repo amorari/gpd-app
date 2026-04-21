@@ -1,0 +1,28 @@
+[run]
+source = gpd_tests
+branch = True
+omit =
+    */__init__.py
+    */tests_unit/*
+    */tests/*
+    */scripts/*
+    */vendor/*
+parallel = True
+
+[report]
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+show_missing = True
+skip_covered = False
+precision = 1
+# Coverage floor. 2026-04-20 baseline was 56.6%; post-G9 baseline is 91.7%.
+# Keep 85 as the enforced floor — gives some room for future refactors without
+# forcing the floor to track 100% drift. Raise only when confident the suite
+# can sustain it.
+fail_under = 85
+
+[html]
+directory = coverage_html
