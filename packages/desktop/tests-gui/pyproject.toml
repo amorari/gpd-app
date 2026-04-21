@@ -15,7 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 visual = ["pillow>=10.0", "imagehash>=4.3"]
-dev = ["pytest-cov>=5.0"]
+dev = ["pytest-cov>=5.0", "hypothesis>=6.100,<7", "mutmut>=2.4"]
 
 [build-system]
 requires = ["hatchling"]
