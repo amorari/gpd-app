@@ -1,9 +1,10 @@
 """Abort mid-generation should stop token flow without hanging."""
 from __future__ import annotations
 import threading
-import time
 
 import pytest
+
+from gpd_tests.helpers.timings import wait_until
 
 
 def _assistant_text(msgs: list[dict]) -> str:
@@ -45,7 +46,15 @@ def test_abort_stops_generation(http, anthropic_key):
 
         t = threading.Thread(target=_send, daemon=True)
         t.start()
-        time.sleep(2.5)  # let tokens start flowing
+
+        def _has_tokens() -> bool:
+            try:
+                msgs = http.messages(ses["id"])
+                return bool(_assistant_text(msgs))
+            except Exception:
+                return False
+
+        wait_until(_has_tokens, timeout_s=15.0, backoff_factor=1.4)
         http.abort(ses["id"])
         t.join(timeout=15)
         assert not t.is_alive(), "send_message thread did not unwind after abort"
