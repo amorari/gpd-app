@@ -16,6 +16,8 @@ import time
 
 import pytest
 
+from gpd_tests.helpers.llm_tolerant import assert_assistant_replied
+
 
 MODEL = "claude-haiku-4-5-20251001"
 PROVIDER = "anthropic"
@@ -58,8 +60,8 @@ def test_20_turn_session_completes_under_budget(http, anthropic_key):
                 agent="default",
             )
 
-        elapsed = time.monotonic() - t_start
         msgs = http.messages(ses["id"])
+        elapsed = time.monotonic() - t_start
         assistant_msgs = [m for m in msgs if m["info"]["role"] == "assistant"]
 
         # Assertion 1: 20 replies delivered
@@ -67,12 +69,12 @@ def test_20_turn_session_completes_under_budget(http, anthropic_key):
             f"expected 20 assistant turns, got {len(assistant_msgs)}"
         )
 
-        # Assertion 2: no empty reply
+        # Assertion 2: every reply is a well-formed assistant message (text or tool-use)
         for i, m in enumerate(assistant_msgs, 1):
-            text_body = "".join(
-                p.get("text", "") for p in m["parts"] if p.get("type") == "text"
-            )
-            assert text_body.strip(), f"assistant reply at turn {i} is empty"
+            try:
+                assert_assistant_replied(m)
+            except AssertionError as e:
+                raise AssertionError(f"assistant reply at turn {i} is malformed: {e}") from e
 
         # Assertion 3: context retained at turn 20
         last = _last_assistant_text(msgs)
@@ -93,9 +95,8 @@ def test_20_turn_session_completes_under_budget(http, anthropic_key):
 
 
 @pytest.mark.flows
-@pytest.mark.real_backend
 @pytest.mark.timeout(120)
-def test_empty_session_message_listing_is_stable(http, anthropic_key):
+def test_empty_session_message_listing_is_stable(http):
     """A session with no messages returns empty list, not an error."""
     ses = http.create_session()
     try:
