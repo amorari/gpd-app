@@ -401,6 +401,18 @@ def os_input():
     return client
 
 
+@pytest.fixture
+def git_project_dir(tmp_path):
+    """A tmp_path with a real git repo so the sidecar registers it as a project."""
+    import subprocess
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "--allow-empty", "-m", "init"],
+        check=True, capture_output=True,
+    )
+    return tmp_path
+
+
 # --- Per-test setup: foreground activation + marker-driven reset --------
 
 

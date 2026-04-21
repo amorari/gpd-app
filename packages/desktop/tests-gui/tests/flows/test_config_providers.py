@@ -62,7 +62,6 @@ def test_get_config_returns_dict_shape(http):
 
 
 @pytest.mark.flows
-@pytest.mark.xfail(strict=True, reason="PATCH /config returns 500 Internal Server Error — sidecar config handler crashes on write")
 def test_patch_config_noop_round_trip_preserves_shape(http):
     """PATCH /config with the exact same value must be idempotent.
 
@@ -143,7 +142,6 @@ def test_list_providers_full_per_provider_shape(http):
 
 
 @pytest.mark.flows
-@pytest.mark.xfail(strict=True, reason="PATCH /config returns 500 Internal Server Error — sidecar config handler crashes on write")
 def test_provider_enable_disable_round_trip(http):
     """Disable a provider via PATCH /config, confirm, then restore.
 

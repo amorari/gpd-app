@@ -279,7 +279,6 @@ def test_session_rename_via_ui_persists_via_sidecar(
 
 
 @pytest.mark.surfaces
-@pytest.mark.xfail(strict=True, reason="DOM not updated after DELETE /session/:id — UI session list does not reactively remove the row")
 def test_session_delete_via_ui_removes_from_list(
     mcp, http, prepared_project_path
 ):

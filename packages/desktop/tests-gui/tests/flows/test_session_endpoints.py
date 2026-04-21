@@ -229,7 +229,6 @@ def test_get_single_message_nonexistent_raises(http, scratch_project_dir):
 
 
 @pytest.mark.flows
-@pytest.mark.xfail(strict=True, reason="GET /session/.../diff returns 200 with no message context; sidecar should return 4xx")
 def test_get_session_diff_without_message_rejected(http, scratch_project_dir):
     """GET /session/:sid/diff without ?messageID= must be rejected as 400."""
     sid = _create_and_cleanup(http, directory=str(scratch_project_dir))
@@ -287,7 +286,6 @@ def test_unrevert_on_empty_session_returns_session_or_4xx(
 
 
 @pytest.mark.flows
-@pytest.mark.xfail(strict=True, reason="POST /session/.../revert returns 200 for a fake message ID; sidecar should return 4xx")
 def test_revert_with_fake_message_rejected(http, scratch_project_dir):
     """POST /session/:sid/revert with a fabricated messageID raises 4xx."""
     sid = _create_and_cleanup(http, directory=str(scratch_project_dir))
