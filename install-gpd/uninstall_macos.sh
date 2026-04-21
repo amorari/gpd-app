@@ -7,15 +7,19 @@
 #
 # Removes everything created by the GPD installer on macOS:
 #   - ~/.gpd/ directory (bin, config, python, venv)
-#   - PATH entries from shell rc files
-#   - GPD_API_KEY exports from login profiles (~/.zprofile, ~/.profile)
-#   - "gpd" entry from ~/Library/Application Support/opencode/auth.json
+#   - PATH entries + GPD_API_KEY exports from shell rc / login profiles
+#     (sentinel-bracketed block only; see remove_gpd_block)
+#   - "gpd" entry from opencode auth.json
+#   - GPD-specific entries in opencode.json
+#   - Files listed in gpd-file-manifest.json + the manifest itself
 #   - /Applications/GPD.app (desktop app)
 #   - ~/Library/Application Support/GPD/
 #   - ~/Library/Application Support/inc.psi.gpd/
-#   - ~/Library/Application Support/opencode/ (global opencode config)
+#   - Tauri WebView caches under ~/Library/Caches and ~/Library/WebKit
 #
 # Does NOT remove:
+#   - The rest of opencode's config/data dir (preserves other providers,
+#     chat history, custom prompts).
 #   - BasicTeX / MacTeX (detected and reported for manual cleanup)
 #   - Homebrew itself
 #   - Xcode Command Line Tools
@@ -63,7 +67,11 @@ APP_SUPPORT="$HOME/Library/Application Support"
 # $XDG_DATA_HOME or $HOME/.local/share to match.
 XDG_DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 OPENCODE_AUTH="$XDG_DATA/opencode/auth.json"
-OPENCODE_DIR="$XDG_DATA/opencode"
+# opencode's config dir (not data). xdg-basedir v5 resolves xdgConfig to
+# $HOME/.config on all platforms — but the installer also drops
+# opencode.json alongside auth.json for convenience. We check both.
+OPENCODE_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+OPENCODE_DATA_DIR="$XDG_DATA/opencode"
 GPD_APP_SUPPORT="$APP_SUPPORT/GPD"
 GPD_APP_SUPPORT_BUNDLE="$APP_SUPPORT/inc.psi.gpd"
 GPD_APP="/Applications/GPD.app"
@@ -74,19 +82,6 @@ GPD_APP="/Applications/GPD.app"
 # doesn't inherit the previous install's "already-onboarded" signal.
 GPD_CACHES_BUNDLE="$HOME/Library/Caches/inc.psi.gpd"
 GPD_WEBKIT_BUNDLE="$HOME/Library/WebKit/inc.psi.gpd"
-
-# opencode also honors XDG_* env vars on macOS for anyone who sets them
-# explicitly (Linux conventions on a Mac). We clean up those fallback
-# paths too so a macOS user with XDG_STATE_HOME set doesn't end up with
-# orphaned session state after uninstall.
-opencode_extra_dirs=()
-[[ -n "${XDG_STATE_HOME:-}" ]] && opencode_extra_dirs+=("$XDG_STATE_HOME/opencode")
-[[ -n "${XDG_CACHE_HOME:-}" ]] && opencode_extra_dirs+=("$XDG_CACHE_HOME/opencode")
-# Legacy path: previous installer versions wrote auth.json under
-# ~/Library/Application Support/opencode. Clean that up too.
-opencode_extra_dirs+=("$APP_SUPPORT/opencode")
-opencode_extra_dirs+=("$HOME/.local/state/opencode")
-opencode_extra_dirs+=("$HOME/.cache/opencode")
 
 # Prefer the GPD-managed Python over the system `python3` stub. On a fresh
 # macOS without Xcode Command Line Tools, `/usr/bin/python3` is a stub that
@@ -158,31 +153,10 @@ if [[ -d "$GPD_WEBKIT_BUNDLE" ]]; then
     found_anything=true
 fi
 
-# Check for opencode global config dir
-remove_opencode_dir=false
-if [[ -d "$OPENCODE_DIR" ]]; then
-    log "Found opencode config dir: $OPENCODE_DIR"
-    remove_opencode_dir=true
-    found_anything=true
-fi
-
-# XDG fallback paths — any of these exist on a macOS box with a
-# Linux-style env would be orphaned without explicit cleanup.
-opencode_extra_dirs_found=()
-for d in "${opencode_extra_dirs[@]}"; do
-    if [[ -d "$d" ]]; then
-        opencode_extra_dirs_found+=("$d")
-        log "Found opencode XDG dir: $d"
-        found_anything=true
-    fi
-done
-
-# Check for auth.json with a "gpd" entry, and pre-compute whether it has
-# any non-gpd providers. Both checks happen here — before we remove
-# $GPD_HOME (and with it the venv Python we rely on). Caching the result
-# avoids calling python3 after the venv is gone.
+# Check for auth.json with a "gpd" entry. We use $PY if available (prefers
+# the venv Python over the /usr/bin/python3 stub that pops a "install
+# developer tools" dialog on fresh macOS). Fall back to grep otherwise.
 strip_auth_gpd=false
-auth_has_other_providers=false
 if [[ -f "$OPENCODE_AUTH" && -n "$PY" ]]; then
     if "$PY" -c "
 import json, sys
@@ -197,18 +171,6 @@ except Exception:
         strip_auth_gpd=true
         found_anything=true
     fi
-    if "$PY" -c "
-import json, sys
-try:
-    with open('$OPENCODE_AUTH') as f:
-        data = json.load(f)
-    others = [k for k in data if k != 'gpd'] if isinstance(data, dict) else []
-    sys.exit(0 if others else 1)
-except Exception:
-    sys.exit(1)
-" 2>/dev/null; then
-        auth_has_other_providers=true
-    fi
 elif [[ -f "$OPENCODE_AUTH" ]] && grep -q '"gpd"' "$OPENCODE_AUTH" 2>/dev/null; then
     # Fallback when no usable python3 is available: crude grep. Good enough
     # for the common case where the installer wrote the auth entry itself.
@@ -217,24 +179,55 @@ elif [[ -f "$OPENCODE_AUTH" ]] && grep -q '"gpd"' "$OPENCODE_AUTH" 2>/dev/null; 
     found_anything=true
 fi
 
-# Check shell rc files for PATH entries
-rc_files_with_path=()
-for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.config/fish/config.fish"; do
-    if [[ -f "$rc" ]] && grep -q "$GPD_BIN_DIR" "$rc" 2>/dev/null; then
-        rc_files_with_path+=("$rc")
-        log "Found PATH entry in: $rc"
+# Check for GPD-specific artifacts inside opencode's global config dir.
+opencode_json_has_gpd=false
+if [[ -f "$OPENCODE_CONFIG_DIR/opencode.json" ]] \
+    && grep -q '"gpd"' "$OPENCODE_CONFIG_DIR/opencode.json" 2>/dev/null; then
+    opencode_json_has_gpd=true
+    log "Found GPD entry in: $OPENCODE_CONFIG_DIR/opencode.json"
+    found_anything=true
+fi
+# Manifest may live under $OPENCODE_CONFIG_DIR; also check the data dir
+# just in case the installer landed it alongside auth.json historically.
+opencode_manifest_paths=()
+for candidate in \
+    "$OPENCODE_CONFIG_DIR/gpd-file-manifest.json" \
+    "$OPENCODE_DATA_DIR/gpd-file-manifest.json"; do
+    if [[ -f "$candidate" ]]; then
+        opencode_manifest_paths+=("$candidate")
+        log "Found GPD file manifest: $candidate"
         found_anything=true
     fi
 done
+# get-physics-done/ subdir inside opencode config — populated by
+# `gpd install opencode --global`. Report only; removal happens after
+# manifest sweep and only if the dir ends up empty.
+opencode_gpd_subdir="$OPENCODE_CONFIG_DIR/get-physics-done"
+if [[ -d "$opencode_gpd_subdir" ]]; then
+    log "Found GPD subdir: $opencode_gpd_subdir"
+    found_anything=true
+fi
 
-# Check login profiles for GPD_API_KEY (macOS: zprofile is the primary location)
-profiles_with_key=()
-for profile in "$HOME/.zprofile" "$HOME/.profile" "$HOME/.bash_profile" "${ZDOTDIR:-$HOME}/.zprofile"; do
-    # Avoid duplicates
-    [[ " ${profiles_with_key[*]:-} " == *" $profile "* ]] && continue
-    if [[ -f "$profile" ]] && grep -q "GPD_API_KEY" "$profile" 2>/dev/null; then
-        profiles_with_key+=("$profile")
-        log "Found GPD_API_KEY export in: $profile"
+# Check shell rc files and login profiles for the GPD sentinel block.
+# On macOS .zprofile is the primary key location; .bashrc still matters
+# for users who switched shells.
+rc_and_profile_candidates=(
+    "$HOME/.bashrc"
+    "$HOME/.zshrc"
+    "$HOME/.profile"
+    "$HOME/.bash_profile"
+    "$HOME/.zprofile"
+    "${ZDOTDIR:-$HOME}/.zprofile"
+    "$HOME/.config/fish/config.fish"
+)
+rc_files_with_block=()
+seen_rc_disco=""
+for rc in "${rc_and_profile_candidates[@]}"; do
+    case "$seen_rc_disco" in *"|$rc|"*) continue ;; esac
+    seen_rc_disco="$seen_rc_disco|$rc|"
+    if [[ -f "$rc" ]] && grep -qF '# >>> GPD CLI >>>' "$rc" 2>/dev/null; then
+        rc_files_with_block+=("$rc")
+        log "Found GPD sentinel block in: $rc"
         found_anything=true
     fi
 done
@@ -300,65 +293,249 @@ else
 fi
 
 # ── Strip 'gpd' entry from opencode auth.json ────────────────────────────
+# We do this BEFORE removing $GPD_HOME so $PY (venv python) is still
+# available. auth.json itself is preserved — we surgically drop the
+# "gpd" key so other providers' auth stays intact.
 
 if [[ "$strip_auth_gpd" == true && -n "$PY" ]]; then
-    # Capture the exit code explicitly: 0 = stripped, 2 = no gpd entry
-    # (not an error), anything else = genuine failure. Running inside `if`
-    # collapses 2 and 1 into "failed" which produced a misleading
-    # "Failed to strip" message when the entry simply wasn't present.
+    # Exit codes:
+    #   0 = stripped 'gpd', file still has other providers
+    #   1 = stripped 'gpd', file now empty -> deleted
+    #   2 = no 'gpd' entry (nothing to do)
+    #   other = genuine failure
     rc=0
     "$PY" - "$OPENCODE_AUTH" <<'PYEOF' || rc=$?
-import json, sys
+import json, os, sys
 path = sys.argv[1]
 try:
     with open(path) as f:
         data = json.load(f)
-    if isinstance(data, dict) and 'gpd' in data:
-        del data['gpd']
-        with open(path, 'w') as f:
-            json.dump(data, f, indent=2)
-            f.write('\n')
-        sys.exit(0)
-    sys.exit(2)
+    if not (isinstance(data, dict) and 'gpd' in data):
+        sys.exit(2)
+    del data['gpd']
+    if not data:
+        os.remove(path)
+        sys.exit(1)
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+    try:
+        os.chmod(path, 0o600)
+    except Exception:
+        pass
+    sys.exit(0)
+except SystemExit:
+    raise
 except Exception as e:
     sys.stderr.write(str(e) + '\n')
-    sys.exit(1)
+    sys.exit(3)
 PYEOF
     case $rc in
-        0) success "Removed 'gpd' entry from $OPENCODE_AUTH" ;;
+        0) success "Removed 'gpd' entry from $OPENCODE_AUTH (other providers preserved)" ;;
+        1) success "Removed $OPENCODE_AUTH (only contained 'gpd' entry)" ;;
         2) skip "No 'gpd' entry in $OPENCODE_AUTH" ;;
         *) warn "Failed to strip 'gpd' entry from $OPENCODE_AUTH (exit $rc)" ;;
     esac
 elif [[ "$strip_auth_gpd" == true ]]; then
-    # No usable python3 — auth.json is going to be removed with the
-    # opencode dir anyway, so just note it and move on.
-    warn "No python3 available to surgically strip 'gpd' from auth.json; will remove the whole opencode dir below"
+    warn "No python3 available to surgically strip 'gpd' from $OPENCODE_AUTH"
+    warn "  Please remove the \"gpd\" key manually to avoid touching other providers."
 else
     skip "No 'gpd' entry in opencode auth.json"
 fi
 
-# ── Remove PATH entries from shell rc files ───────────────────────────────
+# ── Clean GPD bits from opencode.json (preserve the dir) ─────────────────
 
-remove_lines_from_file() {
+clean_opencode_json() {
     local file="$1"
-    local pattern="$2"
-    local comment_pattern="${3:-}"
+    [[ -f "$file" ]] || { skip "No $file to clean"; return; }
+    if [[ -z "$PY" ]]; then
+        warn "python3 not available — cannot safely edit $file"
+        warn "  Please manually remove \"gpd\" entries from $file"
+        return
+    fi
+    # Exit codes:
+    #   0 modified, file kept
+    #   1 modified, file reduced to {} and was deleted
+    #   2 nothing to change
+    #   3 JSON parse error
+    local rc=0
+    "$PY" - "$file" <<'PY' || rc=$?
+import json, os, sys
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(3)
+if not isinstance(data, dict):
+    sys.exit(2)
+changed = False
+provider = data.get("provider")
+if isinstance(provider, dict) and "gpd" in provider:
+    del provider["gpd"]
+    changed = True
+    if not provider:
+        del data["provider"]
+model = data.get("model")
+if isinstance(model, str) and model.startswith("gpd/"):
+    del data["model"]
+    changed = True
+enabled = data.get("enabled_providers")
+if isinstance(enabled, list) and "gpd" in enabled:
+    data["enabled_providers"] = [p for p in enabled if p != "gpd"]
+    changed = True
+    if not data["enabled_providers"]:
+        del data["enabled_providers"]
+if not changed:
+    sys.exit(2)
+if not data:
+    os.remove(path)
+    sys.exit(1)
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+sys.exit(0)
+PY
+    case "$rc" in
+        0) success "Cleaned GPD entries from $file (opencode config preserved)" ;;
+        1) success "Removed $file (only contained GPD entries)" ;;
+        2) skip "No GPD entries to clean from $file" ;;
+        3) warn "Could not parse $file as JSON — leaving it alone" ;;
+    esac
+}
 
-    if [[ ! -f "$file" ]]; then
+if [[ "$opencode_json_has_gpd" == true ]]; then
+    clean_opencode_json "$OPENCODE_CONFIG_DIR/opencode.json"
+else
+    skip "No GPD entries in $OPENCODE_CONFIG_DIR/opencode.json"
+fi
+
+# ── AC-9: manifest-driven file removal ───────────────────────────────────
+#
+# gpd-file-manifest.json lists files the installer dropped into the
+# opencode config dir. Accept either {"files": [...]} or a top-level
+# array. Relative paths resolve against the manifest's parent dir.
+
+process_gpd_manifest() {
+    local manifest="$1"
+    [[ -f "$manifest" ]] || return
+    if [[ -z "$PY" ]]; then
+        warn "python3 not available — cannot parse $manifest; removing manifest only"
+        rm -f "$manifest"
+        return
+    fi
+    local base_dir
+    base_dir="$(dirname "$manifest")"
+
+    # Newline-separated output — bash command substitution strips NULs,
+    # so we reject entries containing newlines rather than trying to
+    # delimit around them.
+    local files_list
+    files_list="$("$PY" - "$manifest" "$base_dir" 2>/dev/null <<'PY' || true
+import json, os, sys
+manifest_path = sys.argv[1]
+base_dir = sys.argv[2]
+try:
+    with open(manifest_path) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(3)
+if isinstance(data, dict):
+    files = data.get("files", [])
+elif isinstance(data, list):
+    files = data
+else:
+    files = []
+if not isinstance(files, list):
+    files = []
+for entry in files:
+    if not isinstance(entry, str) or not entry:
+        continue
+    if "\n" in entry:
+        sys.stderr.write(f"skipping entry with newline: {entry!r}\n")
+        continue
+    path = entry if os.path.isabs(entry) else os.path.join(base_dir, entry)
+    sys.stdout.write(path + "\n")
+sys.exit(0)
+PY
+)"
+
+    if ! "$PY" - "$manifest" &>/dev/null <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    json.load(f)
+PY
+    then
+        warn "Could not parse $manifest — leaving listed files in place"
+        rm -f "$manifest"
+        success "Removed $manifest"
         return
     fi
 
-    local tmp
-    tmp="$(mktemp)"
+    local missing_count=0
+    while IFS= read -r path; do
+        [[ -z "$path" ]] && continue
+        if [[ -e "$path" || -L "$path" ]]; then
+            if rm -f "$path" 2>/dev/null; then
+                success "Removed manifest file: $path"
+            else
+                warn "Could not remove manifest file: $path"
+            fi
+        else
+            missing_count=$((missing_count+1))
+        fi
+    done <<< "$files_list"
 
-    # Remove matching lines and the "# GPD CLI" comment line above them
-    if [[ -n "$comment_pattern" ]]; then
-        grep -v -F "$pattern" "$file" | grep -v -F "$comment_pattern" > "$tmp" || true
-    else
-        grep -v -F "$pattern" "$file" > "$tmp" || true
+    if [[ "$missing_count" -gt 0 ]]; then
+        skip "$missing_count manifest entry(ies) already gone"
     fi
 
-    # Only write back if content actually changed
+    rm -f "$manifest"
+    success "Removed $manifest"
+}
+
+if (( ${#opencode_manifest_paths[@]} > 0 )); then
+    for m in "${opencode_manifest_paths[@]}"; do
+        process_gpd_manifest "$m"
+    done
+else
+    skip "No gpd-file-manifest.json to process"
+fi
+
+# Clean up get-physics-done/ subdir — remove only if empty after the
+# manifest sweep. Anything the user added stays put.
+if [[ -d "$opencode_gpd_subdir" ]]; then
+    find "$opencode_gpd_subdir" -depth -type d -empty -delete 2>/dev/null || true
+    if [[ -d "$opencode_gpd_subdir" ]]; then
+        skip "Kept $opencode_gpd_subdir (still has non-GPD content)"
+    else
+        success "Removed empty $opencode_gpd_subdir"
+    fi
+fi
+
+# ── Remove PATH entries / exports from shell rc files ────────────────────
+#
+# Sentinel-span removal: drop exactly the block bracketed by
+#   # >>> GPD CLI >>>
+#   ...
+#   # <<< GPD CLI <<<
+# No substring fallback — the old behaviour silently deleted any line
+# mentioning "$GPD_BIN_DIR" or "GPD_API_KEY", which could mangle user
+# lines that coincidentally referenced those strings.
+
+remove_gpd_block() {
+    local file="$1"
+    [[ -f "$file" ]] || return 1
+    if ! grep -qF '# >>> GPD CLI >>>' "$file" 2>/dev/null; then
+        return 1
+    fi
+    local tmp
+    tmp="$(mktemp)"
+    awk '
+        /^# >>> GPD CLI >>>$/ { skip=1; next }
+        /^# <<< GPD CLI <<<$/ { skip=0; next }
+        skip == 0 { print }
+    ' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
     if ! diff -q "$file" "$tmp" &>/dev/null; then
         mv "$tmp" "$file"
         return 0
@@ -368,29 +545,23 @@ remove_lines_from_file() {
     fi
 }
 
-if (( ${#rc_files_with_path[@]} > 0 )); then
-    for rc in "${rc_files_with_path[@]}"; do
-        if remove_lines_from_file "$rc" "$GPD_BIN_DIR" "# GPD CLI"; then
-            success "Removed PATH entry from $rc"
+if (( ${#rc_files_with_block[@]} > 0 )); then
+    removed_any_block=false
+    for rc in "${rc_files_with_block[@]}"; do
+        if remove_gpd_block "$rc"; then
+            success "Removed GPD block from $rc"
+            removed_any_block=true
         fi
     done
+    if [[ "$removed_any_block" != true ]]; then
+        skip "No GPD sentinel blocks found in shell rc/profile files"
+    fi
 else
-    skip "No PATH entries to remove"
-fi
-
-# ── Remove GPD_API_KEY exports from login profiles ────────────────────────
-
-if (( ${#profiles_with_key[@]} > 0 )); then
-    for profile in "${profiles_with_key[@]}"; do
-        if remove_lines_from_file "$profile" "GPD_API_KEY" "# GPD API key"; then
-            success "Removed GPD_API_KEY from $profile"
-        fi
-    done
-else
-    skip "No GPD_API_KEY exports to remove"
+    skip "No shell rc/profile files to clean"
 fi
 
 # ── Remove GPD directory ─────────────────────────────────────────────────
+# NOTE: this wipes $PY, so everything that needs python3 must run above.
 
 if [[ -d "$GPD_HOME" ]]; then
     rm -rf "$GPD_HOME"
@@ -427,41 +598,6 @@ if [[ "$remove_webkit_bundle" == true ]]; then
     success "Removed $GPD_WEBKIT_BUNDLE"
 else
     skip "No $GPD_WEBKIT_BUNDLE to remove"
-fi
-
-# ── Remove opencode global config directory ──────────────────────────────
-# Note: only remove if it still exists after stripping the gpd auth entry.
-# If the user wants to keep other providers' auth, they should edit auth.json
-# manually instead of running the uninstaller — we remove the whole dir here
-# because the installer created it.
-
-if [[ "$remove_opencode_dir" == true ]] && [[ -d "$OPENCODE_DIR" ]]; then
-    # If auth.json still has other providers (not just gpd), preserve the
-    # directory. This check was performed during discovery while the venv
-    # Python was still available — we use the cached result here to avoid
-    # invoking the `/usr/bin/python3` stub after the venv was removed.
-    preserve_opencode=false
-    if [[ "$auth_has_other_providers" == true ]]; then
-        preserve_opencode=true
-    fi
-
-    if [[ "$preserve_opencode" == true ]]; then
-        skip "Keeping $OPENCODE_DIR (auth.json has other providers)"
-    else
-        rm -rf "$OPENCODE_DIR"
-        success "Removed $OPENCODE_DIR"
-    fi
-else
-    skip "No $OPENCODE_DIR to remove"
-fi
-
-# Clean up any XDG-style opencode dirs (only when we're removing the
-# main opencode dir — same "opencode only exists for GPD" heuristic).
-if [[ "${preserve_opencode:-false}" != true ]] && (( ${#opencode_extra_dirs_found[@]} > 0 )); then
-    for d in "${opencode_extra_dirs_found[@]}"; do
-        rm -rf "$d"
-        success "Removed $d"
-    done
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────

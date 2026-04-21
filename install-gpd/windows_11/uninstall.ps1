@@ -6,17 +6,25 @@
 #
 # Removes everything created by install.ps1:
 #   - $HOME\.gpd\ directory (bin, python, venv, config)
-#   - User PATH entry pointing to .gpd\bin
+#   - User PATH entry pointing to .gpd\bin (registry split-and-filter;
+#     no sentinel handling -- sentinel blocks are POSIX rc-file only)
 #   - GPD desktop app (runs Tauri NSIS uninstaller silently)
 #   - Tauri GUI state at %APPDATA%\inc.psi.gpd\
 #   - Tauri WebView data (localStorage/cookies/cache) at %LOCALAPPDATA%\inc.psi.gpd\
-#   - "gpd" entry in %USERPROFILE%\.local\share\opencode\auth.json
-#     (and the legacy %APPDATA%\opencode\auth.json path, preserving
-#     any other providers present in either file)
-#   - gpd-specific files in %USERPROFILE%\.local\share\opencode\
+#   - "gpd" entry in auth.json under .local\share\opencode and the legacy
+#     %APPDATA%\opencode path (preserving other providers)
+#   - "gpd" provider in opencode.json (preserving other providers)
+#   - Files listed in gpd-file-manifest.json and the manifest itself
 #
-# Does NOT remove Git or MiKTeX -- many things depend on them. Instructions
-# for manual removal are printed at the end.
+# Does NOT remove:
+#   - The rest of opencode's config/data dir (other providers' auth,
+#     chat history, custom prompts stay put).
+#   - Git or MiKTeX -- many things depend on them. Instructions for
+#     manual removal are printed at the end.
+#
+# POSIX note: AC-3 (sentinel-bracketed rc-file block removal) applies to
+# the bash uninstallers only. Windows stores PATH in the registry, so
+# Remove-GpdFromPath does a direct split-and-filter -- see that function.
 
 #Requires -Version 5.1
 [CmdletBinding()]
@@ -59,19 +67,10 @@ $AuthFile    = Join-Path $OpenCodeDir "auth.json"
 $LegacyOpenCodeDir = Join-Path $env:APPDATA "opencode"
 $LegacyAuthFile    = Join-Path $LegacyOpenCodeDir "auth.json"
 
-# opencode also honors XDG_STATE_HOME / XDG_CACHE_HOME on Windows when
-# they're set explicitly. Check the "Linux-style" defaults too in case
-# the user (or a script) created them under the Windows home dir.
-$OpenCodeStateDir = if ($env:XDG_STATE_HOME) {
-    Join-Path $env:XDG_STATE_HOME "opencode"
-} else {
-    Join-Path $env:USERPROFILE ".local\state\opencode"
-}
-$OpenCodeCacheDir = if ($env:XDG_CACHE_HOME) {
-    Join-Path $env:XDG_CACHE_HOME "opencode"
-} else {
-    Join-Path $env:USERPROFILE ".cache\opencode"
-}
+# We intentionally do NOT clean up opencode's state/cache dirs
+# (%XDG_STATE_HOME%\opencode, %XDG_CACHE_HOME%\opencode, etc.): users
+# who also run plain opencode have chat history and session state there.
+# Surgical cleanup only (see Remove-OpenCodeGpdFiles).
 
 # Files in the opencode config dir that are gpd-specific and safe to remove.
 $GpdManifestFile = Join-Path $OpenCodeDir "gpd-file-manifest.json"
@@ -151,11 +150,10 @@ function Test-AuthHasGpd {
     return $false
 }
 
-# Inspect opencode.json and decide whether it looks gpd-only (so we can
-# safely delete it). Returns $true if the file only configures the gpd
-# provider. If there are other providers/settings, return $false and leave
-# it alone.
-function Test-OpenCodeJsonIsGpdOnly {
+# Does opencode.json reference the gpd provider in any way that the
+# uninstaller will touch? Used purely as a "found" signal for the
+# discovery banner.
+function Test-OpenCodeJsonHasGpd {
     if (-not (Test-Path $OpenCodeJson)) { return $false }
     try {
         $data = Get-Content $OpenCodeJson -Raw | ConvertFrom-Json
@@ -164,16 +162,21 @@ function Test-OpenCodeJsonIsGpdOnly {
     }
     if ($null -eq $data) { return $false }
 
-    # If there's no "provider" key we can't be sure it's ours -- leave it.
-    if (-not ($data.PSObject.Properties.Name -contains "provider")) {
-        return $false
+    $provider = $data.PSObject.Properties | Where-Object { $_.Name -eq "provider" }
+    if ($provider -and $provider.Value) {
+        $names = @()
+        $provider.Value.PSObject.Properties | ForEach-Object { $names += $_.Name }
+        if ($names -contains "gpd") { return $true }
     }
-
-    $providerNames = @()
-    $data.provider.PSObject.Properties | ForEach-Object { $providerNames += $_.Name }
-
-    # Only delete if gpd is the sole provider.
-    return ($providerNames.Count -eq 1 -and $providerNames[0] -eq "gpd")
+    if ($data.PSObject.Properties.Name -contains "model" `
+        -and $data.model -is [string] -and $data.model.StartsWith("gpd/")) {
+        return $true
+    }
+    if ($data.PSObject.Properties.Name -contains "enabled_providers" `
+        -and $data.enabled_providers -is [array] -and $data.enabled_providers -contains "gpd") {
+        return $true
+    }
+    return $false
 }
 
 # -- Removal actions -------------------------------------------------------
@@ -326,56 +329,173 @@ function Remove-AuthJsonGpdEntry {
     }
 }
 
-function Remove-OpenCodeGpdFiles {
-    if (-not (Test-Path $OpenCodeDir)) {
-        Write-Skip "No opencode config dir at $OpenCodeDir"
+# AC-9: iterate gpd-file-manifest.json and remove each listed file.
+# Accepts either a top-level {"files": [...]} or a bare array of paths.
+# Relative paths resolve against the manifest's parent dir. Unparseable
+# manifests produce a warning, remove the manifest itself, and move on.
+function Invoke-GpdManifestRemoval {
+    param([string]$ManifestPath)
+
+    if (-not (Test-Path $ManifestPath)) {
+        Write-Skip "No gpd-file-manifest.json at $ManifestPath"
         return
     }
 
-    # gpd-file-manifest.json -- always gpd-specific.
-    if (Test-Path $GpdManifestFile) {
+    $baseDir = Split-Path -Parent $ManifestPath
+    $entries = @()
+
+    try {
+        $data = Get-Content $ManifestPath -Raw | ConvertFrom-Json
+    } catch {
+        Write-Warn "Could not parse $ManifestPath -- leaving listed files in place"
         try {
-            Remove-Item -Path $GpdManifestFile -Force -ErrorAction Stop
-            Write-Success "Removed $GpdManifestFile"
+            Remove-Item -Path $ManifestPath -Force -ErrorAction Stop
+            Write-Success "Removed $ManifestPath"
         } catch {
-            Write-Warn "Could not remove $GpdManifestFile -- $_"
+            Write-Warn "Could not remove $ManifestPath -- $_"
         }
-    } else {
-        Write-Skip "No gpd-file-manifest.json"
+        return
     }
 
-    # opencode.json -- only remove if its only provider is gpd.
-    if (Test-Path $OpenCodeJson) {
-        if (Test-OpenCodeJsonIsGpdOnly) {
+    if ($null -eq $data) {
+        # Empty manifest -- nothing to iterate, just remove the file.
+        try {
+            Remove-Item -Path $ManifestPath -Force -ErrorAction Stop
+            Write-Success "Removed $ManifestPath (empty)"
+        } catch {
+            Write-Warn "Could not remove $ManifestPath -- $_"
+        }
+        return
+    }
+
+    if ($data -is [array]) {
+        $entries = $data
+    } elseif ($data.PSObject.Properties.Name -contains "files") {
+        $entries = $data.files
+    }
+
+    $missing = 0
+    foreach ($entry in $entries) {
+        if (-not ($entry -is [string]) -or [string]::IsNullOrWhiteSpace($entry)) {
+            continue
+        }
+        $target = if ([System.IO.Path]::IsPathRooted($entry)) {
+            $entry
+        } else {
+            Join-Path $baseDir $entry
+        }
+        if (Test-Path $target) {
             try {
-                Remove-Item -Path $OpenCodeJson -Force -ErrorAction Stop
-                Write-Success "Removed $OpenCodeJson (only provider was gpd)"
+                Remove-Item -Path $target -Force -Recurse -ErrorAction Stop
+                Write-Success "Removed manifest file: $target"
             } catch {
-                Write-Warn "Could not remove $OpenCodeJson -- $_"
+                Write-Warn "Could not remove manifest file: $target -- $_"
             }
         } else {
-            Write-Skip "Kept $OpenCodeJson (has non-gpd providers or unknown shape)"
+            $missing++
         }
-    } else {
-        Write-Skip "No opencode.json"
+    }
+
+    if ($missing -gt 0) {
+        Write-Skip "$missing manifest entry(ies) already gone"
+    }
+
+    try {
+        Remove-Item -Path $ManifestPath -Force -ErrorAction Stop
+        Write-Success "Removed $ManifestPath"
+    } catch {
+        Write-Warn "Could not remove $ManifestPath -- $_"
     }
 }
 
-function Remove-OpenCodeXdgDirs {
-    # opencode writes session state to XDG_STATE_HOME/opencode and cache
-    # to XDG_CACHE_HOME/opencode. Remove these only when we're also
-    # removing the main opencode config (GPD-only install heuristic).
-    foreach ($dir in @($OpenCodeStateDir, $OpenCodeCacheDir)) {
-        if (Test-Path $dir) {
-            try {
-                Remove-Item -Path $dir -Recurse -Force -ErrorAction Stop
-                Write-Success "Removed $dir"
-            } catch {
-                Write-Warn "Could not remove $dir -- $_"
-            }
-        } else {
-            Write-Skip "No opencode state/cache at $dir"
+# AC-10: strip `provider.gpd` from opencode.json, keep everything else.
+# If `provider` becomes empty, drop the key. If the whole object becomes
+# {}, delete the file. Non-JSON content produces a warning and is left
+# alone.
+function Remove-OpenCodeJsonGpdEntry {
+    if (-not (Test-Path $OpenCodeJson)) {
+        Write-Skip "No opencode.json at $OpenCodeJson"
+        return
+    }
+
+    try {
+        $data = Get-Content $OpenCodeJson -Raw | ConvertFrom-Json
+    } catch {
+        Write-Warn "Could not parse $OpenCodeJson -- leaving alone"
+        return
+    }
+    if ($null -eq $data) {
+        Write-Skip "opencode.json is empty"
+        return
+    }
+
+    $changed = $false
+
+    # provider.gpd
+    $providerProp = $data.PSObject.Properties | Where-Object { $_.Name -eq "provider" }
+    if ($providerProp -and $providerProp.Value) {
+        $hasGpd = $false
+        $providerProp.Value.PSObject.Properties | ForEach-Object {
+            if ($_.Name -eq "gpd") { $hasGpd = $true }
         }
+        if ($hasGpd) {
+            $providerProp.Value.PSObject.Properties.Remove("gpd")
+            $changed = $true
+            $remainingProviders = @($providerProp.Value.PSObject.Properties).Count
+            if ($remainingProviders -eq 0) {
+                $data.PSObject.Properties.Remove("provider")
+            }
+        }
+    }
+
+    # top-level model pointing at gpd/*
+    if ($data.PSObject.Properties.Name -contains "model" `
+        -and $data.model -is [string] -and $data.model.StartsWith("gpd/")) {
+        $data.PSObject.Properties.Remove("model")
+        $changed = $true
+    }
+
+    # enabled_providers list
+    if ($data.PSObject.Properties.Name -contains "enabled_providers" `
+        -and $data.enabled_providers -is [array] `
+        -and $data.enabled_providers -contains "gpd") {
+        $filtered = @($data.enabled_providers | Where-Object { $_ -ne "gpd" })
+        if ($filtered.Count -eq 0) {
+            $data.PSObject.Properties.Remove("enabled_providers")
+        } else {
+            $data.enabled_providers = $filtered
+        }
+        $changed = $true
+    }
+
+    if (-not $changed) {
+        Write-Skip "No GPD entries to clean from $OpenCodeJson"
+        return
+    }
+
+    $remainingKeys = @($data.PSObject.Properties).Count
+    try {
+        if ($remainingKeys -eq 0) {
+            Remove-Item -Path $OpenCodeJson -Force -ErrorAction Stop
+            Write-Success "Removed $OpenCodeJson (only contained GPD entries)"
+        } else {
+            $data | ConvertTo-Json -Depth 10 | Set-Content -Path $OpenCodeJson -Encoding UTF8
+            Write-Success "Cleaned GPD entries from $OpenCodeJson (opencode config preserved)"
+        }
+    } catch {
+        Write-Warn "Could not rewrite $OpenCodeJson -- $_"
+    }
+}
+
+function Remove-OpenCodeGpdFiles {
+    # Manifest sweep runs regardless of whether $OpenCodeDir exists -- a
+    # manifest might live in a non-standard location if the installer
+    # was told to use one, but defensively check $OpenCodeDir too.
+    if (Test-Path $OpenCodeDir) {
+        Invoke-GpdManifestRemoval -ManifestPath $GpdManifestFile
+        Remove-OpenCodeJsonGpdEntry
+    } else {
+        Write-Skip "No opencode config dir at $OpenCodeDir"
     }
 }
 
@@ -431,22 +551,13 @@ function Invoke-GpdUninstall {
         $found = $true
     }
 
-    if (Test-Path $OpenCodeStateDir) {
-        Write-Log "Found opencode state dir: $OpenCodeStateDir"
-        $found = $true
-    }
-    if (Test-Path $OpenCodeCacheDir) {
-        Write-Log "Found opencode cache dir: $OpenCodeCacheDir"
-        $found = $true
-    }
-
     if (Test-Path $GpdManifestFile) {
         Write-Log "Found gpd-file-manifest.json in $OpenCodeDir"
         $found = $true
     }
 
-    if ((Test-Path $OpenCodeJson) -and (Test-OpenCodeJsonIsGpdOnly)) {
-        Write-Log "Found gpd-only opencode.json in $OpenCodeDir"
+    if ((Test-Path $OpenCodeJson) -and (Test-OpenCodeJsonHasGpd)) {
+        Write-Log "Found GPD entries in $OpenCodeJson"
         $found = $true
     }
 
@@ -479,7 +590,8 @@ function Invoke-GpdUninstall {
     #   1. Tauri desktop uninstaller -- needs its own files intact.
     #   2. Tauri state dir.
     #   3. PATH entry -- harmless before .gpd removal, but cleanest first.
-    #   4. auth.json / opencode config cleanup -- files in %APPDATA%.
+    #   4. auth.json / opencode.json / manifest cleanup -- surgical only;
+    #      we never rm -rf opencode's config/state/cache dirs (AC-2).
     #   5. .gpd dir -- last, since anything else could live inside it.
     Remove-TauriDesktop
     Remove-TauriState
@@ -487,7 +599,6 @@ function Invoke-GpdUninstall {
     Remove-AuthJsonGpdEntry -Path $AuthFile
     Remove-AuthJsonGpdEntry -Path $LegacyAuthFile
     Remove-OpenCodeGpdFiles
-    Remove-OpenCodeXdgDirs
     Remove-GpdHome
 
     # Final message.

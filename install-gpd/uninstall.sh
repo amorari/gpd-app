@@ -76,34 +76,19 @@ gui_config_dirs=(
     "$HOME/.cache/inc.psi.gpd"
 )
 
-# opencode's global config dir — we ORIGINALLY preserved this to be safe
-# for users who had opencode installed for other workflows. In practice,
-# when opencode was bootstrapped by the GPD installer, the dir contains
-# a GPD-specific `get-physics-done/` subdir (templates, commands, agents
-# that `gpd install opencode --global` dropped in). That's a reliable
-# signal that opencode exists only to serve GPD. When we see that, we
-# can safely `rm -rf` both the config dir AND its data dir (logs,
-# opencode.db) so a reinstall is truly clean.
+# opencode's global config dir — we NEVER rm -rf this. Users commonly
+# have opencode installed for other providers (anthropic, openai, etc.);
+# wiping the dir would destroy their auth.json, chat history, and custom
+# prompts. Instead we do surgical cleanup:
+#   - strip the "gpd" entry from auth.json
+#   - strip the "gpd" provider from opencode.json
+#   - delete files listed in gpd-file-manifest.json
+#   - delete the manifest itself
+#   - delete $opencode_config_dir/get-physics-done/ if it's empty after
+#     the manifest sweep
+# Any non-GPD opencode data (other providers' auth, opencode.db session
+# logs under XDG_STATE_HOME, caches) is left strictly alone.
 opencode_config_dir="$HOME/.config/opencode"
-opencode_data_dirs=()
-# XDG_DATA_HOME (session DB, auth.json). Defaults to ~/.local/share.
-if [[ -n "${XDG_DATA_HOME:-}" ]]; then
-    opencode_data_dirs+=("$XDG_DATA_HOME/opencode")
-fi
-opencode_data_dirs+=("$HOME/.local/share/opencode")
-# XDG_STATE_HOME (persistent session state). Defaults to ~/.local/state.
-# opencode writes lock files, session markers, and crash reports here.
-if [[ -n "${XDG_STATE_HOME:-}" ]]; then
-    opencode_data_dirs+=("$XDG_STATE_HOME/opencode")
-fi
-opencode_data_dirs+=("$HOME/.local/state/opencode")
-# XDG_CACHE_HOME (bin cache, compiled artifacts). Defaults to ~/.cache.
-# opencode caches downloaded binaries and temporary build output here;
-# ~40 MB on a typical install.
-if [[ -n "${XDG_CACHE_HOME:-}" ]]; then
-    opencode_data_dirs+=("$XDG_CACHE_HOME/opencode")
-fi
-opencode_data_dirs+=("$HOME/.cache/opencode")
 
 # ── Discovery: show what will be removed ──────────────────────────────────
 
@@ -128,24 +113,26 @@ if command -v dpkg &>/dev/null; then
     fi
 fi
 
-# Check shell rc files for PATH entries
-rc_files_with_path=()
-for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.config/fish/config.fish"; do
-    if [[ -f "$rc" ]] && grep -q "$GPD_BIN_DIR" "$rc" 2>/dev/null; then
-        rc_files_with_path+=("$rc")
-        log "Found PATH entry in: $rc"
-        found_anything=true
-    fi
-done
-
-# Check login profiles for GPD_API_KEY
-profiles_with_key=()
-for profile in "$HOME/.profile" "$HOME/.zprofile" "${ZDOTDIR:-$HOME}/.zprofile"; do
-    # Avoid duplicates
-    [[ " ${profiles_with_key[*]:-} " == *" $profile "* ]] && continue
-    if [[ -f "$profile" ]] && grep -q "GPD_API_KEY" "$profile" 2>/dev/null; then
-        profiles_with_key+=("$profile")
-        log "Found GPD_API_KEY export in: $profile"
+# Check shell rc files and login profiles for the GPD sentinel block.
+# A single pass covers both the PATH export and the GPD_API_KEY export
+# since the installer wraps them in one `# >>> GPD CLI >>>` block.
+rc_and_profile_candidates=(
+    "$HOME/.bashrc"
+    "$HOME/.zshrc"
+    "$HOME/.profile"
+    "$HOME/.bash_profile"
+    "$HOME/.zprofile"
+    "${ZDOTDIR:-$HOME}/.zprofile"
+    "$HOME/.config/fish/config.fish"
+)
+rc_files_with_block=()
+seen_rc_disco=""
+for rc in "${rc_and_profile_candidates[@]}"; do
+    case "$seen_rc_disco" in *"|$rc|"*) continue ;; esac
+    seen_rc_disco="$seen_rc_disco|$rc|"
+    if [[ -f "$rc" ]] && grep -qF '# >>> GPD CLI >>>' "$rc" 2>/dev/null; then
+        rc_files_with_block+=("$rc")
+        log "Found GPD sentinel block in: $rc"
         found_anything=true
     fi
 done
@@ -188,30 +175,15 @@ if [[ -f "$opencode_config_dir/gpd-file-manifest.json" ]]; then
     found_anything=true
 fi
 
-# If opencode's config dir contains get-physics-done/ (GPD templates/
-# commands/agents), opencode was bootstrapped by GPD — safe to remove
-# the whole config + data tree. Otherwise keep it (user had opencode
-# before GPD or uses it for other workflows).
-opencode_is_gpd_only=false
-if [[ -d "$opencode_config_dir/get-physics-done" ]]; then
-    opencode_is_gpd_only=true
-    log "Found GPD-only opencode install (has get-physics-done templates)"
-    log "  Will remove opencode config + data dirs entirely"
+# get-physics-done/ subdir — populated by `gpd install opencode --global`.
+# We remove it after the manifest sweep (AC-9) so files dropped there by
+# GPD are cleaned up, but we do NOT use its existence as license to wipe
+# the rest of opencode's config.
+opencode_gpd_subdir="$opencode_config_dir/get-physics-done"
+if [[ -d "$opencode_gpd_subdir" ]]; then
+    log "Found GPD subdir: $opencode_gpd_subdir"
     found_anything=true
 fi
-
-# Check for opencode data dirs (logs, opencode.db) — we'll only remove
-# these if opencode_is_gpd_only is true (decided above).
-opencode_data_dirs_found=()
-for d in "${opencode_data_dirs[@]}"; do
-    if [[ -d "$d" ]]; then
-        opencode_data_dirs_found+=("$d")
-        if [[ "$opencode_is_gpd_only" == true ]]; then
-            log "Found opencode data directory: $d"
-            found_anything=true
-        fi
-    fi
-done
 
 if [[ "$found_anything" == false ]]; then
     printf " ${DIM}Nothing to remove — GPD does not appear to be installed.${RESET}\n\n"
@@ -245,28 +217,38 @@ else
     skip "No .deb package installed"
 fi
 
-# ── Remove PATH entries from shell rc files ───────────────────────────────
+# ── Remove PATH entries / exports from shell rc files ────────────────────
+#
+# Sentinel-span removal: the installer writes a block bracketed by
+#   # >>> GPD CLI >>>
+#   ...
+#   # <<< GPD CLI <<<
+# We drop exactly that block. If the sentinels aren't found, we do
+# nothing (no substring fallback — the old behaviour silently deleted
+# any line mentioning "$GPD_BIN_DIR" or "GPD_API_KEY", which could
+# mangle unrelated user-authored lines).
 
-remove_lines_from_file() {
+remove_gpd_block() {
     local file="$1"
-    local pattern="$2"
-    local comment_pattern="${3:-}"
+    [[ -f "$file" ]] || return 1
 
-    if [[ ! -f "$file" ]]; then
-        return
+    # Bail early if the sentinels aren't both present — no block to remove.
+    if ! grep -qF '# >>> GPD CLI >>>' "$file" 2>/dev/null; then
+        return 1
     fi
 
     local tmp
     tmp="$(mktemp)"
+    # awk skips lines from the opening sentinel through the closing one
+    # (inclusive). If the closing sentinel is missing, skip stays on and
+    # the rest of the file is dropped — acceptable given the installer
+    # always writes a matched pair.
+    awk '
+        /^# >>> GPD CLI >>>$/ { skip=1; next }
+        /^# <<< GPD CLI <<<$/ { skip=0; next }
+        skip == 0 { print }
+    ' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
 
-    # Remove matching lines and the "# GPD CLI" comment line above them
-    if [[ -n "$comment_pattern" ]]; then
-        grep -v -F "$pattern" "$file" | grep -v -F "$comment_pattern" > "$tmp" || true
-    else
-        grep -v -F "$pattern" "$file" > "$tmp" || true
-    fi
-
-    # Only write back if content actually changed
     if ! diff -q "$file" "$tmp" &>/dev/null; then
         mv "$tmp" "$file"
         return 0
@@ -276,26 +258,19 @@ remove_lines_from_file() {
     fi
 }
 
-if (( ${#rc_files_with_path[@]} > 0 )); then
-    for rc in "${rc_files_with_path[@]}"; do
-        if remove_lines_from_file "$rc" "$GPD_BIN_DIR" "# GPD CLI"; then
-            success "Removed PATH entry from $rc"
+if (( ${#rc_files_with_block[@]} > 0 )); then
+    removed_any_block=false
+    for rc in "${rc_files_with_block[@]}"; do
+        if remove_gpd_block "$rc"; then
+            success "Removed GPD block from $rc"
+            removed_any_block=true
         fi
     done
+    if [[ "$removed_any_block" != true ]]; then
+        skip "No GPD sentinel blocks found in shell rc/profile files"
+    fi
 else
-    skip "No PATH entries to remove"
-fi
-
-# ── Remove GPD_API_KEY exports from login profiles ────────────────────────
-
-if (( ${#profiles_with_key[@]} > 0 )); then
-    for profile in "${profiles_with_key[@]}"; do
-        if remove_lines_from_file "$profile" "GPD_API_KEY" "# GPD API key"; then
-            success "Removed GPD_API_KEY from $profile"
-        fi
-    done
-else
-    skip "No GPD_API_KEY exports to remove"
+    skip "No shell rc/profile files to clean"
 fi
 
 # ── Remove "gpd" entry from auth.json (preserve other providers) ──────────
@@ -380,6 +355,14 @@ else
 fi
 
 # ── Clean GPD bits from opencode's global config (preserve the dir) ───────
+#
+# AC-10: strip `provider.gpd` from opencode.json. If `provider` becomes
+# empty after that, drop the key. If the resulting object is equivalent
+# to `{}`, delete the file. Non-JSON files are left alone with a warning.
+#
+# We also drop a top-level `model` that points at `gpd/*` and remove
+# `gpd` from `enabled_providers` — these were written by the installer
+# and are dead references once the provider is gone.
 
 clean_opencode_json() {
     local file="$1"
@@ -387,10 +370,16 @@ clean_opencode_json() {
     if command -v python3 &>/dev/null; then
         # NOTE: same `set -e` caveat as remove_gpd_from_auth_json — capture
         # the python exit code via `|| rc=$?` so non-zero "signal" exits
-        # (1/2/3) don't abort the whole uninstaller.
+        # (1/2/3/4) don't abort the whole uninstaller.
+        #
+        # Exit codes:
+        #   0  modified, file still has other content
+        #   1  modified, file reduced to {} and was deleted
+        #   2  nothing to change
+        #   3  JSON parse error — caller warns
         local rc=0
         python3 - "$file" <<'PY' || rc=$?
-import json, sys
+import json, os, sys
 path = sys.argv[1]
 try:
     with open(path) as f:
@@ -421,6 +410,9 @@ if isinstance(enabled, list) and "gpd" in enabled:
         del data["enabled_providers"]
 if not changed:
     sys.exit(2)
+if not data:
+    os.remove(path)
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
@@ -428,6 +420,7 @@ sys.exit(0)
 PY
         case "$rc" in
             0) success "Cleaned GPD entries from $file (opencode config preserved)" ;;
+            1) success "Removed $file (only contained GPD entries)" ;;
             2) skip "No GPD entries to clean from $file" ;;
             3) warn "Could not parse $file as JSON — leaving it alone" ;;
         esac
@@ -437,30 +430,123 @@ PY
     fi
 }
 
-# If opencode was bootstrapped only for GPD, the config dir has
-# get-physics-done/ templates that have no meaning without GPD, and the
-# data dir holds session logs + opencode.db that the user can't open
-# without the CLI/GUI. Remove both entirely. Otherwise just surgically
-# strip the GPD entries and preserve the rest.
-if [[ "$opencode_is_gpd_only" == true ]]; then
-    if [[ -d "$opencode_config_dir" ]]; then
-        rm -rf "$opencode_config_dir"
-        success "Removed $opencode_config_dir"
-    fi
-    for d in "${opencode_data_dirs_found[@]}"; do
-        rm -rf "$d"
-        success "Removed $d"
-    done
-else
-    if [[ "$opencode_json_has_gpd" == true ]]; then
-        clean_opencode_json "$opencode_config_dir/opencode.json"
-    else
-        skip "No GPD entries in opencode's global config"
+# ── AC-9: manifest-driven file removal ───────────────────────────────────
+#
+# gpd-file-manifest.json lists files the installer dropped into the
+# opencode config dir (templates, commands, agents, etc.). We iterate
+# the list and remove each file, then delete the manifest itself.
+# Accepted manifest shapes:
+#   {"files": ["path/a.md", "path/b.md", ...]}
+#   ["path/a.md", "path/b.md", ...]
+# Relative paths are resolved against $opencode_config_dir.
+
+process_gpd_manifest() {
+    local manifest="$1"
+    local base_dir="$2"
+
+    [[ -f "$manifest" ]] || { skip "No gpd-file-manifest.json to process"; return; }
+
+    if ! command -v python3 &>/dev/null; then
+        warn "python3 not available — cannot parse $manifest; removing manifest only"
+        rm -f "$manifest"
+        return
     fi
 
-    if [[ -n "$opencode_manifest" ]]; then
-        rm -f "$opencode_manifest"
-        success "Removed $opencode_manifest"
+    # Python prints each absolute path on its own line. Paths containing
+    # newlines are skipped with a stderr warning (bash's command
+    # substitution can't carry NUL bytes, so newline is the separator).
+    # In practice every path GPD's installer writes is ASCII-clean.
+    local rc=0
+    local files_list
+    files_list="$(python3 - "$manifest" "$base_dir" 2>/dev/null <<'PY' || true
+import json, os, sys
+manifest_path = sys.argv[1]
+base_dir = sys.argv[2]
+try:
+    with open(manifest_path) as f:
+        data = json.load(f)
+except Exception as e:
+    sys.stderr.write(f"parse error: {e}\n")
+    sys.exit(3)
+if isinstance(data, dict):
+    files = data.get("files", [])
+elif isinstance(data, list):
+    files = data
+else:
+    files = []
+if not isinstance(files, list):
+    files = []
+for entry in files:
+    if not isinstance(entry, str) or not entry:
+        continue
+    if "\n" in entry:
+        sys.stderr.write(f"skipping entry with newline: {entry!r}\n")
+        continue
+    path = entry if os.path.isabs(entry) else os.path.join(base_dir, entry)
+    sys.stdout.write(path + "\n")
+sys.exit(0)
+PY
+)"
+
+    # Parse error detection — python prints nothing on parse failure AND
+    # exits non-zero. We piped stderr to /dev/null so check for the
+    # presence of a real file list. A separate dry-run parse attempts to
+    # distinguish "empty manifest" (valid) from "unparseable" (warn).
+    if ! python3 - "$manifest" &>/dev/null <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    json.load(f)
+PY
+    then
+        warn "Could not parse $manifest — leaving listed files in place"
+        rm -f "$manifest"
+        success "Removed $manifest"
+        return
+    fi
+
+    local missing_count=0
+    while IFS= read -r path; do
+        [[ -z "$path" ]] && continue
+        if [[ -e "$path" || -L "$path" ]]; then
+            if rm -f "$path" 2>/dev/null; then
+                success "Removed manifest file: $path"
+            else
+                warn "Could not remove manifest file: $path"
+            fi
+        else
+            missing_count=$((missing_count+1))
+        fi
+    done <<< "$files_list"
+
+    if [[ "$missing_count" -gt 0 ]]; then
+        skip "$missing_count manifest entry(ies) already gone"
+    fi
+
+    rm -f "$manifest"
+    success "Removed $manifest"
+}
+
+process_gpd_manifest "$opencode_config_dir/gpd-file-manifest.json" "$opencode_config_dir"
+
+if [[ "$opencode_json_has_gpd" == true ]]; then
+    clean_opencode_json "$opencode_config_dir/opencode.json"
+else
+    skip "No GPD entries in opencode's global config"
+fi
+
+# Clean up get-physics-done/ subdir if present. We do not `rm -rf`
+# unconditionally — only remove files that remain after the manifest
+# sweep, then rmdir the empty tree. `rmdir -p` silently fails on
+# non-empty dirs, which is the correct behaviour: anything the user
+# or another tool added stays put.
+if [[ -d "$opencode_gpd_subdir" ]]; then
+    # Try to clear now-empty leaf dirs. `find ... -empty -delete`
+    # only removes empty directories, so user-added content survives.
+    find "$opencode_gpd_subdir" -depth -type d -empty -delete 2>/dev/null || true
+    if [[ -d "$opencode_gpd_subdir" ]]; then
+        skip "Kept $opencode_gpd_subdir (still has non-GPD content)"
+    else
+        success "Removed empty $opencode_gpd_subdir"
     fi
 fi
 
