@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from gpd_tests.helpers.i18n import t
 
-SIDEBAR_NEW_SESSION = '[data-action="workspace-new-session"]'
+SIDEBAR_NEW_SESSION = '[data-action="new-session"]'
 SIDEBAR_WORKSPACE_MENU = '[data-action="workspace-menu"]'
 SIDEBAR_WORKSPACE_TOGGLE = '[data-action="workspace-toggle"]'
 SIDEBAR_PROJECT_MENU = '[data-action="project-menu"]'

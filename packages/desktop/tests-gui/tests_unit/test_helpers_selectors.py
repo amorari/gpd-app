@@ -5,7 +5,7 @@ from gpd_tests.helpers import selectors
 
 @pytest.mark.unit
 def test_sidebar_action_selectors_defined():
-    assert selectors.SIDEBAR_NEW_SESSION == '[data-action="workspace-new-session"]'
+    assert selectors.SIDEBAR_NEW_SESSION == '[data-action="new-session"]'
     assert selectors.SIDEBAR_PROJECT_MENU == '[data-action="project-menu"]'
 
 

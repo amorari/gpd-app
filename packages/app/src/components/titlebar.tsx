@@ -282,6 +282,7 @@ export function Titlebar() {
                       }}
                       aria-label={language.t("command.session.new")}
                       aria-current={creating() ? "page" : undefined}
+                      data-action="new-session"
                     />
                   </TooltipKeybind>
                 </div>
