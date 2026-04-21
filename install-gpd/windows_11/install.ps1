@@ -698,7 +698,9 @@ function Install-Git {
 
     Write-Log "Installing git via winget..."
     try {
-        & winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        # --scope user installs per-user (no UAC admin prompt needed).
+        # Default scope for Git.Git is machine, which would require admin.
+        & winget install --id Git.Git -e --silent --scope user --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
         Update-SessionPath
         if (Test-CommandExists "git") {
             Write-Success "git installed"
@@ -724,7 +726,8 @@ function Install-LaTeX {
 
     Write-Log "Installing MiKTeX via winget (~200MB download, takes several minutes)..."
     try {
-        & winget install --id MiKTeX.MiKTeX -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        # --scope user installs MiKTeX per-user (no UAC prompt).
+        & winget install --id MiKTeX.MiKTeX -e --silent --scope user --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
         Update-SessionPath
         if (Test-CommandExists "pdflatex") {
             Write-Success "LaTeX (MiKTeX) installed"
