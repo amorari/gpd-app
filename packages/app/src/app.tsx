@@ -32,9 +32,6 @@ import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
 import { GlobalSDKProvider, useGlobalSDK } from "@/context/global-sdk"
 import { GlobalSyncProvider, useGlobalSync } from "@/context/global-sync"
-// Needed so SetupGate can detect whether GPD auth already exists before
-// showing the welcome screen — see comments in SetupGate for rationale.
-import { useProviders } from "@/hooks/use-providers"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
 import { LayoutProvider } from "@/context/layout"
@@ -281,12 +278,18 @@ function ServerKey(props: ParentProps) {
 
 function SetupGate(props: ParentProps) {
   const globalSDK = useGlobalSDK()
-  // WHY these extra hooks: we need to know (a) whether the global sync has
-  // finished loading (otherwise providers.connected() is empty and looks
-  // unauthed) and (b) whether the "gpd" provider already has an auth entry
-  // in opencode's auth.json. See the createEffect below for the full story.
+  // WHY the extra hook: we need to know whether the "gpd" provider
+  // already has an auth entry in opencode's auth.json. See the
+  // createEffect below for the full story.
+  //
+  // NOTE: we access globalSync.data.provider.connected directly rather
+  // than going through useProviders(). useProviders() calls useParams()
+  // under the hood (a SolidJS Router primitive), and SetupGate renders
+  // OUTSIDE the <Router> so that primitive throws with
+  //   "Error: <A> and 'use' router primitives can be only used inside a Route"
+  // This was a regression reported by a user on 2026-04-21 after the
+  // SetupGate fix landed (see git blame for context).
   const globalSync = useGlobalSync()
-  const providers = useProviders()
 
   // ─── API key detection ────────────────────────────────────────────────
   //
@@ -332,12 +335,18 @@ function SetupGate(props: ParentProps) {
   // "gpd" is already authed. This is the "installer set the key"
   // out-of-band path.
   createEffect(() => {
-    // Wait until provider data is actually populated. providers.connected()
-    // returns [] before the first sync even if auth.json has entries.
+    // Wait until provider data is actually populated. `connected` is
+    // empty before the first sync even if auth.json has entries.
     if (!globalSync.ready) return
-    if (providers.all().length === 0) return
+    const allProviders = globalSync.data.provider.all
+    if (!allProviders || allProviders.length === 0) return
 
-    const gpdAuthed = providers.connected().some((p) => p.id === "gpd")
+    // `connected` is the array of provider IDs that have auth credentials
+    // — populated by the server reading auth.json. Check it directly
+    // instead of going through useProviders() (which depends on the
+    // Router context; see WHY note in the hook imports above).
+    const connected = globalSync.data.provider.connected ?? []
+    const gpdAuthed = connected.includes("gpd")
     if (gpdAuthed && !hasKey()) {
       setHasKey(true)
       // Persist so the next launch takes the localStorage fast path and
