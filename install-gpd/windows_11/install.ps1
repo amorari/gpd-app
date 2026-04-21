@@ -618,7 +618,11 @@ function Install-LocalPython {
             Remove-Item -Path $newDir -Recurse -Force -ErrorAction SilentlyContinue
             Stop-WithError "Python extract failed -- $newPython not found"
         }
-        & $newPython -c "" 2>$null | Out-Null
+        # Liveness probe: `-c "pass"` is a minimal valid Python program.
+        # We can't use `-c ""` here because PowerShell 5.1 strips
+        # empty-string args before passing them to native commands, so
+        # python would see `-c` with no value and error out.
+        & $newPython -c "pass" 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Remove-Item -Path $newDir -Recurse -Force -ErrorAction SilentlyContinue
             Stop-WithError "Extracted Python is not runnable"
@@ -733,7 +737,9 @@ function Install-Gpd {
 function Test-GpdInstall {
     # Two-step liveness probe, split for actionable error messages.
     $venvPython = Join-Path $GpdVenvDir "Scripts\python.exe"
-    & $venvPython -c "" 2>$null | Out-Null
+    # `-c "pass"` instead of `-c ""` — PS 5.1 strips empty-string native
+    # command args and python would see `-c` with no value.
+    & $venvPython -c "pass" 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Stop-WithError "GPD venv is not runnable -- the Python interpreter inside $GpdVenvDir failed to start. Re-run the installer."
     }
