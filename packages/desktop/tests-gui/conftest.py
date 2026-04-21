@@ -31,10 +31,41 @@ def pytest_configure(config):
         )
 
 
+def _auth_json_path() -> Path:
+    """Return the opencode-cli auth.json path, honoring XDG_DATA_HOME.
+
+    Mirrors the XDG-aware logic in ``scripts/reset.py`` and
+    ``gpd_tests.pages.onboarding.sentinel_path``: respect ``XDG_DATA_HOME``
+    when set, otherwise fall back to ``~/.local/share``. This keeps the
+    session-seed fixture in lockstep with tier-3 reset paths.
+    """
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return base / "opencode" / "auth.json"
+
+
 def _is_skipped(item) -> bool:
-    """Return True if the item is unconditionally or conditionally skipped."""
+    """Return True if the item is unconditionally or conditionally skipped.
+
+    Note on skipif: pytest accepts both boolean expressions and *string*
+    expressions (e.g. ``@pytest.mark.skipif("sys.platform == 'darwin'", ...)``).
+    A non-empty string is truthy but says nothing about whether the test will
+    actually be skipped — only pytest can evaluate it in the test module's
+    namespace. To avoid false positives (treating a truthy string literal as
+    "skipped"), we bail out of the short-circuit for string skipif conditions
+    and let pytest's own evaluator handle it. The consequence: a reset may run
+    for a test pytest will ultimately skip, which is safe (just mildly wasteful)
+    and strictly better than incorrectly suppressing a reset for a test that
+    will actually run.
+    """
     for m in item.iter_markers("skipif"):
-        if m.args and m.args[0]:
+        if not m.args:
+            continue
+        condition = m.args[0]
+        if isinstance(condition, str):
+            # String skipif: defer to pytest's evaluator, don't short-circuit.
+            continue
+        if condition:
             return True
     return bool(item.get_closest_marker("skip"))
 
@@ -47,10 +78,12 @@ def seed_onboarding_state(request):
       GPD_TEST_SEED_ONBOARDING=1  AND  GPD_TEST_ANTHROPIC_KEY=<key>
 
     The two-flag guard avoids accidentally clobbering a dev's real
-    auth.json. When both are set, this fixture writes the key to
-    `~/.local/share/opencode/auth.json` (mode 0o600) and ensures
-    `~/.config/gpd/.gpd-initialized` exists, backing up and restoring
-    both on teardown.
+    auth.json. When both are set, this fixture writes the key to the
+    XDG-aware auth.json path (``$XDG_DATA_HOME/opencode/auth.json`` or
+    ``~/.local/share/opencode/auth.json``) with mode 0o600 and ensures
+    the XDG-aware onboarding sentinel (``$XDG_CONFIG_HOME/gpd/.gpd-initialized``
+    or ``~/.config/gpd/.gpd-initialized``) exists, backing up and
+    restoring both on teardown.
     """
     if os.environ.get("GPD_TEST_SEED_ONBOARDING") != "1":
         yield
@@ -63,9 +96,11 @@ def seed_onboarding_state(request):
     import json
     import shutil
 
+    # Prefer the already-XDG-aware helper in onboarding.py over duplicating
+    # logic; pair it with the local _auth_json_path() helper above.
     from gpd_tests.pages.onboarding import sentinel_path
 
-    auth_path = Path.home() / ".local/share/opencode/auth.json"
+    auth_path = _auth_json_path()
     _sentinel_path = sentinel_path()
 
     auth_path.parent.mkdir(parents=True, exist_ok=True)
