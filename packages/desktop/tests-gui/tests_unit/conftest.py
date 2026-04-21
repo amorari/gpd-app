@@ -4,8 +4,10 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sys
 import tempfile
 import threading
+import traceback
 from collections.abc import Callable
 
 import pytest
@@ -16,9 +18,9 @@ def fake_mcp_socket():
     """Serve a single client on a temp Unix socket with a caller-supplied handler.
 
     Usage:
-        with fake_mcp_socket(handler) as path:
-            client = MCPClient(socket_path=str(path))
-            ...
+        path = fake_mcp_socket(handler)
+        client = MCPClient(socket_path=str(path))
+        ...
     """
     servers: list[tuple[socket.socket, threading.Thread, str]] = []
 
@@ -49,7 +51,20 @@ def fake_mcp_socket():
                             if not line.strip():
                                 continue
                             req = json.loads(line.decode())
-                            resp = handler(req)
+                            try:
+                                resp = handler(req)
+                            except Exception as exc:
+                                # Handler exceptions must not silently kill the
+                                # server thread — send an error response so the
+                                # client gets a meaningful failure, and print the
+                                # traceback to stderr for easier debugging.
+                                traceback.print_exc(file=sys.stderr)
+                                resp = {
+                                    "success": False,
+                                    "data": None,
+                                    "error": repr(exc),
+                                    "id": req.get("id", ""),
+                                }
                             conn.sendall((json.dumps(resp) + "\n").encode())
                 finally:
                     conn.close()
@@ -61,9 +76,14 @@ def fake_mcp_socket():
 
     yield make
 
-    for srv, _t, path in servers:
+    for srv, t, path in servers:
         srv.close()
+        t.join(timeout=2.0)
         try:
             os.unlink(path)
         except FileNotFoundError:
+            pass
+        try:
+            os.rmdir(os.path.dirname(path))
+        except OSError:
             pass
