@@ -17,7 +17,7 @@ create_formatter!(ExternalLinkFormatter, {
 
             context.write_str(" href=\"")?;
             let url = &nl.url;
-            if context.options.render.r#unsafe || !comrak::html::dangerous_url(url) {
+            if !comrak::html::dangerous_url(url) {
                 if let Some(rewriter) = &context.options.extension.link_url_rewriter {
                     context.escape_href(&rewriter.to_html(url))?;
                 } else {
@@ -47,7 +47,7 @@ pub fn parse_markdown(input: &str) -> String {
     options.extension.table = true;
     options.extension.tasklist = true;
     options.extension.autolink = true;
-    options.render.r#unsafe = true;
+    options.render.r#unsafe = false;
 
     let arena = Arena::new();
     let doc = parse_document(&arena, input, &options);
