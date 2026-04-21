@@ -299,9 +299,6 @@ def mcp(app_state):
 def ax(app_state):
     from gpd_tests.drivers.ax import AXClient
 
-    # No eager activate() — that would steal focus from the caller. Driver
-    # methods that need window focus (main_window, click_menu_item) call
-    # activate() themselves; menu queries work backgrounded.
     return AXClient()
 
 
@@ -418,8 +415,6 @@ def pytest_runtest_makereport(item, call):
     module = item.nodeid.split("::")[0].replace("/", "_").replace(".py", "")
     test = item.name.replace("[", "_").replace("]", "")
     d = artifacts.artifact_dir(module, test)
-    # Use MCP for both screenshot and window metadata — AX window queries
-    # would activate GPD and steal focus from the developer on every failure.
     if mcp_client is not None:
         try:
             artifacts.save_bytes(

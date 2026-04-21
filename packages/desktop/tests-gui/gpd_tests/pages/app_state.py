@@ -115,13 +115,9 @@ class AppState:
                     "kill_stale: processes still alive after SIGKILL"
                 )
 
-    def launch(self, *, background: bool = True) -> None:
-        """Launch GPD. Default is background (-g) — keeps focus on the
-        caller's current app. Pass background=False to bring GPD frontmost.
-        """
+    def launch(self) -> None:
+        """Launch GPD frontmost so the webview is active and MCP responds."""
         args = ["open", "-a", APP_PATH]
-        if background:
-            args.insert(1, "-g")
         subprocess.run(args, check=True, timeout=30)
         timeout_s = 10.0
         ok = wait_until(lambda: self.is_running(), timeout_s=timeout_s)

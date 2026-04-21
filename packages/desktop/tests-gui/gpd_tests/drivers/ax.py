@@ -175,10 +175,7 @@ class AXClient:
     def main_window(self) -> dict[str, Any]:
         """Return the main window geometry via AX: {x, y, w, h, title}.
 
-        WARNING: AX window queries require GPD to be frontmost and this call
-        WILL activate GPD, stealing focus from the current app. Prefer
-        MCPClient.list_windows() when you only need geometry/title — it
-        returns the same data without activation.
+        Returns the main window geometry via AX: {x, y, w, h, title}.
         """
         self.activate()
         app = _esc_as(self._app)
