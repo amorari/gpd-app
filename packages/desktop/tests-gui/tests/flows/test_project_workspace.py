@@ -83,8 +83,7 @@ def test_project_get_by_id_missing_returns_none(http):
 
 
 @pytest.mark.flows
-@pytest.mark.xfail(strict=True, reason="GET /project returns only ['global']; sessions in temp dirs are not registered as projects")
-def test_project_create_via_session_then_list_get_delete(http, tmp_path):
+def test_project_create_via_session_then_list_get_delete(http, git_project_dir):
     """Full CRUD: implicit project create via session, list, get, delete.
 
     The sidecar has no POST /project route; a project row is created the
@@ -92,12 +91,10 @@ def test_project_create_via_session_then_list_get_delete(http, tmp_path):
     here, then verify list/get see the new row, and finally DELETE
     /project/:id cascades it away.
 
-    The scratch dir is a tmp_path subtree; `finally` ensures even a mid-test
-    assertion failure still removes the project from the DB so it does not
-    leak into subsequent runs.
+    Uses a git-initialized directory so the sidecar registers it as a named
+    project (non-git temp dirs are never added to the project list).
     """
-    scratch = tmp_path / "gpd-g33-proj"
-    scratch.mkdir(parents=True, exist_ok=True)
+    scratch = git_project_dir
 
     session = http.create_session(directory=str(scratch))
     sid = session["id"]
@@ -161,16 +158,17 @@ def test_project_create_via_session_then_list_get_delete(http, tmp_path):
 
 
 @pytest.mark.flows
-@pytest.mark.xfail(strict=True, reason="GET /project returns only ['global']; sessions in temp dirs are not registered as projects")
-def test_project_update_roundtrip_restores_original(http, tmp_path):
+def test_project_update_roundtrip_restores_original(http, git_project_dir):
     """PATCH /project/:id must update name and the change must survive a GET.
 
     Operates against a scratch project (not /project/current) so a test
     failure never leaves the real project renamed. Restores the original
     name in `finally` regardless of assertion outcome.
+
+    Uses a git-initialized directory so the sidecar registers it as a named
+    project (non-git temp dirs are never added to the project list).
     """
-    scratch = tmp_path / "gpd-g33-update"
-    scratch.mkdir(parents=True, exist_ok=True)
+    scratch = git_project_dir
 
     session = http.create_session(directory=str(scratch))
     sid = session["id"]
