@@ -33,6 +33,11 @@ into the native table. To run it hourly:
 
 ```bash
 QUERY=$(cat infra/bigquery/03-materialize.sql)
+# DML scheduled queries (INSERT/UPDATE/DELETE) don't set
+# destination_table_name_template or write_disposition — those only apply to
+# SELECT queries. Passing them raises:
+#   "Parameter destination_table_name_template ... does not meet the required
+#   regular expression"
 bq mk --transfer_config \
   --data_source=scheduled_query \
   --target_dataset=gpd_logs \
@@ -40,7 +45,7 @@ bq mk --transfer_config \
   --location=US \
   --display_name="gpd_logs hourly materialize" \
   --schedule="every 1 hours" \
-  --params="{\"query\":$(jq -Rsa . <<< \"$QUERY\"),\"destination_table_name_template\":\"\",\"write_disposition\":\"WRITE_APPEND\"}"
+  --params="$(jq -n --arg q "$QUERY" '{query: $q}')"
 ```
 
 First run prompts for a browser OAuth consent (paste URL → paste token back).
