@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import time
 from typing import Protocol, runtime_checkable
+from urllib.parse import parse_qsl, urlparse
 
 
 BASE = "tauri://localhost"
@@ -64,15 +65,29 @@ def route_session_in_project(dir_token: str, session_id: str | None = None) -> s
 
 
 def _urls_match(a: str, b: str) -> bool:
-    """Compare two URLs ignoring trailing slashes, query strings, and hash fragments."""
-    from urllib.parse import urlparse
+    """Compare two URLs tolerantly.
 
-    def _norm(u: str):
-        p = urlparse(u)
+    - Trailing slashes on the path are stripped.
+    - The hash fragment (``#...``) is ignored.
+    - Query params are compared order-insensitively (as a multiset of
+      ``(key, value)`` tuples).
+    - If either URL fails to parse, fall back to a plain string compare.
+    """
+    try:
+        pa = urlparse(a)
+        pb = urlparse(b)
+    except ValueError:
+        return a == b
+
+    def _norm(p):
         path = p.path.rstrip("/")
-        return (p.scheme, p.netloc, path)
+        # parse_qsl preserves duplicates; frozenset-of-counts would be more
+        # correct, but for route URLs duplicate keys are vanishingly rare.
+        # A sorted tuple gives order-insensitive equality.
+        qs = tuple(sorted(parse_qsl(p.query, keep_blank_values=True)))
+        return (p.scheme, p.netloc, path, qs)
 
-    return _norm(a) == _norm(b)
+    return _norm(pa) == _norm(pb)
 
 
 @runtime_checkable
