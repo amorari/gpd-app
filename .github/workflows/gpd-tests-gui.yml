@@ -40,6 +40,42 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Job 0: harness-selftest — invariants that must hold for any other test
+  # result to be trusted. Runs parallel to unit; GPD-dependent jobs require it.
+  # ---------------------------------------------------------------------------
+  harness-selftest:
+    name: Harness self-test invariants
+    runs-on: macos-15
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/desktop/tests-gui
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          uv-version: "0.7.3"
+
+      - name: Install test dependencies
+        run: uv sync
+
+      - name: Run harness selftest
+        run: uv run pytest -m harness_selftest -v --junitxml=junit-harness-selftest.xml
+
+      - name: Upload harness-selftest junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-harness-selftest
+          path: packages/desktop/tests-gui/junit-harness-selftest.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
   # Job 1: unit — fast, no GPD needed
   # ---------------------------------------------------------------------------
   unit:
@@ -93,7 +129,7 @@ jobs:
   # ---------------------------------------------------------------------------
   smoke-and-flows:
     name: Smoke + flows (debug build)
-    needs: unit
+    needs: [unit, harness-selftest]
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -345,7 +381,7 @@ jobs:
   # ---------------------------------------------------------------------------
   surfaces:
     name: Surface tests
-    needs: smoke-and-flows
+    needs: [smoke-and-flows, harness-selftest]
     runs-on: macos-15
     timeout-minutes: 60
     continue-on-error: true
@@ -486,7 +522,7 @@ jobs:
   # ---------------------------------------------------------------------------
   regression:
     name: Regression tests
-    needs: smoke-and-flows
+    needs: [smoke-and-flows, harness-selftest]
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -631,7 +667,7 @@ jobs:
   # ---------------------------------------------------------------------------
   ipc-and-broad:
     name: IPC + broad tests
-    needs: smoke-and-flows
+    needs: [smoke-and-flows, harness-selftest]
     runs-on: macos-15
     timeout-minutes: 60
     env:
