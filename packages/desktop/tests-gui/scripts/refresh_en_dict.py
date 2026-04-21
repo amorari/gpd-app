@@ -4,14 +4,24 @@ Reads directly from:
   - packages/app/src/i18n/en.ts      (main application strings)
   - packages/desktop/src/i18n/en.ts  (desktop-namespace strings)
 
-Parses the TypeScript dict object with a regex, merges both dicts (desktop
-keys win on collision), then writes the result to the committed fixture at
+Parses the TypeScript dict object, merges both dicts (desktop keys win on
+collision), then writes the result to the committed fixture at
 gpd_tests/fixtures/en.json.
 
-Note: Multi-line TypeScript string values (where the value spans two lines
-with a line-continuation) are intentionally not captured by the line-by-line
-regex. This is acceptable because all keys needed by the test suite are
-single-line values.
+The parser tolerates:
+  - both ``"..."`` and ``'...'`` string-literal delimiters for values
+  - multi-line dict entries where the ``"key":`` is on one line and the
+    value string literal is on the following line (TypeScript/Prettier's
+    wrap style when the line is too long)
+  - escaped quotes inside values (``\"`` and ``\'``)
+
+Because the source ``.ts`` files are read as UTF-8 text, the only escapes
+that need to be materialized inside the captured value are the JS string
+escapes themselves: ``\\\\``, ``\\"``, ``\\'``, ``\\n``, ``\\r``, ``\\t``.
+We apply those with targeted ``str.replace()`` calls rather than the
+``unicode_escape`` codec, which is a Latin-1 codec that corrupts any
+multi-byte UTF-8 characters in the source (``…``, ``—``, ``μ``, the
+language-name CJK/Cyrillic, etc.).
 """
 from __future__ import annotations
 
@@ -33,19 +43,56 @@ CANONICAL_APP = _REPO_ROOT / "packages" / "app" / "src" / "i18n" / "en.ts"
 CANONICAL_DESKTOP = _REPO_ROOT / "packages" / "desktop" / "src" / "i18n" / "en.ts"
 COMMITTED = Path(__file__).resolve().parent.parent / "gpd_tests" / "fixtures" / "en.json"
 
-# Matches:  "some.key": "Some value",
-# Groups:   k=key, v=value
-KEY_VALUE_RE = re.compile(r'^\s*"(?P<k>[^"]+)":\s*"(?P<v>[^"]*)"\s*,?\s*$')
+# Matches a key-value pair where the value is a ``"..."`` or ``'...'`` string
+# literal. The value character class permits any non-delimiter / non-backslash
+# byte plus ``\\.`` escape sequences, so embedded ``\"`` / ``\'`` are tolerated.
+# The value may sit on the same line as the key, or (with DOTALL) wrap to the
+# next line after the ``":"``; intervening whitespace, including newlines, is
+# absorbed by ``\s*``.
+KEY_VALUE_RE = re.compile(
+    r'"(?P<k>[^"\\]*(?:\\.[^"\\]*)*)"\s*:\s*'
+    r'(?P<q>["\'])(?P<v>(?:[^\\]|\\.)*?)(?P=q)',
+    re.DOTALL,
+)
+
+
+def _unescape_js_string(raw: str) -> str:
+    """Materialize JS string-literal escapes in *raw* without mangling UTF-8.
+
+    ``raw`` is the inside of a ``"..."`` or ``'...'`` literal read from a
+    UTF-8 text file — the non-ASCII characters are already correct Python
+    ``str`` characters. We only need to resolve the backslash escapes.
+
+    Order matters: ``\\\\`` must be handled first so we don't double-process
+    the backslash it leaves behind.
+    """
+    # Placeholder dance so ``\\\\`` → literal ``\\`` doesn't interfere with
+    # the subsequent single-char replacements.
+    _SENTINEL = "\x00BS\x00"
+    result = raw.replace("\\\\", _SENTINEL)
+    result = result.replace('\\"', '"')
+    result = result.replace("\\'", "'")
+    result = result.replace("\\n", "\n")
+    result = result.replace("\\r", "\r")
+    result = result.replace("\\t", "\t")
+    result = result.replace("\\`", "`")
+    result = result.replace("\\/", "/")
+    result = result.replace(_SENTINEL, "\\")
+    return result
 
 
 def parse_en_ts(src: str) -> dict[str, str]:
-    """Parse a TypeScript i18n dict, extracting single-line key-value pairs."""
+    """Parse a TypeScript i18n dict, returning a ``{key: value}`` mapping.
+
+    Captures both single-line and wrapped key-value entries, and both
+    ``"..."`` and ``'...'`` value delimiters. See module docstring for the
+    full list of handled cases.
+    """
     out: dict[str, str] = {}
-    for line in src.splitlines():
-        m = KEY_VALUE_RE.match(line)
-        if m:
-            # Decode JS string escapes (e.g. \\n → newline, \\t → tab).
-            out[m.group("k")] = m.group("v").encode().decode("unicode_escape")
+    for m in KEY_VALUE_RE.finditer(src):
+        key = _unescape_js_string(m.group("k"))
+        value = _unescape_js_string(m.group("v"))
+        out[key] = value
     return out
 
 
