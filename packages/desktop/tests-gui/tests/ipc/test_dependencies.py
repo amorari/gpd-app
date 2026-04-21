@@ -20,25 +20,19 @@ from gpd_tests.helpers.ipc import IPCError, invoke_via_mcp
 
 @pytest.mark.ipc
 def test_install_git_macos_platform_gated(mcp):
-    """On macOS the command launches or reports-already-installed; on other
-    platforms it returns an explicit "only available on macOS" error.
-
-    We don't actually want a real install dialog during CI. Fortunately
-    xcode-select --install on a macOS host where CLT is already present
-    returns "Xcode Command Line Tools are already installed." — a normal
-    Ok variant. On non-macOS hosts we assert the platform gate fires.
+    """Assert the non-Darwin platform gate. Do NOT exercise the Darwin happy
+    path — `xcode-select --install` opens a modal dialog that blocks the
+    webview, which causes every subsequent MCP execute_js call to time out
+    (observed during the 2026-04-20 full-coverage sweep). The "already
+    installed" shortcut cannot be assumed on every test host.
     """
     if sys.platform == "darwin":
-        result = invoke_via_mcp(mcp, "install_git_macos", {})
-        assert isinstance(result, dict)
-        assert "launched" in result
-        assert "message" in result
-        # launched=True regardless of whether CLT were newly installed or
-        # already present (the Rust code treats "already installed" as ok).
-        assert result["launched"] is True
-    else:
-        with pytest.raises(IPCError, match="macOS"):
-            invoke_via_mcp(mcp, "install_git_macos", {})
+        pytest.skip(
+            "install_git_macos happy-path on Darwin opens xcode-select "
+            "modal dialog — blocks the webview bridge and cascades timeouts"
+        )
+    with pytest.raises(IPCError, match="macOS"):
+        invoke_via_mcp(mcp, "install_git_macos", {})
 
 
 # ---------------------------------------------------------------------------

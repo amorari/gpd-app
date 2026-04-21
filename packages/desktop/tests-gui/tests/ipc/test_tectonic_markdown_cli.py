@@ -50,26 +50,13 @@ def test_parse_markdown_command_empty_input_returns_empty_html(mcp):
 
 @pytest.mark.ipc
 def test_install_tectonic_returns_path_or_errors_cleanly(mcp):
-    """install_tectonic returns a string path on success. We don't force a
-    real network download here; on CI/dev machines the binary is usually
-    already cached in ~/.config/gpd/.capabilities/tectonic/bin/tectonic,
-    in which case the command is a cheap no-op. If it's not cached AND the
-    network is unavailable, the command returns a well-formed error string
-    — both outcomes are acceptable from the contract's perspective.
-    """
-    try:
-        result = invoke_via_mcp(mcp, "install_tectonic", {})
-    except IPCError as e:
-        # Accept: no-network / no-matching-asset / extraction failure.
-        # Reject: arg deserialization error (would mean the command signature
-        # changed and our catalog is stale).
-        msg = str(e).lower()
-        assert "tectonic" in msg or "github" in msg or "download" in msg or "network" in msg or "manual" in msg, (
-            f"unexpected error shape: {e!r}"
-        )
-        return
-    assert isinstance(result, str)
-    assert "tectonic" in result.lower()
+    """Skipped: install_tectonic may trigger a multi-minute network download
+    and extraction on a host where the binary isn't cached — blocks the
+    webview bridge and cascades MCP timeouts into every subsequent IPC test
+    (observed during the 2026-04-20 full-coverage sweep). Re-enable behind
+    an explicit opt-in env var once the command is split into a pure
+    status-check vs a destructive install."""
+    pytest.skip("install_tectonic not safe in unattended sweeps — may block webview")
 
 
 # ---------------------------------------------------------------------------
@@ -79,33 +66,14 @@ def test_install_tectonic_returns_path_or_errors_cleanly(mcp):
 
 @pytest.mark.ipc
 def test_install_cli_platform_gated(mcp):
-    """install_cli is unix-only — it refuses on Windows with a plain error.
-    On macOS/Linux it may succeed (returns install path) or fail with a
-    specific error (e.g. sidecar missing in a dev build); both are
-    acceptable contract outcomes — we don't want CI to actually reshuffle
-    the user's ~/.opencode/bin."""
+    """install_cli on Unix hosts writes to ~/.opencode/bin and may chmod/
+    rewrite shell init files. We only exercise the Windows platform gate
+    here to avoid mutating the dev machine during sweeps."""
     if sys.platform == "win32":
         with pytest.raises(IPCError, match="macOS|Linux|supported"):
             invoke_via_mcp(mcp, "install_cli", {})
     else:
-        try:
-            result = invoke_via_mcp(mcp, "install_cli", {})
-            assert isinstance(result, str)
-            assert result  # non-empty path
-        except IPCError as e:
-            # Acceptable failure modes on dev machines: sidecar binary not
-            # bundled, install script missing, permission denied writing
-            # to ~/.opencode/bin. Reject only schema-level failures.
-            msg = str(e).lower()
-            assert any(
-                hint in msg
-                for hint in (
-                    "sidecar",
-                    "install",
-                    "script",
-                    "permission",
-                    "path",
-                    "bin",
-                    "failed",
-                )
-            ), f"unexpected error shape from install_cli: {e!r}"
+        pytest.skip(
+            "install_cli on Unix mutates ~/.opencode/bin and shell init "
+            "files — not safe in unattended sweeps"
+        )
