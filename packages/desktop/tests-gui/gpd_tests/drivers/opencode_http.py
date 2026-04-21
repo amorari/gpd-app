@@ -556,6 +556,100 @@ class HTTPClient:
         """
         return self._get("/experimental/resource")
 
+    # ------------------------------------------------------------------
+    # /permission — server: packages/opencode/src/server/instance/permission.ts
+    # ------------------------------------------------------------------
+
+    # Permission.Reply zod enum (see packages/opencode/src/permission/index.ts):
+    #   z.enum(["once", "always", "reject"])
+    # Guarding client-side turns a typo into an immediate ValueError instead
+    # of a 400 round-trip.
+    _PERMISSION_REPLY_VALUES = frozenset({"once", "always", "reject"})
+
+    def permissions(self) -> list[dict[str, Any]]:
+        """GET /permission — list pending Permission.Request objects.
+
+        GPD ships with ``permission: allow`` so this list is typically empty
+        in the default configuration; the route still exists and is exercised
+        here for shape-contract coverage.
+        """
+        return self._get("/permission")
+
+    def permission_reply(
+        self,
+        request_id: str,
+        *,
+        reply: str,
+        message: str | None = None,
+    ) -> bool:
+        """POST /permission/{requestID}/reply.
+
+        ``reply`` must be one of ``'once' | 'always' | 'reject'`` (matches the
+        server's ``Permission.Reply`` enum). ``message`` is an optional
+        free-form explanation (typically paired with ``reject``).
+        Server returns literal ``true`` on success.
+        """
+        if reply not in self._PERMISSION_REPLY_VALUES:
+            raise ValueError(
+                f"invalid permission reply {reply!r}; "
+                f"expected one of {sorted(self._PERMISSION_REPLY_VALUES)}"
+            )
+        body: dict[str, Any] = {"reply": reply}
+        if message is not None:
+            body["message"] = message
+        result = self._post(f"/permission/{request_id}/reply", json=body)
+        return bool(result)
+
+    # ------------------------------------------------------------------
+    # /question — server: packages/opencode/src/server/instance/question.ts
+    # ------------------------------------------------------------------
+
+    def questions(self) -> list[dict[str, Any]]:
+        """GET /question — list pending Question.Request objects."""
+        return self._get("/question")
+
+    def question_reply(
+        self,
+        request_id: str,
+        *,
+        answers: list[list[str]],
+    ) -> bool:
+        """POST /question/{requestID}/reply.
+
+        ``answers`` is a list-of-lists: one entry per question, each a list of
+        selected option labels. The server validator is
+        ``z.object({ answers: Question.Answer.zod.array() })`` where
+        ``Question.Answer`` is ``string[]``, so the shape is ``string[][]``.
+        Passing a flat ``list[str]`` is a common mistake and is rejected
+        client-side before the round-trip.
+        """
+        if not isinstance(answers, list):
+            raise TypeError(
+                f"answers must be list[list[str]], got {type(answers).__name__}"
+            )
+        for i, group in enumerate(answers):
+            if not isinstance(group, list):
+                raise ValueError(
+                    f"answers[{i}] must be list[str] (selected labels), "
+                    f"got {type(group).__name__}. Wrap single answers as "
+                    "[['label']], not ['label']."
+                )
+            for j, label in enumerate(group):
+                if not isinstance(label, str):
+                    raise ValueError(
+                        f"answers[{i}][{j}] must be str, got "
+                        f"{type(label).__name__}"
+                    )
+        result = self._post(
+            f"/question/{request_id}/reply", json={"answers": answers}
+        )
+        return bool(result)
+
+    def question_reject(self, request_id: str) -> bool:
+        """POST /question/{requestID}/reject — no body; server returns ``true``."""
+        result = self._post(f"/question/{request_id}/reject")
+        return bool(result)
+
 
 def discover_sidecar_port(
     *, pid: int | None = None, timeout_s: float = 15.0
