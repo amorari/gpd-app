@@ -968,10 +968,30 @@
       box-shadow: var(--shadow-xs-border-hover);
     }
 
+    /* Pending digit-key selection: the user pressed 1-9 but hasn't
+       confirmed with Enter yet. Distinct from :focus-visible (which the
+       browser/default styles handle) and from [data-picked] (aria-checked). */
+    &[data-highlighted="true"]:not([data-picked="true"]) {
+      border-color: var(--border-interactive-base);
+      box-shadow: 0 0 0 1px var(--border-interactive-base);
+    }
+
     &:disabled {
       cursor: not-allowed;
       opacity: 0.6;
     }
+  }
+
+  [data-slot="question-option-num"],
+  [data-slot="option-label"] .opt-num {
+    display: inline-block;
+    margin-right: 6px;
+    font-family: var(--font-family-mono);
+    font-size: 11px;
+    font-weight: var(--font-weight-regular);
+    color: var(--text-weak);
+    line-height: 1;
+    vertical-align: baseline;
   }
 
   [data-slot="question-option-check"] {

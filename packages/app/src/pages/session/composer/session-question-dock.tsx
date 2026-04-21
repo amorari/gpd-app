@@ -28,6 +28,8 @@ function Mark(props: { multi: boolean; picked: boolean; onClick?: (event: MouseE
 function Option(props: {
   multi: boolean
   picked: boolean
+  highlighted: boolean
+  index: number
   label: string
   description?: string
   disabled: boolean
@@ -41,15 +43,24 @@ function Option(props: {
       ref={props.ref}
       data-slot="question-option"
       data-picked={props.picked}
+      data-highlighted={props.highlighted ? "true" : undefined}
       role={props.multi ? "checkbox" : "radio"}
       aria-checked={props.picked}
+      aria-keyshortcuts={props.index < 9 ? String(props.index + 1) : undefined}
       disabled={props.disabled}
       onFocus={props.onFocus}
       onClick={props.onClick}
     >
       <Mark multi={props.multi} picked={props.picked} />
       <span data-slot="question-option-main">
-        <span data-slot="option-label">{props.label}</span>
+        <span data-slot="option-label">
+          <Show when={props.index < 9}>
+            <span data-slot="question-option-num" class="opt-num" aria-hidden="true">
+              {props.index + 1}
+            </span>
+          </Show>
+          {props.label}
+        </span>
         <Show when={props.description}>
           <span data-slot="option-description">{props.description}</span>
         </Show>
@@ -73,6 +84,9 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     customOn: cached?.customOn ?? ([] as boolean[]),
     editing: false,
     focus: 0,
+    // Transient digit-key highlight target. Not cached; resets per mount.
+    // -1 means "no highlight". Cleared on arrow/tab nav and on pick().
+    highlighted: -1,
   })
 
   let root: HTMLDivElement | undefined
@@ -318,7 +332,26 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
 
   const move = (step: number) => {
     if (store.editing || sending()) return
+    // Clear any digit-key highlight; arrow nav supersedes the previous pick.
+    if (store.highlighted !== -1) setStore("highlighted", -1)
     focus(store.focus + step)
+  }
+
+  // Digit-key entry: highlight option at `index` and move DOM focus to it.
+  // Does NOT submit; user must press Enter (or click) to confirm. Matches
+  // TUI contract except TUI auto-submits — the web app defers so the badge
+  // can render and assistive tech can announce the highlight.
+  const highlightOption = (index: number) => {
+    if (sending() || store.editing) return
+    if (index < 0 || index >= count()) return
+    setStore("highlighted", index)
+    focus(index)
+  }
+
+  // Clear the highlight without touching focus. Called when the user
+  // converts a highlight to a pick via Enter (the pick itself moves focus).
+  const clearHighlight = () => {
+    if (store.highlighted !== -1) setStore("highlighted", -1)
   }
 
   const nav = (event: KeyboardEvent) => {
@@ -338,11 +371,41 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       return
     }
 
+    if (store.editing) return
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+
+    // Digit / Tab / digit-commit Enter work regardless of which element in
+    // the dock has focus, so they run before the options-closest guard.
+    if (event.key >= "1" && event.key <= "9") {
+      const digit = Number(event.key)
+      if (Number.isNaN(digit)) return
+      const max = Math.min(count(), 9)
+      if (digit > max) return
+      event.preventDefault()
+      highlightOption(digit - 1)
+      return
+    }
+
+    if (event.key === "Tab") {
+      if (store.highlighted !== -1) setStore("highlighted", -1)
+      return
+    }
+
+    if (event.key === "Enter" && !event.shiftKey) {
+      if (store.highlighted === -1) return
+      if (store.focus !== store.highlighted) return
+      event.preventDefault()
+      const idx = store.highlighted
+      clearHighlight()
+      selectOption(idx)
+      return
+    }
+
+    // Arrow / Home / End only make sense when focus is already inside the
+    // options list — keep the legacy guard for them.
     const target =
       event.target instanceof HTMLElement ? event.target.closest('[data-slot="question-options"]') : undefined
-    if (store.editing) return
     if (!(target instanceof HTMLElement)) return
-    if (event.altKey || event.ctrlKey || event.metaKey) return
 
     if (event.key === "ArrowDown" || event.key === "ArrowRight") {
       event.preventDefault()
@@ -358,17 +421,25 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
 
     if (event.key === "Home") {
       event.preventDefault()
+      if (store.highlighted !== -1) setStore("highlighted", -1)
       focus(0)
       return
     }
 
-    if (event.key !== "End") return
-    event.preventDefault()
-    focus(count() - 1)
+    if (event.key === "End") {
+      event.preventDefault()
+      if (store.highlighted !== -1) setStore("highlighted", -1)
+      focus(count() - 1)
+      return
+    }
   }
 
   const selectOption = (optIndex: number) => {
     if (sending()) return
+
+    // Any commit path clears a pending digit highlight so the data-*
+    // attribute doesn't persist into the next question's render.
+    if (store.highlighted !== -1) setStore("highlighted", -1)
 
     if (optIndex === options().length) {
       customOpen()
@@ -511,12 +582,14 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       <Show when={multi()} fallback={<div data-slot="question-hint">{language.t("ui.question.singleHint")}</div>}>
         <div data-slot="question-hint">{language.t("ui.question.multiHint")}</div>
       </Show>
-      <div data-slot="question-options">
+      <div data-slot="question-options" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 Enter">
         <For each={options()}>
           {(opt, i) => (
             <Option
               multi={multi()}
               picked={picked(opt.label)}
+              highlighted={store.highlighted === i()}
+              index={i()}
               label={opt.label}
               description={opt.description}
               disabled={sending()}
@@ -536,15 +609,24 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
               data-slot="question-option"
               data-custom="true"
               data-picked={on()}
+              data-highlighted={store.highlighted === options().length ? "true" : undefined}
               role={multi() ? "checkbox" : "radio"}
               aria-checked={on()}
+              aria-keyshortcuts={options().length < 9 ? String(options().length + 1) : undefined}
               disabled={sending()}
               onFocus={() => setStore("focus", options().length)}
               onClick={customOpen}
             >
               <Mark multi={multi()} picked={on()} onClick={toggleCustomMark} />
               <span data-slot="question-option-main">
-                <span data-slot="option-label">{customLabel()}</span>
+                <span data-slot="option-label">
+                  <Show when={options().length < 9}>
+                    <span data-slot="question-option-num" class="opt-num" aria-hidden="true">
+                      {options().length + 1}
+                    </span>
+                  </Show>
+                  {customLabel()}
+                </span>
                 <span data-slot="option-description">{input() || customPlaceholder()}</span>
               </span>
             </button>
