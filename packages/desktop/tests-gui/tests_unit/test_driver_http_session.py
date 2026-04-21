@@ -66,10 +66,30 @@ def test_send_message_posts_and_returns_parsed_response():
 
 @pytest.mark.unit
 def test_messages_returns_list():
+    """messages() returns the real MessageV2.WithParts[] envelope from the server."""
     transport = _mock_transport({
         ("GET", "/session/ses_abc/message"): (
             200,
-            [{"id": "msg_1", "role": "user"}, {"id": "msg_2", "role": "assistant"}],
+            [
+                {
+                    "info": {
+                        "id": "msg_1",
+                        "role": "user",
+                        "sessionID": "ses_abc",
+                        "time": {"created": 1713600000},
+                    },
+                    "parts": [{"type": "text", "text": "hi"}],
+                },
+                {
+                    "info": {
+                        "id": "msg_2",
+                        "role": "assistant",
+                        "sessionID": "ses_abc",
+                        "time": {"created": 1713600001},
+                    },
+                    "parts": [{"type": "text", "text": "hello"}],
+                },
+            ],
         ),
     })
     with HTTPClient(
@@ -80,7 +100,10 @@ def test_messages_returns_list():
     ) as c:
         msgs = c.messages("ses_abc")
     assert len(msgs) == 2
-    assert {m["role"] for m in msgs} == {"user", "assistant"}
+    # Real shape: role lives under info, not at top level.
+    assert msgs[0]["info"]["role"] == "user"
+    assert msgs[1]["info"]["role"] == "assistant"
+    assert msgs[0]["parts"][0]["text"] == "hi"
 
 
 @pytest.mark.unit
@@ -139,6 +162,7 @@ def test_create_session_includes_parent_id_camelcased():
 
 @pytest.mark.unit
 def test_send_message_camelcases_model_and_provider_keys():
+    """send_message() sends modelID and providerID as camelCase top-level keys."""
     seen: list[bytes] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -163,9 +187,57 @@ def test_send_message_camelcases_model_and_provider_keys():
             agent="default",
         )
     body = json.loads(seen[0])
-    assert body == {
-        "parts": [{"type": "text", "text": "hi"}],
-        "modelID": "claude-4-7",
-        "providerID": "anthropic",
-        "agent": "default",
-    }
+    # modelID and providerID are camelCase top-level keys in the request body.
+    assert body["parts"] == [{"type": "text", "text": "hi"}]
+    assert body["modelID"] == "claude-4-7"
+    assert body["providerID"] == "anthropic"
+    assert body["agent"] == "default"
+    # Must NOT use snake_case keys.
+    assert "model_id" not in body
+    assert "provider_id" not in body
+
+
+@pytest.mark.unit
+def test_create_session_directory_sent_in_body():
+    """directory is sent in the JSON body, not as a URL query parameter."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"id": "ses_new"})
+
+    transport = httpx.MockTransport(handler)
+    with HTTPClient(
+        base_url="http://127.0.0.1:9999",
+        username="u",
+        password="p",
+        transport=transport,
+    ) as c:
+        c.create_session(directory="/workspace/myproject")
+
+    req = seen[0]
+    body = json.loads(req.content)
+    # directory is in the body.
+    assert body.get("directory") == "/workspace/myproject"
+    # directory must NOT appear as a URL query param.
+    assert "directory" not in str(req.url.params)
+
+
+@pytest.mark.unit
+def test_delete_session_handles_204():
+    """Server may return 204 No Content for delete — driver should return True."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "DELETE"
+        assert request.url.path == "/session/ses_abc"
+        return httpx.Response(204, content=b"")
+
+    transport = httpx.MockTransport(handler)
+    with HTTPClient(
+        base_url="http://127.0.0.1:9999",
+        username="u",
+        password="p",
+        transport=transport,
+    ) as c:
+        result = c.delete_session("ses_abc")
+    # 204 → _delete returns None → delete_session returns True (None is "no error")
+    assert result is True
