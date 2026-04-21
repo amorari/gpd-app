@@ -1,8 +1,8 @@
 # GPD GUI test suite
 
-End-to-end tests that drive the live GPD desktop app. Runs against an installed `/Applications/GPD.app` by default; point `GPD_APP_PATH` at `packages/desktop/src-tauri/target/debug/bundle/macos/GPD.app` (or similar) to target an in-tree dev build.
+End-to-end tests that drive the live GPD desktop app. Runs against an installed `/Applications/GPD.app` by default; point `GPD_APP_PATH` at `packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app` (or similar) to target an in-tree dev build.
 
-**Status:** Phase 1 (smoke) is complete — 40 unit tests + 9 live-app smoke tests + an opt-in restart test. Phase 2 (surfaces, per-route) is complete — 9 surface test files covering all primary routes and dialogs; run with `-m surfaces`. Phase 3 (flows) is complete with 5 end-to-end flow files: create-session, theme-switch, deep-link, onboarding, and provider-switch; Phase 5 (broad menu coverage) adds AX-only menu sweeps that stay green even when the JS bridge is unavailable.
+**Status:** Phase 1 (smoke) is complete — 68 unit tests + 11 live-app smoke tests + an opt-in restart test. Phase 2 (surfaces, per-route) is complete — 9 surface test files covering all primary routes and dialogs; run with `-m surfaces`. Phase 3 (flows) is complete with 5 end-to-end flow files: create-session, theme-switch, deep-link, onboarding, and provider-switch; Phase 4 (regression) tracks regressions against known-good baselines; Phase 5 (broad menu coverage) adds AX-only menu sweeps that stay green even when the JS bridge is unavailable.
 
 ## Setup
 
@@ -25,6 +25,8 @@ uv run pytest -m "not real_backend"                 # skip tests that need a rea
 
 ### Phase 3 (flows)
 
+> All paths below assume `cwd = packages/desktop/tests-gui/`.
+
 ```bash
 # Non-destructive, no LLM key needed:
 uv run pytest -m "flows and not real_backend" -v
@@ -45,7 +47,7 @@ The live LLM test (`test_new_session.py`) requires GPD's debug build to be runni
 
 ```bash
 # After `cd packages/desktop && cargo tauri build --debug`
-export GPD_APP_PATH="$(pwd)/src-tauri/target/debug/bundle/macos/GPD.app"
+export GPD_APP_PATH="$(pwd)/src-tauri/target/debug/bundle/macos/GPD Dev.app"
 uv run pytest -m smoke
 ```
 
@@ -108,9 +110,9 @@ Both assertions must pass: the Rust-side plugin is absent (no socket) **and** th
 
 ## Phase 2
 
-Phase 2 (one test per route/dialog) needs `execute_js` / `get_page_map` / `wait_for` to respond. That requires `setupPluginListeners()` from `tauri-plugin-mcp/guest-js/index.ts` to run in the webview.
+Phase 2 (one test per route/dialog) needs `execute_js` (and therefore any DOM probe) to respond. That requires `setupPluginListeners()` from `tauri-plugin-mcp/guest-js/index.ts` to run in the webview.
 
-Upstream (`psi-oss/opencode`) hasn't wired this in yet, so this branch carries a **local workaround**: the plugin's `guest-js/index.ts` is vendored at `packages/desktop/src/vendor/tauri-plugin-mcp.ts` and wired from `packages/desktop/src/index.tsx` behind `import.meta.env.DEV`. Vite tree-shakes it out of release builds, matching the Rust-side `#[cfg(debug_assertions)]` gate on the plugin in `packages/desktop/src-tauri/src/lib.rs`.
+Upstream (`psi-oss/opencode`) hasn't wired this in yet, so this branch carries a **local workaround**: the plugin's `guest-js/index.ts` is vendored at `packages/desktop/src/vendor/tauri-plugin-mcp.ts` and wired from `packages/desktop/src/index.tsx` behind `__GPD_TAURI_DEBUG__` (see `vite.config.ts`). Vite tree-shakes it out of release builds, matching the Rust-side `#[cfg(debug_assertions)]` gate on the plugin in `packages/desktop/src-tauri/src/lib.rs`.
 
 Refresh the vendor if the plugin repo changes:
 
@@ -144,7 +146,7 @@ The workflow is defined at `.github/workflows/gpd-tests-gui.yml`.
 | Job | Runner | What runs |
 |-----|--------|-----------|
 | `unit` | `macos-latest` | `pytest -m unit -q` — fast, no GPD needed |
-| `smoke-and-flows` | `macos-latest` | Builds debug GPD, launches it, then runs smoke (no restart) + non-real-backend flows |
+| `smoke-and-flows` | `macos-latest` | Builds debug GPD, launches it, then runs smoke (marker: `smoke and not restart`) + non-real-backend flows |
 
 **Real-backend flows (`GPD_TEST_ANTHROPIC_KEY` secret):**
 
