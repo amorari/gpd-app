@@ -19,11 +19,16 @@ def _warmup_webview(app_state):
     loudly with their own diagnostic message rather than a cold-start timeout.
     """
     from gpd_tests.drivers.mcp import MCPClient, MCPError, MCPTimeout
+    from gpd_tests.helpers.ipc import invoke_via_mcp
     from gpd_tests.helpers.navigator import Navigator, route_home
 
     try:
         client = MCPClient()
         client.ping()
         Navigator(client).go(route_home(), timeout_s=8.0)
+        # Prime the Tauri IPC bridge with a cheap no-arg call so the first
+        # real invoke in this module doesn't hit the MCP socket timeout while
+        # the bridge finishes its cold-start work (store init, file I/O, etc).
+        invoke_via_mcp(client, "get_display_backend", {}, deadline_s=5.0)
     except (MCPError, MCPTimeout, Exception):
         pass

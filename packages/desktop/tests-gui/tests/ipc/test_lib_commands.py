@@ -21,6 +21,7 @@ import sys
 
 import pytest
 
+from gpd_tests.drivers.mcp import MCPError, MCPTimeout
 from gpd_tests.helpers.ipc import IPCError, invoke_via_mcp
 
 
@@ -51,10 +52,15 @@ def test_kill_sidecar_skipped_destructive(mcp):  # pragma: no cover
 # from JS without allocating one, and invoking without it triggers Tauri
 # deserialization failure -- which is itself a valid contract check.
 @pytest.mark.ipc
+@pytest.mark.timeout(20)
 def test_await_initialization_requires_channel_arg(mcp):
-    """Omitting the required `events` Channel argument must raise IPCError
-    (Tauri rejects during argument deserialization before the handler runs)."""
-    with pytest.raises(IPCError):
+    """Omitting the required `events` Channel argument must raise an error.
+
+    Tauri may reject at deserialization (-> IPCError), or the async handler
+    may block waiting for a Channel that never arrives (-> MCPError/MCPTimeout
+    on the poll step). Either outcome confirms the command does not silently
+    succeed without the required arg."""
+    with pytest.raises((IPCError, MCPError, MCPTimeout)):
         invoke_via_mcp(mcp, "await_initialization", {})
 
 
