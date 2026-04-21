@@ -13,20 +13,46 @@ _CATALOG_PATH = (
     / "gpd_tests" / "fixtures" / "tauri_commands.json"
 )
 _CATALOG = json.loads(_CATALOG_PATH.read_text())
-_COMMAND_NAMES = [c["name"] for c in _CATALOG]
+
+# Commands that are unsafe to invoke with a bogus argument shape even in a
+# "negative sweep" because they either (a) execute destructive side effects
+# before reaching deserialization, (b) open a modal dialog / spawn an
+# external installer, or (c) block on a Channel or subprocess that will
+# never signal under test conditions. The sweep cannot assert their
+# deserializer behavior; dedicated tests in the per-file suites cover
+# them where safe.
+_UNSAFE_FOR_NEGATIVE_SWEEP = {
+    "kill_sidecar",            # kills the opencode-cli sidecar for the rest of the sweep
+    "repair_gpd_venv",         # wipes ~/.config/gpd/.venv and runs full network setup
+    "open_path",               # spawns `open` — may hit unrelated handler
+    "install_cli",             # runs the CLI installer (modal + network)
+    "install_git_macos",       # runs the Git installer (modal + network)
+    "install_git_windows",     # runs the Git installer (modal + network)
+    "install_tectonic",        # triggers tectonic bootstrap (multi-minute + network)
+    "await_initialization",    # blocks on an events Channel that bogus args won't fulfill
+    "compile_tex",             # spawns a tectonic subprocess that may take minutes
+}
+_COMMAND_NAMES = [
+    c["name"] for c in _CATALOG
+    if c["name"] not in _UNSAFE_FOR_NEGATIVE_SWEEP
+]
 
 
 # ---------------------------------------------------------------------------
-# Every command should reject a bogus argument dict cleanly.
+# Every safe command should reject a bogus argument dict cleanly.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.ipc
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize("cmd", _COMMAND_NAMES)
 def test_command_rejects_bogus_arg_shape(mcp, cmd):
     """Passing {"__bogus__": None} should produce an IPCError, never a hang
     or a silent success. Tauri's deserializer will reject unknown fields
     when the command has an arg struct; no-arg commands will either accept
-    (and we assert via a follow-up call that they still work) or reject."""
+    (and we assert via a follow-up call that they still work) or reject.
+
+    Dangerous commands are excluded via `_UNSAFE_FOR_NEGATIVE_SWEEP`; their
+    deserializer behavior is checked (if at all) by dedicated tests."""
     try:
         result = invoke_via_mcp(mcp, cmd, {"__bogus__": None})
         # If a command takes no args, Tauri often ignores the extra field and
@@ -44,6 +70,7 @@ def test_command_rejects_bogus_arg_shape(mcp, cmd):
 
 
 @pytest.mark.ipc
+@pytest.mark.timeout(20)
 def test_nonexistent_command_errors_cleanly(mcp):
     """A made-up command name must raise IPCError with a clear 'command not found' signal."""
     with pytest.raises(IPCError) as exc_info:
@@ -53,6 +80,7 @@ def test_nonexistent_command_errors_cleanly(mcp):
 
 
 @pytest.mark.ipc
+@pytest.mark.timeout(20)
 def test_empty_args_on_commands_with_required_fields(mcp):
     """Commands with required args should reject an empty {} dict."""
     # Pick a few commands we know take args (from catalog).
