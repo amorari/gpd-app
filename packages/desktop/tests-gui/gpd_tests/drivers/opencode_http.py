@@ -220,6 +220,215 @@ class HTTPClient:
         r = self._delete(f"/session/{session_id}")
         return r is None or bool(r)
 
+    # ------------------------------------------------------------------
+    # /project wrappers (Phase G3.3)
+    # ------------------------------------------------------------------
+
+    def list_projects(self) -> list[dict[str, Any]]:
+        """GET /project — all projects OpenCode has been opened against."""
+        return self._get("/project")
+
+    def current_project(self) -> dict[str, Any]:
+        """GET /project/current — the Project.Info this sidecar is bound to."""
+        return self._get("/project/current")
+
+    def get_project(self, project_id: str) -> dict[str, Any] | None:
+        """Return the Project.Info whose ``id`` matches, or ``None``.
+
+        The sidecar has no ``GET /project/:id`` route; we filter
+        :meth:`list_projects` client-side.
+        """
+        for p in self.list_projects():
+            if p.get("id") == project_id:
+                return p
+        return None
+
+    def update_project(self, project_id: str, **patch: Any) -> dict[str, Any]:
+        """PATCH /project/:projectID — update name/icon/commands.
+
+        ``projectID`` travels in the URL only; the server's Zod schema
+        strips it from the body, so callers pass it positionally.
+        """
+        # Drop None-valued kwargs so we never send `{"name": null}` and
+        # accidentally clear a field on a sparse patch.
+        body = {k: v for k, v in patch.items() if v is not None}
+        return self._patch(f"/project/{project_id}", json=body)
+
+    def delete_project(self, project_id: str) -> bool:
+        """DELETE /project/:projectID — cascades to sessions + workspaces.
+
+        Returns ``True`` on 204 (no body) or when the server returns a truthy
+        body. Raises ``httpx.HTTPStatusError`` on 404 etc.
+        """
+        r = self._delete(f"/project/{project_id}")
+        return r is None or bool(r)
+
+    def project_git_init(self) -> dict[str, Any]:
+        """POST /project/git/init — git-init the current project worktree."""
+        return self._post("/project/git/init")
+
+    # ------------------------------------------------------------------
+    # /experimental/workspace wrappers (Phase G3.3)
+    # ------------------------------------------------------------------
+
+    def list_workspaces(self) -> list[dict[str, Any]]:
+        """GET /experimental/workspace — workspaces for the current project."""
+        return self._get("/experimental/workspace")
+
+    def create_workspace(
+        self,
+        *,
+        type: str,
+        branch: str | None = None,
+        extra: Any = None,
+        id: str | None = None,
+    ) -> dict[str, Any]:
+        """POST /experimental/workspace — create a workspace in the current project.
+
+        Body is ``Workspace.CreateInput`` minus ``projectID`` (the server
+        attaches the current project id). ``type`` must match a registered
+        adaptor name (e.g. ``"worktree"``); invalid types return 400.
+        """
+        body: dict[str, Any] = {"type": type}
+        if id is not None:
+            body["id"] = id
+        # branch / extra may be explicitly None to mean "no branch / no extra".
+        # Always include them; the server's Zod schema expects nullable fields.
+        body["branch"] = branch
+        body["extra"] = extra
+        return self._post("/experimental/workspace", json=body)
+
+    def get_workspace(self, workspace_id: str) -> dict[str, Any] | None:
+        """Return the Workspace.Info whose ``id`` matches, or ``None``.
+
+        The sidecar has no per-id GET route; we filter :meth:`list_workspaces`
+        client-side.
+        """
+        for w in self.list_workspaces():
+            if w.get("id") == workspace_id:
+                return w
+        return None
+
+    def delete_workspace(self, workspace_id: str) -> dict[str, Any] | None:
+        """DELETE /experimental/workspace/:id — returns the removed info or None."""
+        return self._delete(f"/experimental/workspace/{workspace_id}")
+
+    def workspace_status(self) -> list[dict[str, Any]]:
+        """GET /experimental/workspace/status — connection status per workspace."""
+        return self._get("/experimental/workspace/status")
+
+    def workspace_adaptors(self) -> list[dict[str, Any]]:
+        """GET /experimental/workspace/adaptor — available adaptor types."""
+        return self._get("/experimental/workspace/adaptor")
+
+    # ------------------------------------------------------------------
+    # /mcp — Model Context Protocol server registry + lifecycle (G3.4)
+    # server: packages/opencode/src/server/instance/mcp.ts
+    # ------------------------------------------------------------------
+
+    def list_mcp_servers(self) -> dict[str, Any]:
+        """GET /mcp → ``Record<name, MCP.Status>``. Shape-only; non-mutating.
+
+        Server source: ``instance/mcp.ts:13``.
+        """
+        return self._get("/mcp")
+
+    def invoke_mcp_tool(
+        self,
+        server: str,
+        tool: str,
+        args: dict[str, Any],
+    ) -> Any:
+        """POST /mcp/:name/tool/:tool — invoke a tool on an MCP server.
+
+        Note: as of G3.4 the sidecar does NOT implement this route. The
+        wrapper still targets a deterministic path + well-formed body so that
+        (a) callers see an actionable 404 rather than an opaque crash and
+        (b) if the server adds the endpoint later, the contract is already in
+        place. MUTATES; tests must gate this call on
+        ``PYTEST_OPTIN_MUTATE_SYSTEM``.
+        """
+        body = {"arguments": args if args is not None else {}}
+        return self._post(f"/mcp/{server}/tool/{tool}", json=body)
+
+    def connect_mcp_server(self, name: str) -> Any:
+        """POST /mcp/:name/connect — connect an MCP server. MUTATES.
+
+        Server source: ``instance/mcp.ts:199``.
+        """
+        return self._post(f"/mcp/{name}/connect")
+
+    def disconnect_mcp_server(self, name: str) -> Any:
+        """POST /mcp/:name/disconnect — disconnect an MCP server. MUTATES.
+
+        Server source: ``instance/mcp.ts:222``.
+        """
+        return self._post(f"/mcp/{name}/disconnect")
+
+    # ------------------------------------------------------------------
+    # /experimental — flags / knobs, MCP resources, tool catalog (G3.4)
+    # server: packages/opencode/src/server/instance/experimental.ts
+    # ------------------------------------------------------------------
+
+    def get_experimental_flags(self) -> dict[str, Any]:
+        """GET /experimental/console → ``ConsoleState``. Shape-only.
+
+        The sidecar does not expose a generic ``/experimental/flags`` route;
+        the Console state is the nearest cluster of user-visible toggles
+        (active account + org, managed provider IDs, switchable-org count).
+
+        Server source: ``instance/experimental.ts:45``.
+        """
+        return self._get("/experimental/console")
+
+    def set_experimental_flag(
+        self,
+        key: str,
+        value: dict[str, Any],
+    ) -> Any:
+        """Narrow setter mapping a ``(key, value)`` pair to the correct write.
+
+        Currently the only supported key is ``"console"``, which maps to
+        POST /experimental/console/switch with a body of
+        ``{"accountID": ..., "orgID": ...}``. Unknown keys and malformed
+        payloads raise ``ValueError`` BEFORE any HTTP call is made so tests
+        don't mask typos as generic 400s.
+
+        MUTATES; tests must gate this call on
+        ``PYTEST_OPTIN_MUTATE_SYSTEM``. Server source:
+        ``instance/experimental.ts:119``.
+        """
+        if key == "console":
+            required = {"accountID", "orgID"}
+            missing = required - set(value or {})
+            if missing:
+                raise ValueError(
+                    f"set_experimental_flag('console', ...) missing fields: "
+                    f"{sorted(missing)}"
+                )
+            body = {
+                "accountID": value["accountID"],
+                "orgID": value["orgID"],
+            }
+            return self._post("/experimental/console/switch", json=body)
+        raise ValueError(
+            f"unknown experimental flag {key!r}; supported: ['console']"
+        )
+
+    def list_experimental_tool_ids(self) -> list[str]:
+        """GET /experimental/tool/ids → ``string[]``. Shape-only.
+
+        Server source: ``instance/experimental.ts:148``.
+        """
+        return self._get("/experimental/tool/ids")
+
+    def list_experimental_resources(self) -> dict[str, Any]:
+        """GET /experimental/resource → ``Record<uri, MCP.Resource>``. Shape-only.
+
+        Server source: ``instance/experimental.ts:398``.
+        """
+        return self._get("/experimental/resource")
+
 
 def discover_sidecar_port(
     *, pid: int | None = None, timeout_s: float = 15.0
