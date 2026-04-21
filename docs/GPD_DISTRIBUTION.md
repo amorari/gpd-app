@@ -1,7 +1,7 @@
 # GPD Distribution System — Complete Reference
 
 **Last updated:** April 16, 2026
-**Status:** Production — versioned to match `get-physics-done`. Latest shipped desktop build: `gpd-desktop-v1.1.0-1` (first desktop redrop against sidecar `1.1.0`).
+**Status:** Production. Desktop and sidecar versions are decoupled — the release workflow accepts an explicit `version` input for desktop-only patches and always reports the bundled sidecar version in the release body. Latest shipped desktop build: `gpd-desktop-v1.1.2` (bundled sidecar: `get-physics-done 1.1.0`).
 
 ---
 
@@ -43,15 +43,15 @@ Upstream Providers (PSI's API keys — never exposed)
 
 ## Versioning
 
-The GPD desktop app version follows the `get-physics-done` package version. They are the same product — the desktop app is just the delivery mechanism.
+Desktop and sidecar versions are **decoupled** — the release workflow accepts an explicit `version` input for desktop-only patches, and always reports the bundled sidecar version in the release body. By default (no override), desktop follows `get-physics-done`.
 
-| Source | Version | What it means |
-|--------|---------|---------------|
-| `psi-oss/get-physics-done` pyproject.toml | `1.1.0` | Latest in repo (may be unreleased) |
-| PyPI `get-physics-done` | `1.1.0` | Latest published Python release |
-| npm `get-physics-done` | `1.1.0` | Latest published Node release |
+| Source | Role | What it means |
+|--------|------|---------------|
+| `psi-oss/get-physics-done` pyproject.toml | Sidecar (default) | Read by the workflow's `resolve-version` step when no `version` input is given |
+| PyPI `get-physics-done` | Sidecar (alt source) | Switch via `-f version_source=pypi` |
+| Explicit `version` input | Desktop-only | Used as the desktop tag; sidecar version still resolved separately for the release body |
 
-The CI release workflow auto-detects the version. Default source: **GitHub** (reads `pyproject.toml` from `psi-oss/get-physics-done` main branch). Can be changed to PyPI or npm via the workflow dispatch dropdown.
+Full details: **`docs/RELEASING.md`**.
 
 **Triggering a release:**
 ```bash
@@ -463,9 +463,21 @@ curl -fsSL https://download.gpd.psi.inc/install.sh | bash
 
 - **macOS Gatekeeper:** Unsigned app requires `xattr -cr` before first open. Include in email instructions.
 - **Windows SmartScreen:** Similar unsigned warning. "Run Anyway" needed.
-- **No auto-update:** Professors must manually download new versions. Tauri updater disabled (no signing key).
+- **Auto-update:** Works — Tauri updater plugin is registered whenever CI has `TAURI_SIGNING_PRIVATE_KEY` (see `constants.rs:UPDATER_ENABLED`). `latest.json` is signed and promotes on normal semver bumps. Redrop `-N` suffixes do NOT promote (semver treats them as pre-releases); use a real patch bump for updates that need to reach existing installs.
 - **MCP servers require PyInstaller sidecar:** If the sidecar isn't bundled (empty placeholder), MCP servers won't work. CI builds include it.
-- **Code signing:** Not implemented. Would require Apple Developer Program ($99/year) + EV cert for Windows ($200-400/year).
+- **Code signing:** Not implemented. Would require Apple Developer Program ($99/year) + EV cert for Windows ($200-400/year). The ad-hoc signed bundle still works; the macOS TCC flow is handled explicitly (see below).
+
+## macOS TCC (Track C)
+
+GPD opens folders under `~/Documents`, `~/Desktop`, `~/Downloads`, which macOS TCC protects. Because the app is ad-hoc signed and doesn't declare `NS*UsageDescription` keys, the standard OS prompt doesn't fire. The flow we ship instead:
+
+1. A Rust command `check_project_accessible` probes the folder from the Tauri main process. The probe is attributed to the signed app bundle (not the sidecar), so any later OS grant applies to GPD as a whole.
+2. Cold-launch paths that would eagerly touch the folder (autoselect, `SyncProvider` bootstrap, session prefetch) gate on the probe. If `locked`, they skip the sidecar calls entirely — no EPERM storm.
+3. The sidebar tile renders in a "locked" visual state (60% opacity, dashed border, tooltip "macOS is blocking access — click to reconnect").
+4. Clicking the locked tile calls `projects.unlock`, which pops `NSOpenPanel` pre-navigated to the remembered worktree. User confirms → macOS records "inferred user intent" access → subsequent sidecar calls succeed.
+5. The session grant propagates to the sidecar subprocess via TCC responsible-process attribution.
+
+The flow is macOS-only; Linux/Windows go through the unchanged open path.
 
 ---
 

@@ -163,7 +163,7 @@ rm -rf ~/.config/gpd ~/Library/WebKit/inc.psi.gpd*
 
 # Download and install
 cd /tmp && curl -sL -o GPD_aarch64.app.tar.gz \
-  "https://github.com/psi-oss/gpd-app/releases/download/gpd-desktop-v1.1.0/GPD_aarch64.app.tar.gz" && \
+  "https://github.com/psi-oss/gpd-app/releases/latest/download/GPD_aarch64.app.tar.gz" && \
   tar xzf GPD_aarch64.app.tar.gz && \
   rm -rf /Applications/GPD.app && \
   mv GPD.app /Applications/ && \
