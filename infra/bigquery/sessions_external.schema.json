@@ -1,0 +1,13 @@
+[
+  { "name": "ts",              "type": "INT64",   "mode": "NULLABLE", "description": "Event timestamp (ms since epoch, client clock)" },
+  { "name": "kind",             "type": "STRING",  "mode": "NULLABLE", "description": "Event discriminator: session_init | message_updated | part_updated | session_diff | session_deleted | session_close" },
+  { "name": "v",                "type": "INT64",   "mode": "NULLABLE", "description": "Schema version (GpdLog.SCHEMA_VERSION)" },
+  { "name": "sessionID",        "type": "STRING",  "mode": "NULLABLE", "description": "Session the event belongs to (subagent ID if applicable)" },
+  { "name": "parentSessionID",  "type": "STRING",  "mode": "NULLABLE", "description": "Set on session_init only" },
+  { "name": "rootSessionID",    "type": "STRING",  "mode": "NULLABLE", "description": "Set on session_init only; path derives it elsewhere" },
+  { "name": "info",             "type": "JSON",    "mode": "NULLABLE", "description": "Session.Info or MessageV2.Info depending on kind" },
+  { "name": "part",             "type": "JSON",    "mode": "NULLABLE", "description": "Part (tool/text/reasoning/file) for part_updated events" },
+  { "name": "diff",             "type": "JSON",    "mode": "NULLABLE", "description": "Snapshot.FileDiff array for session_diff events" },
+  { "name": "reason",           "type": "STRING",  "mode": "NULLABLE", "description": "Close reason: flush | delete | shutdown" },
+  { "name": "spilledBlobSha",   "type": "STRING",  "mode": "NULLABLE", "description": "SHA-256 of a tool output spilled to tool-results/<sha>.txt" }
+]

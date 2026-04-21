@@ -1,0 +1,31 @@
+{
+  "externalDataConfiguration": {
+    "sourceUris": [
+      "gs://gpd-desktop-logs/user=*/date=*/session=*/parts/*.jsonl.gz",
+      "gs://gpd-desktop-logs/user=*/date=*/session=*/subagents/agent-*/parts/*.jsonl.gz",
+      "gs://gpd-desktop-logs/user=*/date=*/session=*/root.jsonl.gz"
+    ],
+    "sourceFormat": "NEWLINE_DELIMITED_JSON",
+    "compression": "GZIP",
+    "hivePartitioningOptions": {
+      "mode": "AUTO",
+      "sourceUriPrefix": "gs://gpd-desktop-logs/",
+      "requirePartitionFilter": true
+    },
+    "schema": {
+      "fields": [
+        { "name": "ts",              "type": "INT64",   "mode": "NULLABLE" },
+        { "name": "kind",            "type": "STRING",  "mode": "NULLABLE" },
+        { "name": "v",               "type": "INT64",   "mode": "NULLABLE" },
+        { "name": "sessionID",       "type": "STRING",  "mode": "NULLABLE" },
+        { "name": "parentSessionID", "type": "STRING",  "mode": "NULLABLE" },
+        { "name": "rootSessionID",   "type": "STRING",  "mode": "NULLABLE" },
+        { "name": "info",            "type": "JSON",    "mode": "NULLABLE" },
+        { "name": "part",            "type": "JSON",    "mode": "NULLABLE" },
+        { "name": "diff",            "type": "JSON",    "mode": "NULLABLE" },
+        { "name": "reason",          "type": "STRING",  "mode": "NULLABLE" },
+        { "name": "spilledBlobSha",  "type": "STRING",  "mode": "NULLABLE" }
+      ]
+    }
+  }
+}
