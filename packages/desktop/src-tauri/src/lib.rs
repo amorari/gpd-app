@@ -204,6 +204,7 @@ fn check_macos_app(app_name: &str) -> bool {
     let mut app_locations = vec![
         format!("/Applications/{}.app", app_name),
         format!("/System/Applications/{}.app", app_name),
+        format!("/System/Library/CoreServices/{}.app", app_name),
     ];
 
     if let Ok(home) = std::env::var("HOME") {

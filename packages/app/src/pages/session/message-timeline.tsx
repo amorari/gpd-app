@@ -619,7 +619,7 @@ export function MessageTimeline(props: {
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               {language.t("common.cancel")}
             </Button>
-            <Button variant="primary" size="large" onClick={handleDelete}>
+            <Button variant="primary" size="large" onClick={handleDelete} data-action="session-delete-confirm">
               {language.t("session.delete.button")}
             </Button>
           </div>
@@ -794,6 +794,7 @@ export function MessageTimeline(props: {
                               titleRef = el
                             }}
                             data-slot="session-title-child"
+                            data-action="session-title-input"
                             value={title.draft}
                             disabled={titleMutation.isPending}
                             class="text-14-medium text-text-strong grow-1 min-w-0 rounded-[6px] pl-1 -ml-1"
@@ -841,6 +842,7 @@ export function MessageTimeline(props: {
                               }}
                               aria-label={language.t("common.moreOptions")}
                               aria-expanded={title.menuOpen || share.open || title.pendingShare}
+                              data-action="session-menu-open"
                               ref={(el: HTMLButtonElement) => {
                                 more = el
                               }}
@@ -865,6 +867,7 @@ export function MessageTimeline(props: {
                                 }}
                               >
                                 <DropdownMenu.Item
+                                  data-action="session-menu-rename"
                                   onSelect={() => {
                                     setTitle("pendingRename", true)
                                     setTitle("menuOpen", false)
@@ -883,11 +886,12 @@ export function MessageTimeline(props: {
                                     </DropdownMenu.ItemLabel>
                                   </DropdownMenu.Item>
                                 </Show>
-                                <DropdownMenu.Item onSelect={() => void archiveSession(id())}>
+                                <DropdownMenu.Item data-action="session-menu-archive" onSelect={() => void archiveSession(id())}>
                                   <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                                 <DropdownMenu.Separator />
                                 <DropdownMenu.Item
+                                  data-action="session-menu-delete"
                                   onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id()} />)}
                                 >
                                   <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>

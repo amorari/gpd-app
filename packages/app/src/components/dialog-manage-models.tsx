@@ -38,6 +38,7 @@ export const DialogManageModels: Component = () => {
         </Button>
       }
     >
+      <div data-component="dialog-manage-models">
       <List
         search={{ placeholder: language.t("dialog.model.search.placeholder"), autofocus: true }}
         emptyMessage={language.t("dialog.model.empty")}
@@ -56,6 +57,8 @@ export const DialogManageModels: Component = () => {
                 value={language.t("dialog.model.manage.provider.toggle", { provider: provider.name })}
               >
                 <Switch
+                  data-action="manage-provider-toggle"
+                  data-provider-id={provider.id}
                   class="-mr-1"
                   checked={providerVisible(provider.id)}
                   onChange={(checked) => setProviderVisibility(provider.id, checked)}
@@ -87,6 +90,9 @@ export const DialogManageModels: Component = () => {
             <span>{i.name}</span>
             <div onClick={(e) => e.stopPropagation()}>
               <Switch
+                data-action="manage-model-toggle"
+                data-model-id={i.id}
+                data-provider-id={i.provider.id}
                 checked={!!local.model.visible({ modelID: i.id, providerID: i.provider.id })}
                 onChange={(checked) => {
                   local.model.setVisibility({ modelID: i.id, providerID: i.provider.id }, checked)
@@ -96,6 +102,7 @@ export const DialogManageModels: Component = () => {
           </div>
         )}
       </List>
+      </div>
     </Dialog>
   )
 }
