@@ -294,7 +294,14 @@ def pytest_runtest_setup(item):
 
 
 def pytest_runtest_makereport(item, call):
-    """Capture artifacts on test failure."""
+    """Capture artifacts on test failure.
+
+    In addition to screenshot/window capture, writes a triage hint markdown
+    file listing product-code commits landed in the last 24h. Helps
+    distinguish 'harness bug' from 'product regression' per the triage
+    Gate-4 methodology. Silent no-op if scripts/triage_gate4.py is absent —
+    this hook must not make other test failures harder to read.
+    """
     if call.when != "call" or call.excinfo is None:
         return
     try:
@@ -318,6 +325,49 @@ def pytest_runtest_makereport(item, call):
         except Exception as e:
             artifacts.save_text(d, "windows.err", str(e))
     artifacts.save_text(d, "nodeid.txt", item.nodeid + "\n")
+
+    # Gate-4 triage hint: list product-code commits in the last 24h so a
+    # failure's blast-radius is obvious at a glance.
+    try:
+        import datetime as _dt
+        from pathlib import Path as _Path
+        # Ensure the scripts/ dir is on sys.path. conftest.py's own location
+        # lives alongside it, so this is normally fine.
+        from scripts.triage_gate4 import find_related_commits  # type: ignore
+    except ImportError:
+        return
+
+    now = _dt.datetime.now()
+    yesterday = (now - _dt.timedelta(hours=24)).date().isoformat()
+    try:
+        commits = find_related_commits(
+            since=yesterday,
+            paths=[
+                "packages/desktop/src-tauri/",
+                "packages/desktop/src/",
+            ],
+        )
+    except Exception:
+        return
+
+    triage_dir = _Path(__file__).parent / "artifacts" / "triage_hints"
+    triage_dir.mkdir(parents=True, exist_ok=True)
+    safe = item.nodeid.replace("/", "__").replace("::", "---").replace(" ", "_")
+    hint = triage_dir / f"{safe}.md"
+    lines = [
+        f"# Triage hint for `{item.nodeid}`",
+        "",
+        f"Window: last 24h (since {yesterday} local).",
+        "",
+    ]
+    if commits:
+        lines.append(f"## Product-code commits that may be related ({len(commits)})")
+        lines.append("")
+        for c in commits:
+            lines.append(f"- `{c['sha'][:8]}`  {c['subject']}")
+    else:
+        lines.append("_No product-code commits in the last 24h — harness-side issue is more likely._")
+    hint.write_text("\n".join(lines) + "\n")
 
 
 def pytest_report_header(config):
