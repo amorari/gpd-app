@@ -1099,6 +1099,7 @@ configure_path() {
             [[ -f "$GPD_KEY_EXPORT_FILE" ]] || : > "$GPD_KEY_EXPORT_FILE"
             migrate_legacy_rc_block "$GPD_KEY_EXPORT_FILE"
             printf '%s\n' "$GPD_KEY_EXPORT_LINE" | write_rc_block "$GPD_KEY_EXPORT_FILE"
+            chmod 600 "$GPD_KEY_EXPORT_FILE" 2>/dev/null || true
             log "Added GPD_API_KEY to $GPD_KEY_EXPORT_FILE"
         fi
     fi
