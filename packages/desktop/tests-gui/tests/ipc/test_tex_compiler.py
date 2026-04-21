@@ -34,10 +34,11 @@ TINY_TEX = (
 
 
 # A .tex file with a magic-comment root pointer. The root-detection logic
-# strips ``% !TEX root = <path>`` from the first few lines.
+# strips ``% !TEX root = <path>`` from the first few lines. Escape `{stub}`
+# as `{{stub}}` so `.format(root=...)` leaves the LaTeX brace intact.
 TEX_WITH_MAGIC_ROOT_TEMPLATE = (
     "% !TEX root = {root}\n"
-    r"\input{stub}"
+    r"\input{{stub}}"
 )
 
 
