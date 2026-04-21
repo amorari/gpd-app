@@ -146,3 +146,64 @@ def test_execute_js_timeout_is_distinguishable(fake_mcp_socket):
     with pytest.raises(MCPError) as exc:
         MCPClient(socket_path=path).execute_js("1")
     assert "timeout" in str(exc.value).lower()
+
+
+@pytest.mark.unit
+def test_execute_js_unwraps_dict_result(fake_mcp_socket):
+    """When the server wraps the result in {result, type}, execute_js unwraps it."""
+    def handler(req):
+        assert req["command"] == "execute_js"
+        return {
+            "success": True,
+            "data": {"result": "2", "type": "number"},
+            "error": None,
+            "id": req["id"],
+        }
+
+    path = fake_mcp_socket(handler)
+    result = MCPClient(socket_path=path).execute_js("1+1")
+    # Must return the unwrapped string value, not the dict.
+    assert result == "2", f"expected '2', got {result!r}"
+    assert not isinstance(result, dict), "execute_js should unwrap dict results"
+
+
+@pytest.mark.unit
+def test_auth_token_field_name(fake_mcp_socket):
+    """MCPClient(auth_token=...) must send the field as 'authToken', not 'auth'."""
+    seen: list[dict] = []
+
+    def handler(req):
+        seen.append(req)
+        return {"success": True, "data": None, "error": None, "id": req["id"]}
+
+    path = fake_mcp_socket(handler)
+    MCPClient(socket_path=path, auth_token="secret").ping()
+
+    assert seen, "handler was never called"
+    req = seen[0]
+    assert "authToken" in req, f"'authToken' not in sent request: {req.keys()}"
+    assert req["authToken"] == "secret"
+    assert "auth" not in req or req.get("auth") is None, (
+        "field must be 'authToken', not 'auth'"
+    )
+
+
+@pytest.mark.unit
+def test_list_windows_unwraps_dict_response(fake_mcp_socket):
+    """list_windows() handles server returning {windows: [...]} wrapper dict."""
+    def handler(req):
+        assert req["command"] == "list_windows"
+        return {
+            "success": True,
+            "data": {"windows": [{"label": "main", "title": "GPD"}, {"label": "about", "title": "About GPD"}]},
+            "error": None,
+            "id": req["id"],
+        }
+
+    path = fake_mcp_socket(handler)
+    windows = MCPClient(socket_path=path).list_windows()
+    # Must unwrap the "windows" key and return a plain list.
+    assert isinstance(windows, list), f"expected list, got {type(windows)}"
+    assert len(windows) == 2
+    assert windows[0]["label"] == "main"
+    assert windows[1]["label"] == "about"
