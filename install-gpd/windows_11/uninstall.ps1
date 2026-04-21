@@ -302,23 +302,23 @@ function Remove-AuthJsonGpdEntry {
         return
     }
 
-    # Rebuild as hashtable without the "gpd" key so ConvertTo-Json emits a
-    # clean object (dropping PSObject metadata).
-    $newData = @{}
-    $data.PSObject.Properties | ForEach-Object {
-        if ($_.Name -ne "gpd") {
-            $newData[$_.Name] = $_.Value
-        }
-    }
+    # Strip the "gpd" property in-place on the PSCustomObject. We do NOT
+    # copy values into a hashtable — PS 5.1's ConvertTo-Json emits any
+    # hashtable value that happens to be a PSCustomObject as the string
+    # "@{type=api; key=...}" rather than nested JSON, silently corrupting
+    # other providers' auth entries (bug found during Windows installer
+    # review, 2026-04-21).
+    $data.PSObject.Properties.Remove("gpd")
+    $remaining = @($data.PSObject.Properties).Count
 
     try {
-        if ($newData.Count -eq 0) {
+        if ($remaining -eq 0) {
             # If that was the only provider, write an empty object rather
             # than deleting the file -- opencode expects auth.json to exist
             # (or be absent entirely; we err on the side of "no surprise").
             "{}" | Set-Content -Path $Path -Encoding UTF8
         } else {
-            $newData | ConvertTo-Json -Depth 5 | Set-Content -Path $Path -Encoding UTF8
+            $data | ConvertTo-Json -Depth 5 | Set-Content -Path $Path -Encoding UTF8
         }
         Write-Success "Removed 'gpd' entry from $Path"
     } catch {

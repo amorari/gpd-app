@@ -302,7 +302,12 @@ fi
 # ── Strip 'gpd' entry from opencode auth.json ────────────────────────────
 
 if [[ "$strip_auth_gpd" == true && -n "$PY" ]]; then
-    if "$PY" - "$OPENCODE_AUTH" <<'PYEOF'
+    # Capture the exit code explicitly: 0 = stripped, 2 = no gpd entry
+    # (not an error), anything else = genuine failure. Running inside `if`
+    # collapses 2 and 1 into "failed" which produced a misleading
+    # "Failed to strip" message when the entry simply wasn't present.
+    rc=0
+    "$PY" - "$OPENCODE_AUTH" <<'PYEOF' || rc=$?
 import json, sys
 path = sys.argv[1]
 try:
@@ -319,11 +324,11 @@ except Exception as e:
     sys.stderr.write(str(e) + '\n')
     sys.exit(1)
 PYEOF
-    then
-        success "Removed 'gpd' entry from $OPENCODE_AUTH"
-    else
-        warn "Failed to strip 'gpd' entry from $OPENCODE_AUTH"
-    fi
+    case $rc in
+        0) success "Removed 'gpd' entry from $OPENCODE_AUTH" ;;
+        2) skip "No 'gpd' entry in $OPENCODE_AUTH" ;;
+        *) warn "Failed to strip 'gpd' entry from $OPENCODE_AUTH (exit $rc)" ;;
+    esac
 elif [[ "$strip_auth_gpd" == true ]]; then
     # No usable python3 — auth.json is going to be removed with the
     # opencode dir anyway, so just note it and move on.

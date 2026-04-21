@@ -168,8 +168,14 @@ function Invoke-Download {
     )
     Write-Log "Downloading $(Split-Path $Destination -Leaf)..."
     try {
-        # Use TLS 1.2+ for GitHub downloads
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+        # Force TLS 1.2 minimum for GitHub (it rejects TLS 1.0/1.1). TLS 1.3
+        # is not guaranteed: PS 5.1 on .NET 4.7.x ships without the Tls13
+        # enum value, so referencing it throws at parse/dispatch time and
+        # every download fails. Probe for Tls13 dynamically and OR it in
+        # only when present.
+        $proto = [Net.SecurityProtocolType]::Tls12
+        try { $proto = $proto -bor [Net.SecurityProtocolType]::Tls13 } catch { }
+        [Net.ServicePointManager]::SecurityProtocol = $proto
         $ProgressPreference = "SilentlyContinue"
         Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
     }
@@ -235,7 +241,15 @@ function Install-GpdDesktop {
         return $false
     }
 
-    $ver = $tag -replace '.*-v', ''
+    # Extract semver from tags like "gpd-desktop-v1.1.6" or "v1.1.6". The
+    # previous -replace '.*-v','' was greedy — "v1.1.6" (no dash-v) left
+    # $ver equal to the whole tag, then the download URL 404'd.
+    if ($tag -match 'v(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)') {
+        $ver = $Matches[1]
+    } else {
+        Write-Warn "Could not parse version from tag '$tag' - skipping desktop app."
+        return $false
+    }
     $setupFile = "GPD_" + $ver + "_x64-setup.exe"
     $setupUrl = "https://github.com/$OpenCodeOrg/$OpenCodeRepo/releases/download/$tag/$setupFile"
 
@@ -652,21 +666,28 @@ LITELLM_API_BASE=$LiteLlmProxyUrl
     New-Item -ItemType Directory -Path $authDir -Force | Out-Null
 
     # If auth.json already has other providers, merge (don't clobber).
-    # Otherwise write fresh.
-    $authData = @{}
-    if (Test-Path $authFile) {
+    # Otherwise write fresh. We keep the container as a PSCustomObject
+    # (not a hashtable) because PS 5.1's ConvertTo-Json serializes
+    # hashtable values that happen to be PSCustomObjects as the string
+    # "@{type=api; key=sk-...}" instead of nested JSON — which would
+    # silently corrupt any other provider entries already in auth.json
+    # (bug found during Windows installer review, 2026-04-21).
+    $authData = if (Test-Path $authFile) {
         try {
-            $existing = Get-Content $authFile -Raw | ConvertFrom-Json
-            # Copy existing providers into our hashtable
-            $existing.PSObject.Properties | ForEach-Object {
-                $authData[$_.Name] = $_.Value
-            }
-        }
-        catch {
+            Get-Content $authFile -Raw | ConvertFrom-Json
+        } catch {
             Write-Warn "Couldn't parse existing $authFile; overwriting."
+            [PSCustomObject]@{}
         }
+    } else {
+        [PSCustomObject]@{}
     }
-    $authData["gpd"] = @{ type = "api"; key = $key }
+    $gpdEntry = [PSCustomObject]@{ type = "api"; key = $key }
+    if ($authData.PSObject.Properties.Name -contains "gpd") {
+        $authData.gpd = $gpdEntry
+    } else {
+        $authData | Add-Member -MemberType NoteProperty -Name "gpd" -Value $gpdEntry -Force
+    }
     $authData | ConvertTo-Json -Depth 5 | Set-Content -Path $authFile -Encoding UTF8
 
     Write-Success "PSI key saved to $envFile"
@@ -705,10 +726,16 @@ function Install-Git {
     try {
         # --scope user installs per-user (no UAC admin prompt needed).
         # Default scope for Git.Git is machine, which would require admin.
-        & winget install --id Git.Git -e --silent --scope user --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        # Capture stdout+stderr so a non-zero exit gives the user a real
+        # diagnostic (previously we piped to Out-Null and failed silently).
+        $wingetOut = & winget install --id Git.Git -e --silent --scope user --accept-package-agreements --accept-source-agreements 2>&1
+        $wingetExit = $LASTEXITCODE
         Update-SessionPath
         if (Test-CommandExists "git") {
             Write-Success "git installed"
+        } elseif ($wingetExit -ne 0) {
+            Write-Warn "git install via winget failed (exit $wingetExit):"
+            ($wingetOut | Select-Object -Last 15) | ForEach-Object { Write-Warn "  $_" }
         } else {
             Write-Warn "git installed but not on PATH yet -- open a new terminal"
         }
@@ -732,10 +759,14 @@ function Install-LaTeX {
     Write-Log "Installing MiKTeX via winget (~200MB download, takes several minutes)..."
     try {
         # --scope user installs MiKTeX per-user (no UAC prompt).
-        & winget install --id MiKTeX.MiKTeX -e --silent --scope user --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        $wingetOut = & winget install --id MiKTeX.MiKTeX -e --silent --scope user --accept-package-agreements --accept-source-agreements 2>&1
+        $wingetExit = $LASTEXITCODE
         Update-SessionPath
         if (Test-CommandExists "pdflatex") {
             Write-Success "LaTeX (MiKTeX) installed"
+        } elseif ($wingetExit -ne 0) {
+            Write-Warn "MiKTeX install via winget failed (exit $wingetExit):"
+            ($wingetOut | Select-Object -Last 15) | ForEach-Object { Write-Warn "  $_" }
         } else {
             Write-Warn "MiKTeX installed but not on PATH yet -- open a new terminal"
         }
@@ -921,7 +952,11 @@ function Invoke-GpdInstall {
     $gpdExePath = Join-Path $env:LOCALAPPDATA "GPD\GPD.exe"
     if ($SkipLaunch) {
         Write-Log "Skipping auto-launch (-SkipLaunch set)"
-    } elseif (-not [Environment]::UserInteractive) {
+    } elseif (-not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
+        # UserInteractive alone is insufficient: PowerShell itself is
+        # "interactive" even when launched via `irm | iex`, where stdin is
+        # actually redirected from the pipe. CI runners that pipe the
+        # installer through would otherwise spawn GPD.exe unexpectedly.
         Write-Log "Skipping auto-launch (non-interactive session)"
     } elseif (Test-Path $gpdExePath) {
         Write-Log "Launching GPD desktop app..."
