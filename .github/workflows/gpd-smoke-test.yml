@@ -124,10 +124,14 @@ jobs:
           [ $FAIL -eq 0 ] || exit 1
 
       # --- Simulate gpd install opencode ---
+      # Set OPENCODE_CONFIG_DIR so `gpd install opencode --global` writes to
+      # ~/.config/gpd/ (matching how the desktop app's sidecar is spawned)
+      # instead of the default ~/.config/opencode/.
       - name: Install GPD commands and agents
         shell: bash
         run: |
           mkdir -p ~/.config/gpd
+          export OPENCODE_CONFIG_DIR=~/.config/gpd
           ${{ env.VENV_PYTHON }} -m gpd.cli install opencode --global --skip-readiness-check
           CMDS=$(ls ~/.config/gpd/command/ | wc -l)
           AGENTS=$(ls ~/.config/gpd/agents/ | wc -l)
