@@ -1,0 +1,52 @@
+Subject: [PATCH] feat(dialog,test): add data-action anchors to dialog-manage-models (G5.2)
+
+Stable anchors for the manage-models dialog — currently the weakest dialog
+on the G1.1 inventory (score 2, top-3 coverage gap). Wraps the List in a
+tagged div so the dialog has a unique root anchor, and tags both the per-
+model and per-provider Switch controls so tests-gui can target individual
+rows without relying on Kobalte list internals.
+
+Adds:
+  - data-component="dialog-manage-models" on a root wrapper around the List
+  - data-action="manage-provider-toggle" + data-provider-id on group-header Switch
+  - data-action="manage-model-toggle"    + data-model-id + data-provider-id on row Switch
+
+Companion of test_dialog_manage_models_has_stable_anchor (G5.2).
+
+diff --git a/packages/app/src/components/dialog-manage-models.tsx b/packages/app/src/components/dialog-manage-models.tsx
+--- a/packages/app/src/components/dialog-manage-models.tsx
++++ b/packages/app/src/components/dialog-manage-models.tsx
+@@ -37,6 +37,7 @@ export const DialogManageModels: Component = () => {
+           {language.t("command.provider.connect")}
+         </Button>
+       }
+     >
++      <div data-component="dialog-manage-models">
+       <List
+         search={{ placeholder: language.t("dialog.model.search.placeholder"), autofocus: true }}
+@@ -56,6 +57,8 @@ export const DialogManageModels: Component = () => {
+                 value={language.t("dialog.model.manage.provider.toggle", { provider: provider.name })}
+               >
+                 <Switch
++                  data-action="manage-provider-toggle"
++                  data-provider-id={provider.id}
+                   class="-mr-1"
+                   checked={providerVisible(provider.id)}
+                   onChange={(checked) => setProviderVisibility(provider.id, checked)}
+@@ -88,6 +91,9 @@ export const DialogManageModels: Component = () => {
+             <div onClick={(e) => e.stopPropagation()}>
+               <Switch
++                data-action="manage-model-toggle"
++                data-model-id={i.id}
++                data-provider-id={i.provider.id}
+                 checked={!!local.model.visible({ modelID: i.id, providerID: i.provider.id })}
+                 onChange={(checked) => {
+                   local.model.setVisibility({ modelID: i.id, providerID: i.provider.id }, checked)
+                 }}
+@@ -97,5 +103,6 @@ export const DialogManageModels: Component = () => {
+         )}
+       </List>
++      </div>
+     </Dialog>
+   )
+ }
