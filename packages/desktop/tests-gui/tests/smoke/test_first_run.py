@@ -1,12 +1,9 @@
 import json
-import os
-from pathlib import Path
 
 import pytest
 
 from gpd_tests.drivers.mcp import MCPError, MCPTimeout
-
-SENTINEL = Path(os.environ["HOME"]) / ".config/gpd/.gpd-initialized"
+from gpd_tests.pages.onboarding import sentinel_path
 
 
 @pytest.mark.smoke
@@ -17,7 +14,7 @@ def test_welcome_screen_renders_when_sentinel_absent(mcp):
     subsequent tests); it only checks the current state. The dedicated
     first-run flow test in Phase 3 will actively force the state.
     """
-    if SENTINEL.exists():
+    if sentinel_path().exists():
         pytest.skip("already initialized; no welcome gate to check")
     from gpd_tests.helpers.selectors import TEXT_WELCOME_API_KEY_PROMPT
 
