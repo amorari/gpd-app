@@ -94,14 +94,19 @@ class AppState:
         alive = lambda: bool(
             _pgrep(_PGREP_PATTERN) or _pgrep("opencode-cli.*serve")
         )
-        if not wait_until(lambda: not alive(), timeout_s=5.0):
+        if not wait_until(lambda: not alive(), timeout_s=3.0):
             # SIGTERM wasn't enough — send SIGKILL to remaining processes.
+            survivors = []
             for pattern in (_PGREP_PATTERN, "opencode-cli.*serve"):
-                for pid in _pgrep(pattern):
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+                survivors.extend(_pgrep(pattern))
+            print(
+                f"kill_stale: escalating to SIGKILL for pids {survivors}"
+            )
+            for pid in survivors:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             if not wait_until(lambda: not alive(), timeout_s=5.0):
                 raise TimeoutError(
                     "kill_stale: processes still alive after SIGKILL"
@@ -115,9 +120,15 @@ class AppState:
         if background:
             args.insert(1, "-g")
         subprocess.run(args, check=True, timeout=30)
-        ok = wait_until(lambda: self.is_running(), timeout_s=10.0)
+        timeout_s = 10.0
+        ok = wait_until(lambda: self.is_running(), timeout_s=timeout_s)
         if not ok:
-            raise TimeoutError("GPD failed to launch within 10s")
+            pids = _pgrep(_PGREP_PATTERN)
+            pids_str = ",".join(str(p) for p in pids) if pids else "none"
+            raise RuntimeError(
+                f"GPD failed to launch within {timeout_s}s "
+                f"(matching pids: {pids_str})"
+            )
         self._launched_pid = self.gpd_pid()
 
     def quit(self) -> None:
