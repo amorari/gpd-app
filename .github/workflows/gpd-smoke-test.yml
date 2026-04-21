@@ -67,7 +67,12 @@ jobs:
           esac
 
       # --- Verify config JSON is valid ---
+      # Skipped on Windows: the test binary links against Tauri's runtime,
+      # which pulls in WebView2Loader.dll, and resolving that at runtime
+      # needs setup we don't have here. The Linux-only "Config unit tests"
+      # job covers the same platform-agnostic logic.
       - name: Build sidecar config and validate
+        if: runner.os != 'Windows'
         shell: bash
         working-directory: packages/desktop/src-tauri
         run: cargo test -p opencode-desktop --lib
