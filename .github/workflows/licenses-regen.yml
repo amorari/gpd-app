@@ -1,0 +1,73 @@
+name: Regenerate THIRD_PARTY_NOTICES.md
+
+# Regenerates the license-attribution file from bun.lock + Cargo.lock on every
+# push that touches dependency manifests. If the committed file doesn't match
+# what the generator produces, CI fails the PR so the attribution file can't
+# silently drift from the actual shipped dep set.
+#
+# Script source: scripts/licenses/{regen.sh, build-notices.ts}.
+# Output committed at: THIRD_PARTY_NOTICES.md.
+
+on:
+  push:
+    branches: [gpd]
+    paths:
+      - 'bun.lock'
+      - 'package.json'
+      - 'packages/**/package.json'
+      - 'packages/desktop/src-tauri/Cargo.toml'
+      - 'packages/desktop/src-tauri/Cargo.lock'
+      - 'scripts/licenses/**'
+      - '.github/workflows/licenses-regen.yml'
+  pull_request:
+    branches: [gpd]
+    paths:
+      - 'bun.lock'
+      - 'package.json'
+      - 'packages/**/package.json'
+      - 'packages/desktop/src-tauri/Cargo.toml'
+      - 'packages/desktop/src-tauri/Cargo.lock'
+      - 'scripts/licenses/**'
+      - '.github/workflows/licenses-regen.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: licenses-regen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install npm license scanner
+        run: bun add -g license-checker-rseidelsohn
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-license
+        run: cargo install --locked cargo-license
+
+      - name: Install JS deps (so node_modules/.bun/ is populated)
+        run: bun install --frozen-lockfile
+
+      - name: Regenerate THIRD_PARTY_NOTICES.md
+        run: bash scripts/licenses/regen.sh
+
+      - name: Fail if committed file drifted
+        run: |
+          if ! git diff --exit-code THIRD_PARTY_NOTICES.md; then
+            echo ""
+            echo "::error::THIRD_PARTY_NOTICES.md is stale."
+            echo "Regenerate locally with: bash scripts/licenses/regen.sh"
+            echo "Then commit the diff."
+            exit 1
+          fi
+          echo "✓ THIRD_PARTY_NOTICES.md matches generator output"

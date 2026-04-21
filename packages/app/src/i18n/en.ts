@@ -801,6 +801,14 @@ export const dict = {
   "settings.section.desktop": "App",
   "settings.section.server": "AI Services",
   "settings.section.runtime": "System",
+  "settings.section.about": "About",
+  "settings.licenses.title": "Licenses",
+  "settings.licenses.app_title": "GPD Desktop license",
+  "settings.licenses.app_description":
+    "GPD Desktop is released under the MIT license, forked from the MIT-licensed OpenCode project.",
+  "settings.licenses.third_party_title": "Third-party notices",
+  "settings.licenses.third_party_description":
+    "Every npm, Rust, Python, and bundled-binary dependency shipped inside GPD Desktop, with license text. Click any package to expand.",
   "settings.tab.general": "General",
   "settings.tab.shortcuts": "Shortcuts",
   "settings.desktop.section.wsl": "WSL",

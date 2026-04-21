@@ -79,6 +79,12 @@ export type Platform = {
   /** Parse markdown to HTML using native parser (desktop only, returns unprocessed code blocks) */
   parseMarkdown?(markdown: string): Promise<string>
 
+  /** Read the bundled root LICENSE file (desktop only; web has no bundle) */
+  readLicense?(): Promise<string>
+
+  /** Read the bundled THIRD_PARTY_NOTICES.md (desktop only) */
+  readThirdPartyNotices?(): Promise<string>
+
   /** Webview zoom level (desktop only) */
   webviewZoom?: Accessor<number>
 

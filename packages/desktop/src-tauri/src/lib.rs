@@ -266,6 +266,34 @@ fn check_linux_app(app_name: &str) -> bool {
     return true;
 }
 
+/// Returns the bundled THIRD_PARTY_NOTICES.md contents.
+///
+/// Bundled via `tauri.conf.json` → `bundle.resources`. On macOS/Linux the
+/// file ends up inside the .app/.deb resources dir; on Windows it's
+/// alongside the .exe after NSIS unpacks it. The Rust tauri API resolves
+/// the platform-specific resource dir for us.
+#[tauri::command]
+#[specta::specta]
+fn read_third_party_notices(app: AppHandle) -> Result<String, String> {
+    read_bundled_resource(&app, "THIRD_PARTY_NOTICES.md")
+}
+
+/// Returns the bundled root LICENSE contents (MIT, PSI + upstream).
+#[tauri::command]
+#[specta::specta]
+fn read_license(app: AppHandle) -> Result<String, String> {
+    read_bundled_resource(&app, "LICENSE")
+}
+
+fn read_bundled_resource(app: &AppHandle, name: &str) -> Result<String, String> {
+    let resolver = app.path();
+    let path = resolver
+        .resolve(name, tauri::path::BaseDirectory::Resource)
+        .map_err(|e| format!("Couldn't resolve bundled resource {name}: {e}"))?;
+    std::fs::read_to_string(&path)
+        .map_err(|e| format!("Couldn't read bundled {name} at {}: {e}", path.display()))
+}
+
 #[tauri::command]
 #[specta::specta]
 fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String> {
@@ -396,6 +424,8 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         // Then register them (separated by a comma)
         .commands(tauri_specta::collect_commands![
             kill_sidecar,
+            read_third_party_notices,
+            read_license,
             cli::install_cli,
             await_initialization,
             server::get_default_server_url,
