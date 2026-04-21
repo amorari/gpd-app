@@ -1,10 +1,15 @@
 """HTTP client for opencode-cli sidecar API."""
 from __future__ import annotations
 
+import json
 import subprocess
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Iterator, Literal
 
 import httpx
+
+
+LogLevel = Literal["debug", "info", "error", "warn"]
 
 
 class HTTPClient:
@@ -649,6 +654,162 @@ class HTTPClient:
         """POST /question/{requestID}/reject — no body; server returns ``true``."""
         result = self._post(f"/question/{request_id}/reject")
         return bool(result)
+
+    # ------------------------------------------------------------------
+    # /global/* wrappers (beyond health)
+    # ------------------------------------------------------------------
+
+    def global_config_get(self) -> dict[str, Any]:
+        """GET /global/config — read the merged global Config.Info."""
+        return self._get("/global/config")
+
+    def global_config_patch(self, config: dict[str, Any]) -> dict[str, Any]:
+        """PATCH /global/config — merge the given partial config and return
+        the updated Config.Info."""
+        r = self._client.patch("/global/config", json=config)
+        r.raise_for_status()
+        return r.json()
+
+    def global_dispose(self) -> bool:
+        """POST /global/dispose — tear down all instances. DESTRUCTIVE."""
+        r = self._post("/global/dispose")
+        return r is None or bool(r)
+
+    def global_upgrade(self, *, target: str | None = None) -> dict[str, Any]:
+        """POST /global/upgrade — self-upgrade opencode. DESTRUCTIVE.
+
+        target: version string. If omitted, server resolves to latest.
+        """
+        body: dict[str, Any] = {}
+        if target is not None:
+            body["target"] = target
+        return self._post("/global/upgrade", json=body)
+
+    @contextmanager
+    def global_event_stream(
+        self, *, timeout_s: float = 30.0
+    ) -> Iterator[Iterator[dict[str, Any]]]:
+        """GET /global/event — subscribe to the global SSE stream.
+
+        Usage:
+
+            with client.global_event_stream() as stream:
+                for event in stream:
+                    ...
+                    if done:
+                        break
+
+        The context manager guarantees the underlying streaming Response is
+        closed on exit (even after a partial read). Each yielded event is
+        the decoded JSON payload of one `data:` SSE frame. Comment lines
+        (starting with `:`) and blank separators are skipped.
+        """
+        # Use a longer per-request read timeout for streaming. Connect
+        # timeout still obeys the client-wide default. Auth is applied
+        # automatically from the Client's bound auth.
+        req = self._client.build_request("GET", "/global/event")
+        r = self._client.send(req, stream=True)
+        r.raise_for_status()
+        try:
+            yield _iter_sse_events(r)
+        finally:
+            # close() is idempotent and safe even if iteration never
+            # started; it releases the TCP connection back to the pool.
+            r.close()
+
+    # ------------------------------------------------------------------
+    # /control/* wrappers
+    # ------------------------------------------------------------------
+
+    def control_openapi_doc(self) -> dict[str, Any]:
+        """GET /doc — return the OpenAPI 3.1 spec as a dict."""
+        return self._get("/doc")
+
+    def control_log(
+        self,
+        *,
+        service: str,
+        level: LogLevel,
+        message: str,
+        extra: dict[str, Any] | None = None,
+    ) -> bool:
+        """POST /log — write a log entry into the sidecar's log stream.
+
+        Raises ValueError if `level` is not one of debug/info/error/warn;
+        the server would 400 but surfacing locally is friendlier.
+        """
+        if level not in ("debug", "info", "error", "warn"):
+            raise ValueError(
+                f"invalid log level {level!r}; "
+                "must be one of debug/info/error/warn"
+            )
+        body: dict[str, Any] = {
+            "service": service,
+            "level": level,
+            "message": message,
+        }
+        if extra is not None:
+            body["extra"] = extra
+        r = self._post("/log", json=body)
+        return r is None or bool(r)
+
+    def control_auth_set(self, provider_id: str, info: dict[str, Any]) -> bool:
+        """PUT /auth/:providerID — set credentials for a provider. DESTRUCTIVE.
+
+        Mutates ~/.local/share/opencode/auth.json.
+        """
+        r = self._client.put(f"/auth/{provider_id}", json=info)
+        r.raise_for_status()
+        if r.status_code == 204 or not r.content:
+            return True
+        return bool(r.json())
+
+    def control_auth_remove(self, provider_id: str) -> bool:
+        """DELETE /auth/:providerID — remove stored credentials. DESTRUCTIVE."""
+        r = self._delete(f"/auth/{provider_id}")
+        return r is None or bool(r)
+
+
+def _iter_sse_events(resp: httpx.Response) -> Iterator[dict[str, Any]]:
+    """Yield parsed JSON objects from an SSE stream.
+
+    Handles:
+      - `data: <json>` frames (the only kind opencode emits)
+      - `: comment` lines (skipped)
+      - blank separator lines (skipped)
+      - multi-line `data:` accumulation per the SSE spec (joined with \n)
+
+    A frame is dispatched when an empty line follows its data lines. If the
+    stream closes mid-frame the partial frame is discarded silently — this
+    matches EventSource semantics and is what we want for clean shutdown.
+    """
+    buf: list[str] = []
+    for line in resp.iter_lines():
+        # httpx.iter_lines yields str with the terminator already stripped.
+        if line == "":
+            if buf:
+                payload = "\n".join(buf)
+                buf = []
+                try:
+                    yield json.loads(payload)
+                except json.JSONDecodeError:
+                    # Not a JSON frame — ignore rather than crashing the
+                    # consumer. opencode only sends JSON `data:` frames
+                    # today, but tolerating stray bytes keeps us robust.
+                    continue
+            continue
+        if line.startswith(":"):
+            # SSE comment — used for keep-alive. Skip.
+            continue
+        if line.startswith("data:"):
+            # Strip the field name and one optional leading space.
+            value = line[5:]
+            if value.startswith(" "):
+                value = value[1:]
+            buf.append(value)
+            continue
+        # Other field names (event:, id:, retry:) are not used by opencode
+        # so we ignore them without accumulating.
 
 
 def discover_sidecar_port(
