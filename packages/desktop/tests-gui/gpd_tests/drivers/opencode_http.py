@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from contextlib import contextmanager
 from typing import Any, Iterator, Literal
 
@@ -882,19 +883,48 @@ def _probe_port_once(*, pid: int | None) -> int:
 def discover_sidecar_credentials(pid: int) -> tuple[str, str]:
     """Read OPENCODE_SERVER_USERNAME/PASSWORD from the sidecar process env.
 
-    Uses `ps -E -p <pid>` which, on macOS, prints the env for same-user processes.
+    On macOS, uses ``ps -E -p <pid>`` which prints the environment variables
+    for same-user processes.
+
+    On Linux, reads ``/proc/{pid}/environ`` directly (a null-delimited list of
+    ``KEY=VALUE`` pairs), which is always available for same-user processes
+    without any extra privileges.
     """
-    out = subprocess.run(
-        ["ps", "-E", "-ww", "-p", str(pid)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    env_text = out.stdout
+    if sys.platform == "darwin":
+        out = subprocess.run(
+            ["ps", "-E", "-ww", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        env_text = out.stdout
+    else:
+        # Linux (and other POSIX systems): /proc/{pid}/environ is a
+        # null-delimited list of KEY=VALUE pairs.
+        environ_path = f"/proc/{pid}/environ"
+        try:
+            raw = open(environ_path, "rb").read()
+        except PermissionError as exc:
+            raise RuntimeError(
+                f"cannot read {environ_path} on {sys.platform}: "
+                f"permission denied (are you the same user as the sidecar?)"
+            ) from exc
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                f"cannot read {environ_path} on {sys.platform}: "
+                f"process {pid} not found or /proc not mounted"
+            ) from exc
+        # Replace null bytes with spaces so _extract_env can scan for
+        # " KEY=VALUE" tokens with the existing space-delimited logic.
+        env_text = " " + raw.replace(b"\x00", b" ").decode("utf-8", errors="replace")
+
     user = _extract_env(env_text, "OPENCODE_SERVER_USERNAME") or "opencode"
     pw = _extract_env(env_text, "OPENCODE_SERVER_PASSWORD")
     if not pw:
-        raise RuntimeError("OPENCODE_SERVER_PASSWORD not found in sidecar env")
+        raise RuntimeError(
+            f"OPENCODE_SERVER_PASSWORD not found in sidecar env "
+            f"(pid={pid}, platform={sys.platform})"
+        )
     return user, pw
 
 
