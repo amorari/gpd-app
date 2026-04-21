@@ -8,12 +8,14 @@ from gpd_tests.drivers.mcp import _discover_socket_path
 from gpd_tests.helpers.timings import wait_until
 
 def _default_app_path() -> str:
-    """Resolve GPD.app.
+    """Resolve the GPD app bundle path.
 
     Order: GPD_APP_PATH env override > installed /Applications/GPD.app.
-    In-tree dev builds land at
-    packages/desktop/src-tauri/target/{debug,release}/bundle/macos/GPD.app —
-    point GPD_APP_PATH there when running against a local build.
+    In-tree builds land at
+    packages/desktop/src-tauri/target/{debug,release}/bundle/macos/:
+      - debug build: GPD Dev.app
+      - release build: GPD.app
+    Point GPD_APP_PATH there when running against a local build.
     """
     return os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")
 
