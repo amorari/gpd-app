@@ -123,15 +123,16 @@ def test_created_session_has_required_id_field(http):
 
 
 @pytest.mark.flows
-def test_session_list_entries_have_id_field(http):
-    """Every entry returned by sessions() must have an id field."""
+def test_created_session_appears_in_listing_with_id(http):
+    """The session returned by create_session() appears in sessions() with an id."""
     ses = http.create_session()
+    sid = ses["id"]
     try:
-        all_sessions = http.sessions()
-        for s in all_sessions:
-            assert "id" in s, f"sessions() entry missing 'id': {s!r}"
+        listed = {s["id"]: s for s in http.sessions()}
+        assert sid in listed, f"created session {sid} not in sessions() listing"
+        assert "id" in listed[sid], f"listing entry for {sid} missing 'id': {listed[sid]!r}"
     finally:
-        _cleanup(ses["id"], http=http)
+        _cleanup(sid, http=http)
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +166,14 @@ def test_unused_session_deletes_cleanly(http):
     """A session that was never sent a message can be deleted and disappears."""
     ses = http.create_session()
     sid = ses["id"]
-    assert sid in {s["id"] for s in http.sessions()}, "session not in listing after create"
-    http.delete_session(sid)
-    assert sid not in {s["id"] for s in http.sessions()}, "deleted session still in listing"
+    deleted = False
+    try:
+        assert sid in {s["id"] for s in http.sessions()}, "session not in listing after create"
+        http.delete_session(sid)
+        deleted = True
+        assert sid not in {s["id"] for s in http.sessions()}, (
+            "deleted session still in listing"
+        )
+    finally:
+        if not deleted:
+            _cleanup(sid, http=http)

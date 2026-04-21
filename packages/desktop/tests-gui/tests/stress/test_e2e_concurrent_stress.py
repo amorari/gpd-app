@@ -38,7 +38,10 @@ def _ask_one(http, ses_id: str, marker: str) -> str:
     )
     msgs = http.messages(ses_id)
     assistant_msgs = [m for m in msgs if m.get("info", {}).get("role") == "assistant"]
-    return "".join(assistant_text(m) for m in assistant_msgs)
+    if not assistant_msgs:
+        return ""
+    # Use only the last assistant message to avoid false positives from earlier turns
+    return assistant_text(assistant_msgs[-1])
 
 
 @pytest.mark.flows
@@ -107,9 +110,11 @@ def test_three_parallel_multiturn_sessions_retain_context(http, anthropic_key):
             agent="default",
         )
         msgs = http.messages(ses_id)
-        assistant = [m for m in msgs if m["info"]["role"] == "assistant"]
+        assistant = [m for m in msgs if m.get("info", {}).get("role") == "assistant"]
+        if not assistant:
+            return ""
         return "".join(
-            p.get("text", "") for p in assistant[-1]["parts"] if p.get("type") == "text"
+            p.get("text", "") for p in assistant[-1].get("parts", []) if p.get("type") == "text"
         )
 
     try:
