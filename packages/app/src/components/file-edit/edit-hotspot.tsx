@@ -29,6 +29,7 @@ export function EditHotspot(props: EditHotspotProps) {
         variant="ghost"
         size="small"
         aria-label={language.t("file.edit.hotspot.label", { line: String(props.lineNumber) })}
+        data-action="file-edit-hotspot"
         onMouseDown={(event) => {
           // Prevent Pierre's line-selection drag from starting under our click.
           event.stopPropagation()
