@@ -1,0 +1,78 @@
+# SECURITY PATCH SUGGESTION — markdown renderer allows raw HTML + javascript: URLs
+#
+# Surfaced by: tests-gui G7.4, tests/security/test_ipc_boundaries.py
+#   - test_markdown_iframe_is_escaped
+#   - test_markdown_javascript_url_in_link_is_sanitized
+#
+# File: packages/desktop/src-tauri/src/markdown.rs
+#
+# -----------------------------------------------------------------------------
+# Finding
+# -----------------------------------------------------------------------------
+# `parse_markdown` sets `options.render.r#unsafe = true` (line 50) to let users
+# embed raw HTML in their markdown. Consequence: every raw HTML tag in a
+# markdown document passes through to the rendered output. The product renders
+# the result with `innerHTML` in the markdown preview panel, so any of these
+# markdown sources becomes a DOM-level XSS sink in the webview:
+#
+#   <script>alert(1)</script>                   -- raw script tag
+#   <iframe src="javascript:alert(1)"></iframe> -- javascript: URL in iframe
+#   <img src=x onerror="alert(1)">              -- event handler on inline img
+#   [click me](javascript:alert(1))             -- javascript: URL in link href
+#
+# The last one is especially insidious: comrak has a built-in `dangerous_url`
+# guard that would strip `javascript:` hrefs, BUT the `ExternalLinkFormatter`
+# at lines 20-26 short-circuits it with
+#
+#     if context.options.render.r#unsafe || !dangerous_url(url) { ... write href ... }
+#
+# Because `r#unsafe = true`, the guard is bypassed and `javascript:` URLs
+# reach the rendered anchor.
+#
+# -----------------------------------------------------------------------------
+# Fix directions (pick one, in descending order of safety)
+# -----------------------------------------------------------------------------
+#
+# Option A (nuclear, safest) — disable raw HTML entirely:
+#
+#     -    options.render.r#unsafe = true;
+#     +    options.render.r#unsafe = false;
+#
+#   Breakage: users can't embed raw HTML in markdown at all. Probably fine
+#   for the GPD markdown-preview use case but verify with product.
+#
+# Option B (surgical) — keep raw HTML for benign tags, sanitize dangerous
+# ones. Add an `ammonia` (or equivalent) post-process pass after comrak:
+#
+#     use ammonia::Builder;
+#     pub fn parse_markdown(input: &str) -> String {
+#         let raw = /* ... existing comrak render ... */;
+#         Builder::default()
+#             .rm_tags(&["script", "iframe", "object", "embed", "style"])
+#             .rm_tag_attributes("img", &["onerror", "onload"])
+#             .url_schemes(hashset!["http", "https", "mailto"])
+#             .clean(&raw).to_string()
+#     }
+#
+# Option C (minimum patch, addresses the javascript: URL only) — remove the
+# `r#unsafe ||` short-circuit in ExternalLinkFormatter so `dangerous_url` is
+# always honored even when `r#unsafe = true`:
+#
+#     -            if context.options.render.r#unsafe || !comrak::html::dangerous_url(url) {
+#     +            if !comrak::html::dangerous_url(url) {
+#
+#   Partial mitigation: blocks javascript:/data: URLs in links but leaves
+#   raw <script> / <iframe> / onerror handlers executable. Pair with
+#   Option A or B for full coverage.
+#
+# -----------------------------------------------------------------------------
+# Test expectations after fix
+# -----------------------------------------------------------------------------
+# All three security tests above should pass:
+#   - test_markdown_iframe_is_escaped (requires Option A or B)
+#   - test_markdown_javascript_url_in_link_is_sanitized (requires A, B, or C)
+#   - test_parse_markdown_command_escapes_script_tag_xss_vector  (G4.3; requires A or B)
+#
+# No product test should regress — the rich-feature-matrix fixture in G4.3
+# exercises tables / autolinks / code fences / etc. which are all handled by
+# comrak's built-in renderer, not by raw HTML pass-through.
