@@ -34,19 +34,6 @@ from gpd_tests.helpers.navigator import (
 )
 
 
-# Same reason string as the F4 smoke test (tests/smoke/test_sidebar.py);
-# keep in sync so a consumer grepping by reason finds both places.
-_F4_XFAIL_REASON = (
-    "No always-present DOM anchor for the sidebar 'new session' trigger in a "
-    "fresh/empty workspace: the existing [data-action=\"workspace-new-session\"] "
-    "button inside sidebar-workspace is a hover-revealed child that only "
-    "renders once the workspace list contains an entry. Turning this into a "
-    "stable smoke assertion needs a product-side change — tagging the always-"
-    "present titlebar new-session button with data-action=\"new-session\". "
-    "Patch prepared at /tmp/gpd-app-data-action-new-session.patch (F4); will "
-    "be submitted as a separate PR to gpd-app."
-)
-
 
 @pytest.fixture
 def prepared_project_path(tmp_path_factory) -> str:
@@ -80,13 +67,13 @@ def seeded_project(http, prepared_project_path) -> str:
 
 
 @pytest.mark.surfaces
-@pytest.mark.xfail(strict=False, reason=_F4_XFAIL_REASON)
 def test_titlebar_new_session_button_is_enabled(mcp, seeded_project):
     """The titlebar ``data-action="new-session"`` button is present + enabled.
 
     The button only renders when ``params.dir`` is set (i.e. on a project
-    route), so we navigate to the project first. xfails until the F4 patch
-    lands.
+    route), so we navigate to the project first. Requires the F4 patch
+    (data-action="new-session" on the titlebar button) and the layout fix
+    that auto-registers projects on direct URL navigation.
     """
     Navigator(mcp).go(route_project(seeded_project), timeout_s=5.0)
     probe = DOMProbe(mcp)
