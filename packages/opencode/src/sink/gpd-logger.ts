@@ -1,4 +1,5 @@
 import { Context, Effect, Exit, Layer, Scope, Stream } from "effect"
+import { Auth } from "@/auth"
 import { Bus } from "@/bus"
 import { InstanceState } from "@/effect/instance-state"
 import { Session } from "@/session"
@@ -7,6 +8,7 @@ import type { SessionID } from "@/session/schema"
 import { Log } from "@/util/log"
 import { GpdLog } from "./schema"
 import { GpdLogWriter } from "./jsonl-writer"
+import { GpdLogHttp } from "./http-writer"
 
 export namespace GpdLogger {
   const log = Log.create({ service: "gpd-logger" })
@@ -137,9 +139,17 @@ export namespace GpdLogger {
     return out
   }
 
+  // When OPENCODE_GPD_LOG_LOCAL_MIRROR=1, also write events to on-disk
+  // JSONL files at ~/.local/share/opencode/gpd-session-logs/ for local
+  // debugging. Off by default — production relies on GCS, not local FS.
+  const localMirror =
+    process.env["OPENCODE_GPD_LOG_LOCAL_MIRROR"] === "1" ||
+    process.env["OPENCODE_GPD_LOG_LOCAL_MIRROR"] === "true"
+
   export const layer = Layer.effect(
     Service,
     Effect.gen(function* () {
+      const auth = yield* Auth.Service
       const bus = yield* Bus.Service
       const sessions = yield* Session.Service
 
@@ -190,7 +200,22 @@ export namespace GpdLogger {
           s.initialized,
         )
         if (events.length === 0) return
-        yield* Effect.promise(() => GpdLogWriter.append(root, events))
+
+        // Primary sink: POST gzipped NDJSON to LiteLLM's /gpd/log. On
+        // failure the http-writer spills the request body to disk and the
+        // background replayer retries it.
+        yield* Effect.promise(() =>
+          GpdLogHttp.post(auth, { sessionID, rootSessionID: root, events }),
+        )
+
+        // Optional: mirror to local JSONL for dev ergonomics (off by default).
+        if (localMirror) {
+          yield* Effect.promise(() => GpdLogWriter.append(root, events)).pipe(
+            Effect.catchCause((cause) =>
+              Effect.sync(() => log.warn("local mirror write failed", { cause })),
+            ),
+          )
+        }
       })
 
       const state: InstanceState<State> = yield* InstanceState.make<State>(
@@ -269,11 +294,29 @@ export namespace GpdLogger {
         }),
       )
 
+      const replayTick = Effect.gen(function* () {
+        const result: { posted: number; remaining: number } = yield* Effect.promise(() =>
+          GpdLogHttp.replay(auth).catch(() => ({ posted: 0, remaining: 0 })),
+        )
+        if (result.posted > 0) log.info("replay drained spill", result)
+        // Empty spill → re-check slowly; busy spill → retry sooner.
+        const delay = result.remaining === 0 ? "60 seconds" : "30 seconds"
+        yield* Effect.sleep(delay)
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.sync(() => log.warn("replay tick errored", { cause })),
+        ),
+      )
+
       const init: Interface["init"] = () =>
         Effect.gen(function* () {
           if (!enabled) return
-          yield* InstanceState.get(state)
-          log.info("initialized", { baseDir: GpdLogWriter.baseDir() })
+          const s = yield* InstanceState.get(state)
+          log.info("initialized", { localMirror })
+
+          // Boot replay + periodic retry loop. Stays on a forked fiber so
+          // the init promise resolves immediately.
+          yield* Effect.forever(replayTick).pipe(Effect.forkIn(s.scope))
         })
 
       return Service.of({ init })
@@ -281,6 +324,9 @@ export namespace GpdLogger {
   )
 
   export const defaultLayer = Layer.suspend(() =>
-    layer.pipe(Layer.provide(Bus.layer), Layer.provide(Session.defaultLayer)),
+    layer
+      .pipe(Layer.provide(Auth.defaultLayer))
+      .pipe(Layer.provide(Bus.layer))
+      .pipe(Layer.provide(Session.defaultLayer)),
   )
 }

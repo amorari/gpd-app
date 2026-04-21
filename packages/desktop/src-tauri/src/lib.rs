@@ -527,6 +527,12 @@ async fn initialize(app: AppHandle) {
             // programmatic invocations (SDK calls, slash commands, deep links)
             // all no-op cleanly.
             ("OPENCODE_DISABLE_SHARE", "1".to_string()),
+            // GPD session logging. Activates the GpdLogger bus-subscriber
+            // which POSTs gzipped NDJSON flushes to LiteLLM's /gpd/log route.
+            // Auth flows through the user's existing virtual key in auth.json;
+            // we never ship a GCS service-account key on the desktop.
+            // The proxy on Railway forwards writes to gs://gpd-desktop-logs.
+            ("OPENCODE_GPD_LOGS_ENABLED", "1".to_string()),
         ],
     );
 
