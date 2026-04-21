@@ -609,15 +609,21 @@ configure_path() {
     current_shell="$(basename "${SHELL:-bash}")"
     local added=false
 
-    # Determine rc files by shell
+    # Determine rc files by shell. For zsh on macOS we also write to .zprofile
+    # so non-interactive login shells (e.g. `zsh -l -c`, launchd-spawned shells)
+    # pick up $PATH — .zshrc is only sourced for interactive shells.
     local rc_files
     case "$current_shell" in
         fish) rc_files="$HOME/.config/fish/config.fish" ;;
-        zsh)  rc_files="${ZDOTDIR:-$HOME}/.zshrc" ;;
+        zsh)  rc_files="${ZDOTDIR:-$HOME}/.zshrc ${ZDOTDIR:-$HOME}/.zprofile" ;;
         *)    rc_files="$HOME/.bashrc $HOME/.bash_profile $HOME/.profile" ;;
     esac
 
     for rc in $rc_files; do
+        # Create .zprofile if missing on zsh so login shells see the PATH entry.
+        if [[ ! -f "$rc" && "$current_shell" == "zsh" && "$rc" == *".zprofile" ]]; then
+            : > "$rc"
+        fi
         if [[ -f "$rc" ]] && ! grep -qF "$GPD_BIN_DIR" "$rc"; then
             if [[ "$current_shell" == "fish" ]]; then
                 printf '\n# GPD CLI\nfish_add_path %s\n' "$GPD_BIN_DIR" >> "$rc"
@@ -626,7 +632,8 @@ configure_path() {
             fi
             log "Added to $rc"
             added=true
-            break
+            # For bash/fish we only need one rc file; zsh wants both .zshrc + .zprofile.
+            [[ "$current_shell" != "zsh" ]] && break
         fi
     done
 
