@@ -221,6 +221,133 @@ class HTTPClient:
         return r is None or bool(r)
 
     # ------------------------------------------------------------------
+    # Additional /session/* wrappers (Phase G3.1)
+    # ------------------------------------------------------------------
+
+    def get_session(self, session_id: str) -> dict[str, Any]:
+        """GET /session/:sessionID — single-session fetch.
+
+        Returns the ``Session.Info`` dict. Raises ``httpx.HTTPStatusError``
+        with a 404 response if the session does not exist.
+        """
+        return self._get(f"/session/{session_id}")
+
+    def session_children(self, session_id: str) -> list[dict[str, Any]]:
+        """GET /session/:sessionID/children — child sessions forked from parent."""
+        return self._get(f"/session/{session_id}/children")
+
+    def session_status(self) -> dict[str, Any]:
+        """GET /session/status — busy-state projector, id → status info."""
+        return self._get("/session/status")
+
+    def patch_session(self, session_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH /session/:sessionID — update title / permission / time.archived.
+
+        Server accepts ``{ title?, permission?, time?: { archived? } }``.
+        Returns the updated ``Session.Info``.
+        """
+        return self._patch(f"/session/{session_id}", json=patch)
+
+    def fork_session(
+        self,
+        session_id: str,
+        *,
+        after_message_id: str | None = None,
+    ) -> dict[str, Any]:
+        """POST /session/:sessionID/fork — create a child session from this point.
+
+        ``after_message_id`` maps to the server-side ``messageID`` field in
+        ``Session.ForkInput`` (camelCase on the wire). When omitted, the
+        server forks from the session's latest message.
+        """
+        body: dict[str, Any] = {}
+        if after_message_id is not None:
+            body["messageID"] = after_message_id
+        return self._post(f"/session/{session_id}/fork", json=body)
+
+    def get_session_diff(
+        self,
+        session_id: str,
+        *,
+        message_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """GET /session/:sessionID/diff — file changes from a specific message.
+
+        The server requires ``?messageID=...`` in practice; the driver does
+        not inject a default so callers pick the message explicitly. When
+        ``message_id`` is omitted, the query param is not sent (and the
+        server will return 400).
+        """
+        if message_id is None:
+            return self._get(f"/session/{session_id}/diff")
+        r = self._client.get(
+            f"/session/{session_id}/diff",
+            params={"messageID": message_id},
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def get_message(self, session_id: str, message_id: str) -> dict[str, Any]:
+        """GET /session/:sessionID/message/:messageID — single message + parts."""
+        return self._get(f"/session/{session_id}/message/{message_id}")
+
+    def delete_message(self, session_id: str, message_id: str) -> bool:
+        """DELETE /session/:sessionID/message/:messageID — destructive.
+
+        Returns ``True`` on success (server returns ``true`` or ``204``).
+        """
+        r = self._delete(f"/session/{session_id}/message/{message_id}")
+        return r is None or bool(r)
+
+    def revert_message(
+        self,
+        session_id: str,
+        *,
+        message_id: str,
+        part_id: str | None = None,
+    ) -> dict[str, Any]:
+        """POST /session/:sessionID/revert — revert a message (and optional part).
+
+        Maps to ``SessionRevert.RevertInput`` (minus sessionID). Returns the
+        updated ``Session.Info``.
+        """
+        body: dict[str, Any] = {"messageID": message_id}
+        if part_id is not None:
+            body["partID"] = part_id
+        return self._post(f"/session/{session_id}/revert", json=body)
+
+    def unrevert_session(self, session_id: str) -> dict[str, Any]:
+        """POST /session/:sessionID/unrevert — restore all reverted messages."""
+        return self._post(f"/session/{session_id}/unrevert")
+
+    def prompt_async(
+        self,
+        session_id: str,
+        *,
+        parts: list[dict[str, Any]],
+        model_id: str | None = None,
+        provider_id: str | None = None,
+        agent: str | None = None,
+    ) -> None:
+        """POST /session/:sessionID/prompt_async — fire-and-forget prompt.
+
+        Server returns 204 and continues processing on the server side. The
+        wrapper mirrors :meth:`send_message` request shape (nested ``model``
+        object). Completion is observed via the /event SSE stream, not this
+        call's return value.
+        """
+        body: dict[str, Any] = {"parts": parts}
+        if (model_id is None) != (provider_id is None):
+            raise ValueError("model_id and provider_id must be provided together")
+        if model_id is not None and provider_id is not None:
+            body["model"] = {"modelID": model_id, "providerID": provider_id}
+        if agent is not None:
+            body["agent"] = agent
+        # _post already maps 204 / empty-body to None.
+        self._post(f"/session/{session_id}/prompt_async", json=body)
+        return None
+
+    # ------------------------------------------------------------------
     # /project wrappers (Phase G3.3)
     # ------------------------------------------------------------------
 
