@@ -154,7 +154,7 @@ _To be populated from `runs/flakiness_report.md` once the sweep finishes._
 
 ## Findings
 
-_Each finding is independently verified via Phase X4 classification agents: they read the test, the product code it exercises, and the harness code it depends on; then they assign one of five labels per the triage four-gate methodology._
+_Each finding is independently verified: we read the test, the product code it exercises, and the harness code it depends on; then we assign one of five labels per the triage four-gate methodology._
 
 Labels:
 - **REAL_BUG** — product code has a defect.
@@ -163,7 +163,83 @@ Labels:
 - **HARNESS_BUG** — test code itself is incorrect; product is fine.
 - **FLAKY** — passes and fails intermittently without deterministic cause.
 
-_Findings table to be populated._
+### Findings table (verified so far)
+
+| # | Test / symptom | Label | Fix commit |
+|---|---|---|---|
+| F1 | `app_state.launch()` — `RuntimeError: GPD failed to launch within 10.0s` on every smoke/flows/ipc/lifecycle test | HARNESS_BUG | `79233c9` |
+| F2 | Every `invoke_via_mcp()` call returned `{}` regardless of the command's real output | HARNESS_BUG | `c96b9cd` |
+| F3 | `test_install_git_macos_platform_gated` opened a modal xcode-select dialog on Darwin, cascading timeouts into every subsequent ipc test | HARNESS_BUG | `c96b9cd` |
+| F4 | `test_sidebar_new_session_selector_is_in_dom` — `[data-action="workspace-new-session"]` not present in the frontend | HARNESS_BUG | _pending_ |
+
+### F1 — `pgrep` pattern for debug builds
+
+**Symptom:** Every test that uses the `app_state` fixture raised `RuntimeError: GPD failed to launch within 10.0s (matching pids: none)` on the first live sweep, even though GPD Dev was running.
+
+**Evidence:** `gpd_tests/pages/app_state.py:29` computed:
+```python
+_APP_NAME = Path(APP_PATH).stem          # "GPD Dev"
+_PGREP_PATTERN = f"{_APP_NAME}.app/Contents/MacOS/{_APP_NAME}"
+# → "GPD Dev.app/Contents/MacOS/GPD Dev"
+```
+But Tauri's `tauri.conf.json` has `"productName": "GPD Dev"` and `"mainBinaryName": "GPD"` — the binary inside the bundle is `GPD`, not `GPD Dev`. `pgrep -f "GPD Dev.app/Contents/MacOS/GPD Dev"` matched nothing. On a release build the pattern happened to work because `productName` and `mainBinaryName` are both `GPD`.
+
+**Label:** HARNESS_BUG. Reading `tauri.conf.json` would have caught this during Phase 1 authoring.
+
+**Fix:** Match on the `MacOS/` directory prefix instead of the binary name — unique enough across bundles, robust to any Tauri naming scheme.
+
+### F2 — `invoke_via_mcp` never sees real command results
+
+**Symptom:** 61 of 62 ipc failures in the first live sweep reported identical errors: `gpd_tests.drivers.mcp.MCPError: Timeout waiting for JS execution: Timeout waiting for execute-js response`.
+
+**Evidence:** The helper submitted an async IIFE:
+```javascript
+(async () => {
+  const r = await window.__TAURI_INTERNALS__.invoke(cmd, args);
+  return JSON.stringify(r);
+})()
+```
+The vendored tauri-plugin-mcp guest-js (`packages/desktop/src/vendor/tauri-plugin-mcp.ts:1413`) evaluates the submitted code with:
+```javascript
+function executeJavaScript(code) {
+  return new Function(`return (${code})`)();
+}
+```
+— synchronously. The return value is a pending Promise. The handler then does `JSON.stringify(promise)` which yields `"{}"` (Promises have no enumerable properties). So Python received `"{}"` for every invocation regardless of what the Tauri command actually returned. The "timeout" errors appeared because one upstream test (F3) blocked the webview entirely, and subsequent tests couldn't even get the `"{}"` bogus-success response.
+
+**Label:** HARNESS_BUG. The unit tests for `invoke_via_mcp` asserted the JS wire shape against a MagicMock and so had no coverage of the plugin's actual Promise-handling behavior.
+
+**Fix (`c96b9cd`):** switched to a *slot-poll* pattern — the submit call stashes the settled result on `window.__gpd_ipc_slot_<n>` and returns `null`; a subsequent `execute_js` polls `JSON.stringify(window[slot])` until it reports `{ok: true, value: ...}` or `{ok: false, err: ...}`. Nine unit tests cover submit/poll/settle/error/deadline semantics.
+
+### F3 — `test_install_git_macos_platform_gated` opened a modal dialog
+
+**Symptom:** First-position ipc test (alphabetically) on Darwin invoked `install_git_macos({})`, which calls `xcode-select --install`. If CLT isn't present, that spawns a modal "Install the developer tools" dialog; if it is present, it returns "already installed" — **except** the Rust command still treats both as "launched" and may briefly surface UI. During the sweep, the webview bridge became unresponsive immediately after this test — confirmed by a post-sweep `mcp.execute_js("1 + 1")` timing out against the same GPD process that happily returned `list_windows`.
+
+**Evidence:** `tests/ipc/test_dependencies.py:31` before the fix:
+```python
+if sys.platform == "darwin":
+    result = invoke_via_mcp(mcp, "install_git_macos", {})
+```
+
+**Label:** HARNESS_BUG. The test was written defensively ("xcode-select on a host where CLT is installed is a no-op"), but the author couldn't know how `install_git_macos`'s Rust code handles the already-installed path at the UI layer. Sweeps on an unattended dev machine cannot call this.
+
+**Fix (`c96b9cd`):** skip the Darwin branch entirely; keep only the non-Darwin platform-gate assertion. Similar skips applied to `install_tectonic` (multi-minute network download) and `install_cli` (writes `~/.opencode/bin`). The negative sweep in `test_ipc_negative.py` already had `_UNSAFE_FOR_NEGATIVE_SWEEP` but that list only governed the parametrized bogus-arg sweep, not the dedicated tests in `test_dependencies.py` / `test_tectonic_markdown_cli.py`.
+
+### F4 — Stale selector `[data-action="workspace-new-session"]`
+
+**Symptom:** `tests/smoke/test_sidebar.py::test_sidebar_new_session_selector_is_in_dom` failed in every smoke iteration: `AssertionError: sidebar selector not in DOM: False`.
+
+**Evidence:**
+- The selector is defined in `gpd_tests/helpers/selectors.py:6`:
+  `SIDEBAR_NEW_SESSION = '[data-action="workspace-new-session"]'`
+- Grep of `packages/app/src/` for `workspace-new-session` → zero matches.
+- Grep of `packages/desktop/src/` → zero matches.
+- The frontend DOES use the `data-action` convention elsewhere: `prompt-submit`, `prompt-attach`, `prompt-agent`, `prompt-model`, `settings-language`, etc. But not `workspace-new-session`.
+- Git log `-S "workspace-new-session"` across all branches shows the selector first appeared in the Phase 1 test suite commit (`9dc8aed`, tests-gui introduction) and was never shipped in product code.
+
+**Label:** HARNESS_BUG (candidate for PRODUCT_DRIFT_TEST_STALE if the attribute was ever present — it wasn't).
+
+**Fix (pending):** either remove the test or replace the selector with one that actually matches the sidebar's new-session trigger. From the audit of `packages/app/src/components/titlebar.tsx:275`, the "new session" UI is currently an icon prop (`icon={creating() ? "new-session-active" : "new-session"}`), not a DOM attribute. A more robust selector would target the button element that owns the new-session click handler. Deferring to a follow-up PR since the test was aspirational — the Phase 1 author wanted a selector-based check, but never added the attribute to the button.
 
 ---
 
