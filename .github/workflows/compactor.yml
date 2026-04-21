@@ -36,10 +36,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-          cache: pip
 
       - name: Install deps
-        run: pip install 'google-cloud-storage>=2.18'
+        run: pip install --no-cache-dir 'google-cloud-storage>=2.18'
 
       - name: Write SA credentials to disk
         run: |
