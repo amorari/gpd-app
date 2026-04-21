@@ -1,4 +1,4 @@
-# GPD CLI installer for Windows 11
+﻿# GPD CLI installer for Windows 11
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File install.ps1

@@ -1,4 +1,4 @@
-# GPD CLI uninstaller for Windows 11
+﻿# GPD CLI uninstaller for Windows 11
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File uninstall.ps1
