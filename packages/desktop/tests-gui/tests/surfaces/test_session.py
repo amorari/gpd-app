@@ -53,12 +53,10 @@ def test_send_button_disabled_on_empty_input(mcp, prepared_project_path):
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
     probe = DOMProbe(mcp)
     try:
-        # The send button may be a regular Button or an IconButton; match both.
         disabled = probe.eval_bool(
             '(() => {'
             '  const btns = Array.from(document.querySelectorAll('
-            '    "button[data-component=\\"button\\"][type=\\"submit\\"],'
-            '     button[data-component=\\"icon-button\\"][type=\\"submit\\"]"'
+            '    "button[data-action=\\"prompt-submit\\"][type=\\"submit\\"]"'
             '  ));'
             '  if (btns.length === 0) return false;'
             '  return btns.every('
