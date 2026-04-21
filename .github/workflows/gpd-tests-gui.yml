@@ -307,6 +307,8 @@ jobs:
       # -----------------------------------------------------------------------
       # Run smoke + non-real-backend flows
       # Excludes restart tests (destructive) and real_backend tests (need key).
+      # NOTE: stress tests from tests/stress/ also run here when they carry the
+      # `flows` marker without `real_backend` (e.g. test_20_rapid_create_delete_no_session_leak).
       # -----------------------------------------------------------------------
       - name: Run smoke + flows (non-real-backend)
         working-directory: packages/desktop/tests-gui
