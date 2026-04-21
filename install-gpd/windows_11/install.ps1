@@ -9,6 +9,13 @@
 # Does not require administrator privileges.
 
 #Requires -Version 5.1
+[CmdletBinding()]
+param(
+    # Suppress the automatic GPD.exe launch at the end of install.
+    # Useful for CI / scripted installs that just want the files in
+    # place without a window popping up.
+    [switch]$SkipLaunch
+)
 $ErrorActionPreference = "Stop"
 
 # Force the console to UTF-8 for output so the Unicode box-drawing chars
@@ -870,6 +877,39 @@ function Invoke-GpdInstall {
     }
 
     Write-SuccessBanner
+
+    # ── Auto-launch GPD.exe to work around Windows PATH caching ───────────
+    #
+    # Problem: git (and LaTeX / MiKTeX) were just installed via winget.
+    # winget updates the Machine/User PATH registry values, but Windows
+    # Explorer caches its environment at login — so Explorer's PATH does
+    # NOT include C:\Program Files\Git\cmd until the user restarts
+    # Explorer or reboots. Any app Explorer launches (e.g. GPD from the
+    # Start Menu) inherits Explorer's stale PATH and can't find git,
+    # which breaks GPD's first-run setup (it shells out to `git` when
+    # installing get-physics-done from GitHub).
+    #
+    # Workaround: launch GPD.exe directly from THIS installer process.
+    # Our PATH was refreshed by Update-SessionPath after each winget
+    # install, so the child process inherits the correct env. This
+    # gives the user a working app immediately without asking them to
+    # reboot or manually restart Explorer.
+    #
+    # Skipped when -SkipLaunch is set or when we're non-interactive
+    # (CI / scripted installs often don't want a GUI popping up).
+    $gpdExePath = Join-Path $env:LOCALAPPDATA "GPD\GPD.exe"
+    if ($SkipLaunch) {
+        Write-Log "Skipping auto-launch (-SkipLaunch set)"
+    } elseif (-not [Environment]::UserInteractive) {
+        Write-Log "Skipping auto-launch (non-interactive session)"
+    } elseif (Test-Path $gpdExePath) {
+        Write-Log "Launching GPD desktop app..."
+        try {
+            Start-Process -FilePath $gpdExePath
+        } catch {
+            Write-Warn "Couldn't auto-launch GPD ($_). Open it from the Start menu."
+        }
+    }
 }
 
 # ── Entry point ────────────────────────────────────────────────────────────
