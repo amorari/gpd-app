@@ -310,7 +310,12 @@ remove_gpd_from_auth_json() {
         #   1  removed gpd entry, file was empty afterwards (deleted)
         #   2  no gpd entry present, nothing to do
         #   3  JSON parse error — caller should fall back
-        python3 - "$file" <<'PY'
+        #
+        # NOTE: `set -e` aborts on any non-zero exit of a simple command, so
+        # we must capture the python exit code via `|| rc=$?` rather than
+        # reading $? on the next line (which would never execute).
+        local rc=0
+        python3 - "$file" <<'PY' || rc=$?
 import json, os, sys
 path = sys.argv[1]
 try:
@@ -329,7 +334,6 @@ with open(path, "w") as f:
 os.chmod(path, 0o600)
 sys.exit(0)
 PY
-        local rc=$?
         case "$rc" in
             0) success "Removed 'gpd' entry from $file (other providers preserved)" ;;
             1) success "Removed $file (only contained 'gpd' entry)" ;;
@@ -381,7 +385,11 @@ clean_opencode_json() {
     local file="$1"
 
     if command -v python3 &>/dev/null; then
-        python3 - "$file" <<'PY'
+        # NOTE: same `set -e` caveat as remove_gpd_from_auth_json — capture
+        # the python exit code via `|| rc=$?` so non-zero "signal" exits
+        # (1/2/3) don't abort the whole uninstaller.
+        local rc=0
+        python3 - "$file" <<'PY' || rc=$?
 import json, sys
 path = sys.argv[1]
 try:
@@ -418,7 +426,6 @@ with open(path, "w") as f:
     f.write("\n")
 sys.exit(0)
 PY
-        local rc=$?
         case "$rc" in
             0) success "Cleaned GPD entries from $file (opencode config preserved)" ;;
             2) skip "No GPD entries to clean from $file" ;;
