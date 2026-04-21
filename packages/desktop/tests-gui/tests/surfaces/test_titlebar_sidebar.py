@@ -50,8 +50,15 @@ def seeded_project(http, prepared_project_path) -> str:
     Projects register implicitly when ``create_session`` is called with
     ``directory=X``. Once seeded, the sidebar tree has something to render.
     """
-    http.create_session(directory=prepared_project_path)
-    return prepared_project_path
+    ses = http.create_session(directory=prepared_project_path)
+    sid = ses["id"]
+    try:
+        yield prepared_project_path
+    finally:
+        try:
+            http.delete_session(sid)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
