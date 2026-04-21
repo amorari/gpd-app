@@ -396,6 +396,9 @@ export function AppInterface(props: {
         <ServerKey>
           <GlobalSDKProvider>
             <GlobalSyncProvider>
+              {/* SetupGate intentionally renders above <Router>. Do NOT add Router-dependent
+                  hooks (useParams, useNavigate, <A>, etc.) inside SetupGate — they will
+                  throw at runtime. Access route state via globalSync.data directly instead. */}
               <SetupGate>
                 <Dynamic
                   component={props.router ?? Router}
