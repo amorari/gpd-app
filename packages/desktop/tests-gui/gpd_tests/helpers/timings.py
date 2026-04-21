@@ -32,6 +32,7 @@ def wait_until(
     timeout_s: float,
     poll_s: float = 0.1,
     reraise_on_timeout: bool = False,
+    backoff_factor: float = 1.0,
 ) -> bool:
     """Poll `predicate` until it returns truthy or timeout. Return last value.
 
@@ -48,9 +49,14 @@ def wait_until(
         fires, re-raise the *last* exception instead of returning ``False``.
         Useful for surfacing unexpected errors rather than silently converting
         them to a timeout.
+    backoff_factor:
+        When greater than 1.0, each successive sleep interval is multiplied by
+        this factor (capped at ``timeout_s / 4``) to reduce polling pressure
+        during longer waits; defaults to 1.0 (constant interval).
     """
     deadline = time.monotonic() + timeout_s
     last_exc: BaseException | None = None
+    current_poll = poll_s
     while time.monotonic() < deadline:
         try:
             if predicate():
@@ -58,7 +64,8 @@ def wait_until(
             last_exc = None  # predicate ran cleanly; clear any prior exception
         except Exception as exc:
             last_exc = exc
-        time.sleep(poll_s)
+        time.sleep(min(current_poll, timeout_s / 4))
+        current_poll = current_poll * backoff_factor
     # Deadline reached — do NOT run a post-deadline final check (it can burn
     # additional time when the predicate itself is slow).
     if reraise_on_timeout and last_exc is not None:
