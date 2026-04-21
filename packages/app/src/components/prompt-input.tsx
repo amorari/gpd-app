@@ -35,7 +35,14 @@ import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
-import { createTextFragment, getCursorPosition, setCursorPosition, setRangeEdge } from "./prompt-input/editor-dom"
+import {
+  containsControlChar,
+  createTextFragment,
+  getCursorPosition,
+  sanitizeControlChars,
+  setCursorPosition,
+  setRangeEdge,
+} from "./prompt-input/editor-dom"
 import { createPromptAttachments } from "./prompt-input/attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
 import {
@@ -878,7 +885,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return parts
   }
 
+  // macOS WKWebView fires `input` events with U+001C / U+001D when arrow keys
+  // are pressed on an empty editor that only contains the ZWSP sentinel. Cancel
+  // these at the `beforeinput` stage so the characters never enter the DOM.
+  const handleBeforeInput = (event: InputEvent) => {
+    if (containsControlChar(event.data)) {
+      event.preventDefault()
+    }
+  }
+
   const handleInput = () => {
+    // Defense in depth: if a control character slipped past the beforeinput
+    // guard (e.g. via a composition event or paste path), strip it from the
+    // DOM before the rest of the pipeline inspects textContent.
+    sanitizeControlChars(editorRef)
+
     const rawParts = parseFromDOM()
     const images = imageAttachments()
 
@@ -1368,6 +1389,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               inputMode="text"
               // @ts-expect-error
               autocomplete="off"
+              onBeforeInput={handleBeforeInput}
               onInput={handleInput}
               onPaste={handlePaste}
               onCompositionStart={handleCompositionStart}
@@ -1634,6 +1656,38 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       >
                         <Icon name="sparkles" size="small" class="shrink-0" />
                         <span class="truncate">{language.t("dock.gpdSkills")}</span>
+                      </Button>
+                    </Tooltip>
+                  </div>
+                  <div data-component="prompt-equation-control">
+                    <Tooltip placement="top" gutter={4} value={language.t("dock.equation")}>
+                      <Button
+                        data-action="prompt-equation"
+                        type="button"
+                        variant="ghost"
+                        size="normal"
+                        style={control()}
+                        class="text-13-regular text-text-base"
+                        onClick={() => {
+                          void import("@/components/dialog-equation-editor").then((x) => {
+                            dialog.show(() => (
+                              <x.DialogEquationEditor
+                                onInsert={(latex) => {
+                                  addPart({
+                                    type: "text",
+                                    content: `$$${latex}$$`,
+                                    start: 0,
+                                    end: 0,
+                                  })
+                                }}
+                              />
+                            ))
+                          })
+                        }}
+                        aria-label={language.t("dock.equation")}
+                      >
+                        <Icon name="sigma" size="small" class="shrink-0" />
+                        <span class="truncate">{language.t("dock.equation")}</span>
                       </Button>
                     </Tooltip>
                   </div>

@@ -969,6 +969,12 @@ export const dict = {
   "gpd.firstRun.toast.description": "Fysikkverktøy, assistenter og innstillinger lagres i ~/.config/gpd/. Prosjektplaner per prosjekt ligger i .opencode/ inne i hver prosjektmappe. Forskningsfilene dine blir der du plasserte dem.",
 
   "dock.gpdSkills": "GPD Skills",
+  "dock.equation": "Ligning",
+  "equation.dialog.title": "Ligningsredigerer",
+  "equation.dialog.loading": "Laster ligningsredigerer...",
+  "equation.dialog.unavailable": "Ligningsredigerer utilgjengelig",
+  "equation.dialog.discard": "Forkast",
+  "equation.dialog.insert": "Sett inn ligning",
   "gpdSkills.dialog.title": "GPD Skills",
   "gpdSkills.dialog.description": "Browse GPD research commands by category. Select one to insert it into the prompt.",
   "gpdSkills.search.placeholder": "Search GPD commands...",

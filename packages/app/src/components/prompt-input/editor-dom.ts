@@ -164,3 +164,43 @@ export function setRangeEdge(parent: HTMLElement, range: Range, edge: "start" | 
     remaining -= length
   }
 }
+
+// macOS WKWebView will fire `input` events with ASCII C0 control characters
+// (specifically U+001C / U+001D) when arrow keys are pressed on an empty
+// contentEditable that contains only a ZWSP sentinel. The characters render
+// as tofu boxes. We never want these in the prompt regardless of source, so
+// strip them at every DOM choke point. Tab (\u0009), newline (\u000A) and
+// carriage return (\u000D) are preserved.
+const CONTROL_CHAR_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/
+
+export function containsControlChar(input: string | null | undefined): boolean {
+  if (!input) return false
+  return CONTROL_CHAR_RE.test(input)
+}
+
+export function stripControlChars(input: string): string {
+  return input.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+}
+
+/**
+ * Walks all text nodes under `parent` and strips C0 control characters
+ * directly from their contents. Returns true if any nodes were mutated, so
+ * callers can decide whether to re-run reconciliation.
+ */
+export function sanitizeControlChars(parent: HTMLElement): boolean {
+  const walker = document.createTreeWalker(parent, NodeFilter.SHOW_TEXT)
+  let mutated = false
+  const nodes: Text[] = []
+  let current = walker.nextNode() as Text | null
+  while (current) {
+    nodes.push(current)
+    current = walker.nextNode() as Text | null
+  }
+  for (const node of nodes) {
+    const text = node.textContent ?? ""
+    if (!CONTROL_CHAR_RE.test(text)) continue
+    node.textContent = stripControlChars(text)
+    mutated = true
+  }
+  return mutated
+}

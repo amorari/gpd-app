@@ -895,6 +895,12 @@ export const dict = {
   "gpd.firstRun.toast.description": "Physik-Werkzeuge, Assistenten und Einstellungen werden in ~/.config/gpd/ gespeichert. Projektspezifische Pläne liegen in .opencode/ innerhalb jedes Projektordners. Ihre Forschungsdateien bleiben dort, wo Sie sie abgelegt haben.",
 
   "dock.gpdSkills": "GPD Skills",
+  "dock.equation": "Gleichung",
+  "equation.dialog.title": "Gleichungseditor",
+  "equation.dialog.loading": "Gleichungseditor wird geladen...",
+  "equation.dialog.unavailable": "Gleichungseditor nicht verfügbar",
+  "equation.dialog.discard": "Verwerfen",
+  "equation.dialog.insert": "Gleichung einfügen",
   "gpdSkills.dialog.title": "GPD Skills",
   "gpdSkills.dialog.description": "Browse GPD research commands by category. Select one to insert it into the prompt.",
   "gpdSkills.search.placeholder": "Search GPD commands...",
