@@ -180,4 +180,46 @@ mod tests {
             "autolink missing external-link decoration; got: {out}"
         );
     }
+
+    // -- extension coverage (strikethrough, task lists, plain text) --
+
+    #[test]
+    fn empty_input_returns_empty_or_just_newline() {
+        let result = parse_markdown("");
+        assert!(
+            result.is_empty() || result == "\n",
+            "expected empty string or bare newline, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn plain_text_renders_as_paragraph() {
+        let result = parse_markdown("hello");
+        assert!(
+            result.contains("<p>hello</p>"),
+            "expected <p>hello</p> in output, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn strikethrough_rendered() {
+        let result = parse_markdown("~~text~~");
+        assert!(
+            result.contains("<del>text</del>") || result.contains("<s>text</s>"),
+            "expected <del>text</del> or <s>text</s> in output, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn task_list_rendered() {
+        let result = parse_markdown("- [ ] item");
+        assert!(
+            result.contains("<input"),
+            "expected checkbox <input in output, got: {result:?}"
+        );
+        assert!(
+            result.contains("type=\"checkbox\""),
+            "expected type=\"checkbox\" in output, got: {result:?}"
+        );
+    }
 }
