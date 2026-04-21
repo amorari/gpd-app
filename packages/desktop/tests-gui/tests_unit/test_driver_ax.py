@@ -89,3 +89,58 @@ def test_enabled_items_of_filters_disabled():
     with patch("gpd_tests.drivers.ax._osascript", side_effect=fake_osascript):
         enabled = AXClient().enabled_items_of("File")
     assert enabled == ["Save", "Quit"]
+
+
+@pytest.mark.unit
+def test_enabled_items_of_with_separators():
+    """Separators ('missing value') must be filtered and positional mapping must be correct.
+
+    Raw osascript returns names and enabled flags for ALL items (including
+    separator placeholders). The implementation must zip them positionally
+    and exclude 'missing value' entries regardless of their enabled flag.
+    """
+    script_responses = {
+        "name of every menu item": "A|missing value|B|missing value|C",
+        "enabled of every menu item": "true|false|true|false|true",
+    }
+
+    def fake_osascript(script: str, **_kwargs):
+        for needle, response in script_responses.items():
+            if needle in script:
+                return response
+        raise RuntimeError(f"unexpected script: {script}")
+
+    with patch("gpd_tests.drivers.ax._osascript", side_effect=fake_osascript):
+        enabled = AXClient().enabled_items_of("File")
+
+    # All three real items are enabled; both separators are filtered out.
+    assert enabled == ["A", "B", "C"], (
+        f"expected ['A', 'B', 'C'], got {enabled!r}; "
+        "separators must be excluded and positional mapping must be correct"
+    )
+
+
+@pytest.mark.unit
+def test_items_of_escapes_malicious_menu_name():
+    """Menu name containing quotes must be escaped before being embedded in AppleScript."""
+    captured_scripts: list[str] = []
+
+    def fake_osascript(script: str, **_kwargs):
+        captured_scripts.append(script)
+        return ""
+
+    malicious_name = 'File"; do shell script "rm -rf ~'
+    with patch("gpd_tests.drivers.ax._osascript", side_effect=fake_osascript):
+        AXClient().items_of(malicious_name)
+
+    assert captured_scripts, "osascript was never called"
+    combined = "\n".join(captured_scripts)
+    # The raw unescaped injection sequence must NOT appear verbatim in the script.
+    assert 'do shell script "rm -rf ~' not in combined, (
+        "unescaped injection sequence found in osascript input — "
+        "menu name must be properly escaped before embedding in AppleScript"
+    )
+    # The quote itself must be escaped (as \" inside the AppleScript string).
+    assert '\\"' in combined, (
+        "expected escaped quote ('\\\"') in the generated AppleScript"
+    )
