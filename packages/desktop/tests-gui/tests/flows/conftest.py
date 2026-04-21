@@ -86,7 +86,3 @@ def clean_onboarding_state(auth_json_path):
             sentinel_backup.unlink()
         elif sentinel_path.exists():
             sentinel_path.unlink()
-
-
-# Backwards-compatible alias. Prefer `clean_onboarding_state` in new tests.
-clean_auth_json = clean_onboarding_state

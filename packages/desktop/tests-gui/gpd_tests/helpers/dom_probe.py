@@ -1,8 +1,7 @@
 """Wrap execute_js so tests skip on known bridge flake instead of error."""
 from __future__ import annotations
 
-import json
-from typing import Any, Protocol
+from typing import Protocol
 
 from gpd_tests.drivers.mcp import MCPError, MCPTimeout
 
@@ -53,13 +52,6 @@ class DOMProbe:
         if isinstance(raw, str):
             return raw.strip().lower() not in _JS_FALSY
         return bool(raw)
-
-    def eval_json(self, code: str) -> Any:
-        """Evaluate *code* and JSON-decode the result."""
-        raw = self.eval(code)
-        if raw is None:
-            raise ProbeSkip("execute_js returned None (empty bridge response)")
-        return json.loads(raw)
 
     def eval_int(self, code: str) -> int:
         """Evaluate *code* and return the result as an integer."""

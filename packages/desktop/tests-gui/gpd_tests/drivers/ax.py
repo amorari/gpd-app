@@ -5,7 +5,6 @@ import os
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,12 +26,6 @@ def _osascript(script: str, *, timeout_s: float = 10.0) -> str:
     if r.returncode != 0:
         raise RuntimeError(f"osascript failed: {r.stderr.strip()}")
     return r.stdout.strip()
-
-
-@dataclass(frozen=True)
-class MenuItem:
-    menu: str
-    name: str
 
 
 def _default_app_name() -> str:
