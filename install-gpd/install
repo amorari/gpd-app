@@ -494,6 +494,7 @@ EOF
     local export_line="export GPD_API_KEY=\"${key}\""
     if ! grep -qF "GPD_API_KEY" "$profile" 2>/dev/null; then
         printf '\n# GPD API key for desktop app\n%s\n' "$export_line" >> "$profile"
+        chmod 600 "$profile" 2>/dev/null || true
     fi
 
     # Also write the key into opencode's auth.json so the GPD desktop app

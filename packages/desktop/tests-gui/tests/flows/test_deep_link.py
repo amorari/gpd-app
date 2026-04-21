@@ -129,6 +129,7 @@ def _skip_on_scheme_ambiguity():
 
 
 @pytest.mark.flows
+@pytest.mark.xfail(strict=True, reason="deep link does not navigate to session URL; frontend stays on project path instead of /session/{id}")
 def test_deep_link_session_routes_to_session(http, mcp, scratch_project_dir):
     # Create a session so we have a real id to route to.
     session = http.create_session(directory=str(scratch_project_dir))

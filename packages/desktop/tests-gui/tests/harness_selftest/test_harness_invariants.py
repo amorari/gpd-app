@@ -1,7 +1,9 @@
 """Harness self-tests: if these fail, every other test result is suspect."""
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -90,3 +92,26 @@ def test_en_fixture_is_fresh_enough():
     for prefix in required_prefixes:
         matching = [k for k in data if k.startswith(prefix)]
         assert matching, f"fixture missing all keys under '{prefix}*'"
+
+
+@pytest.mark.harness_selftest
+def test_tauri_commands_fixture_is_fresh():
+    """tauri_commands.json must reflect the current source. Regenerate if this fails."""
+    repo = Path(__file__).resolve().parents[5]
+    script = repo / "packages/desktop/tests-gui/scripts/extract_tauri_commands.py"
+    fixture = repo / "packages/desktop/tests-gui/gpd_tests/fixtures/tauri_commands.json"
+
+    result = subprocess.run(
+        ["uv", "run", "python", str(script)],
+        cwd=repo / "packages/desktop/tests-gui",
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    live = json.loads(result.stdout)
+    stored = json.loads(fixture.read_text())
+    assert live == stored, (
+        "tauri_commands.json is stale — "
+        "rerun: uv run python scripts/extract_tauri_commands.py > "
+        "gpd_tests/fixtures/tauri_commands.json"
+    )
