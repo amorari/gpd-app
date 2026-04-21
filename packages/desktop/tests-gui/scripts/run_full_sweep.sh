@@ -5,7 +5,7 @@ set -u  # no -e: we want failures, not aborts
 
 cd "$(dirname "$0")/.."
 
-: "${GPD_APP_PATH:=/Users/amorari/workspace/psi-oss-opencode/packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app}"
+: "${GPD_APP_PATH:=/Users/amorarivm/workspace/gpd-app/packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app}"
 export GPD_APP_PATH
 export GPD_TEST_SEED_ONBOARDING=1
 

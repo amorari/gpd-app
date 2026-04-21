@@ -121,11 +121,17 @@ def test_sidebar_workspace_list_shape(mcp, seeded_project):
     This is a structural probe: we don't care which one, just that the
     sidebar has rendered *something* with our data-action convention.
     """
-    Navigator(mcp).go(route_project(seeded_project), timeout_s=5.0)
-    time.sleep(0.5)  # let sidebar re-render after project data arrives
+    nav = Navigator(mcp)
+    # Land on home first so globalSync has a chance to propagate the seeded
+    # project before we navigate to its route. In the VM, globalSync latency
+    # can exceed 8s; routing through home adds virtually no time but lets the
+    # sync bootstrap finish in the background while the home shell mounts.
+    nav.go(route_home(), timeout_s=5.0)
+    time.sleep(1.0)  # let globalSync bootstrap propagate the seeded project
+    nav.go(route_project(seeded_project), timeout_s=5.0)
     probe = DOMProbe(mcp)
-    # Poll — the sidebar re-renders once project data arrives over the
-    # global-sync bootstrap; global-sync latency in the VM can exceed 3s.
+    # Poll — the sidebar re-renders once project data arrives over globalSync.
+    # Total budget: 15s (VM globalSync latency can exceed 8s).
     selectors = (
         '[data-action="project-switch"]',
         '[data-action="project-menu"]',
@@ -134,7 +140,7 @@ def test_sidebar_workspace_list_shape(mcp, seeded_project):
         '[data-component="workspace-item"]',
     )
     joined = ", ".join(s.replace('"', '\\"') for s in selectors)
-    deadline = time.monotonic() + 8.0
+    deadline = time.monotonic() + 15.0
     found = False
     while time.monotonic() < deadline:
         try:
@@ -145,7 +151,7 @@ def test_sidebar_workspace_list_shape(mcp, seeded_project):
             pytest.skip(f"execute_js unavailable ({e})")
         if found:
             break
-        time.sleep(0.1)
+        time.sleep(0.2)
     assert found, (
         "sidebar has no workspace/project row with a data-action anchor; "
         f"tried: {selectors}"
