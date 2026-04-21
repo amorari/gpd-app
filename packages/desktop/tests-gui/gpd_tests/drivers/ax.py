@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def _esc_as(s: str) -> str:
+    """Escape a string for embedding inside an AppleScript double-quoted literal."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _osascript(script: str, *, timeout_s: float = 10.0) -> str:
     if not shutil.which("osascript"):
         raise RuntimeError("osascript not available")
@@ -95,17 +100,8 @@ class AXClient:
         AppleScript's `missing value` entries are filtered out — they
         represent separator items and are not useful as test targets.
         """
-        script = (
-            'set AppleScript\'s text item delimiters to "|"\n'
-            f'tell application "System Events" to tell process "{self._app}" '
-            f'to return (name of every menu item of menu 1 of menu bar item '
-            f'"{menu}" of menu bar 1) as string'
-        )
-        try:
-            raw = _osascript(script)
-        except RuntimeError:
-            return []
-        if not raw:
+        raw = self._raw_items_of(menu)
+        if raw is None:
             return []
         return [
             x.strip()
@@ -113,25 +109,57 @@ class AXClient:
             if x.strip() and x.strip() != "missing value"
         ]
 
-    def enabled_items_of(self, menu: str) -> list[str]:
-        """Return names of menu items that are currently enabled."""
-        names = self.items_of(menu)
-        if not names:
-            return []
+    def _raw_items_of(self, menu: str) -> str | None:
+        """Return the raw `|`-joined AppleScript output, or None on failure.
+
+        Separator entries remain as the literal "missing value" token so
+        callers that need positional mapping against a sibling query (e.g.
+        enabled_items_of) can zip across the unfiltered list.
+        """
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
         script = (
             'set AppleScript\'s text item delimiters to "|"\n'
-            f'tell application "System Events" to tell process "{self._app}" '
-            f'to return (enabled of every menu item of menu 1 of menu bar '
-            f'item "{menu}" of menu bar 1) as string'
+            f'tell application "System Events" to tell process "{app}" '
+            f'to return (name of every menu item of menu 1 of menu bar item '
+            f'"{menu_e}" of menu bar 1) as string'
         )
         try:
             raw = _osascript(script)
         except RuntimeError:
+            return None
+        return raw or None
+
+    def enabled_items_of(self, menu: str) -> list[str]:
+        """Return names of menu items that are currently enabled.
+
+        Zips the raw (unfiltered) names against the enabled-flag list
+        positionally, then drops separator pairs. Necessary because a
+        separator between items would shift the enabled-flag alignment
+        if we zipped against pre-filtered names.
+        """
+        raw_names = self._raw_items_of(menu)
+        if raw_names is None:
             return []
-        flags = [f.strip() for f in raw.split("|")]
-        # flags length may differ from names if AppleScript emits extra
-        # entries for separators; zip truncates to the shorter sequence.
-        return [name for name, flag in zip(names, flags) if flag == "true"]
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
+        script = (
+            'set AppleScript\'s text item delimiters to "|"\n'
+            f'tell application "System Events" to tell process "{app}" '
+            f'to return (enabled of every menu item of menu 1 of menu bar '
+            f'item "{menu_e}" of menu bar 1) as string'
+        )
+        try:
+            raw_flags = _osascript(script)
+        except RuntimeError:
+            return []
+        names = [n.strip() for n in raw_names.split("|")]
+        flags = [f.strip() for f in raw_flags.split("|")]
+        return [
+            n
+            for n, f in zip(names, flags)
+            if n and n != "missing value" and f == "true"
+        ]
 
     def main_window(self) -> dict[str, Any]:
         """Return the main window geometry via AX: {x, y, w, h, title}.

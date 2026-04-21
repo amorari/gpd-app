@@ -65,7 +65,7 @@ class MCPClient:
             "payload": payload or {},
         }
         if self._auth:
-            req["auth"] = self._auth
+            req["authToken"] = self._auth
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(self._timeout)
         try:

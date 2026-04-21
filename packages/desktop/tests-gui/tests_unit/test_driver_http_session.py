@@ -121,11 +121,11 @@ def test_delete_session_returns_true():
 
 
 @pytest.mark.unit
-def test_create_session_sends_directory_in_body():
-    seen: list[bytes] = []
+def test_create_session_sends_directory_as_query_param():
+    seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request.content)
+        seen.append(request)
         return httpx.Response(200, json={"id": "ses_1"})
 
     transport = httpx.MockTransport(handler)
@@ -136,16 +136,18 @@ def test_create_session_sends_directory_in_body():
         transport=transport,
     ) as c:
         c.create_session(directory="/tmp/x")
-    body = json.loads(seen[0])
-    assert body == {"directory": "/tmp/x"}
+    assert seen[0].url.params.get("directory") == "/tmp/x"
+    # Directory must NOT appear in the body (Zod would strip it).
+    body = json.loads(seen[0].content) if seen[0].content else {}
+    assert "directory" not in body
 
 
 @pytest.mark.unit
 def test_create_session_includes_parent_id_camelcased():
-    seen: list[bytes] = []
+    seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request.content)
+        seen.append(request)
         return httpx.Response(200, json={"id": "ses_1"})
 
     transport = httpx.MockTransport(handler)
@@ -156,13 +158,14 @@ def test_create_session_includes_parent_id_camelcased():
         transport=transport,
     ) as c:
         c.create_session(directory="/tmp/x", parent_id="ses_parent")
-    body = json.loads(seen[0])
-    assert body == {"directory": "/tmp/x", "parentID": "ses_parent"}
+    assert seen[0].url.params.get("directory") == "/tmp/x"
+    body = json.loads(seen[0].content)
+    assert body == {"parentID": "ses_parent"}
 
 
 @pytest.mark.unit
-def test_send_message_camelcases_model_and_provider_keys():
-    """send_message() sends modelID and providerID as camelCase top-level keys."""
+def test_send_message_uses_nested_model_object():
+    """send_message() sends model as a nested object matching server PromptInput shape."""
     seen: list[bytes] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -187,19 +190,17 @@ def test_send_message_camelcases_model_and_provider_keys():
             agent="default",
         )
     body = json.loads(seen[0])
-    # modelID and providerID are camelCase top-level keys in the request body.
     assert body["parts"] == [{"type": "text", "text": "hi"}]
-    assert body["modelID"] == "claude-4-7"
-    assert body["providerID"] == "anthropic"
+    assert body["model"] == {"modelID": "claude-4-7", "providerID": "anthropic"}
     assert body["agent"] == "default"
-    # Must NOT use snake_case keys.
-    assert "model_id" not in body
-    assert "provider_id" not in body
+    # Must NOT include flat keys (would be stripped by Zod, silently ignoring model selection).
+    assert "modelID" not in body
+    assert "providerID" not in body
 
 
 @pytest.mark.unit
-def test_create_session_directory_sent_in_body():
-    """directory is sent in the JSON body, not as a URL query parameter."""
+def test_create_session_directory_sent_as_query_param():
+    """directory travels as ?directory=... not in the body (server's CreateInput strips body directory)."""
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -216,11 +217,9 @@ def test_create_session_directory_sent_in_body():
         c.create_session(directory="/workspace/myproject")
 
     req = seen[0]
-    body = json.loads(req.content)
-    # directory is in the body.
-    assert body.get("directory") == "/workspace/myproject"
-    # directory must NOT appear as a URL query param.
-    assert "directory" not in str(req.url.params)
+    assert req.url.params.get("directory") == "/workspace/myproject"
+    body = json.loads(req.content) if req.content else {}
+    assert "directory" not in body
 
 
 @pytest.mark.unit

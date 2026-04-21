@@ -224,8 +224,8 @@ def test_send_message_500_raises_http_status_error():
 
 
 @pytest.mark.unit
-def test_create_session_directory_in_body_not_query_param():
-    """directory is passed in the JSON body, not as a query parameter."""
+def test_create_session_directory_as_query_param_not_body():
+    """directory travels as ?directory=... (server's Session.CreateInput strips body field)."""
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -236,13 +236,9 @@ def test_create_session_directory_in_body_not_query_param():
     c.create_session(directory="/workspace/proj")
 
     req = seen[0]
-    body = json.loads(req.content)
-    # Directory is in the body.
-    assert body.get("directory") == "/workspace/proj"
-    # Query string must NOT contain "directory".
-    assert "directory" not in str(req.url.params), (
-        "directory should not appear as a query param"
-    )
+    assert req.url.params.get("directory") == "/workspace/proj"
+    body = json.loads(req.content) if req.content else {}
+    assert "directory" not in body, "directory must NOT appear in body (Zod would strip it silently)"
 
 
 # ---------------------------------------------------------------------------

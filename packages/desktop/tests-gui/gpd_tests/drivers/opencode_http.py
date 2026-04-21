@@ -54,9 +54,11 @@ class HTTPClient:
     def path_info(self) -> dict[str, Any]:
         return self._get("/path")
 
-    def _post(self, path: str, json: dict | list | None = None) -> Any:
-        r = self._client.post(path, json=json)
+    def _post(self, path: str, json: dict | list | None = None, params: dict | None = None) -> Any:
+        r = self._client.post(path, json=json, params=params)
         r.raise_for_status()
+        if r.status_code == 204 or not r.content:
+            return None
         ct = r.headers.get("content-type", "")
         if "json" in ct or r.text.startswith(("{", "[")):
             return r.json()
@@ -65,6 +67,8 @@ class HTTPClient:
     def _delete(self, path: str) -> Any:
         r = self._client.delete(path)
         r.raise_for_status()
+        if r.status_code == 204 or not r.content:
+            return None
         return r.json()
 
     def create_session(
@@ -74,11 +78,10 @@ class HTTPClient:
         parent_id: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {}
-        if directory is not None:
-            body["directory"] = directory
         if parent_id is not None:
             body["parentID"] = parent_id
-        return self._post("/session", json=body)
+        params = {"directory": directory} if directory is not None else None
+        return self._post("/session", json=body, params=params)
 
     def send_message(
         self,
@@ -90,10 +93,10 @@ class HTTPClient:
         agent: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"parts": parts}
-        if model_id is not None:
-            body["modelID"] = model_id
-        if provider_id is not None:
-            body["providerID"] = provider_id
+        if (model_id is None) != (provider_id is None):
+            raise ValueError("model_id and provider_id must be provided together")
+        if model_id is not None and provider_id is not None:
+            body["model"] = {"modelID": model_id, "providerID": provider_id}
         if agent is not None:
             body["agent"] = agent
         return self._post(f"/session/{session_id}/message", json=body)
@@ -102,7 +105,8 @@ class HTTPClient:
         return self._get(f"/session/{session_id}/message")
 
     def delete_session(self, session_id: str) -> bool:
-        return bool(self._delete(f"/session/{session_id}"))
+        r = self._delete(f"/session/{session_id}")
+        return r is None or bool(r)
 
 
 def discover_sidecar_port(
