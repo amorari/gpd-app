@@ -34,6 +34,13 @@ export namespace LLM {
     user: MessageV2.User
     sessionID: string
     parentSessionID?: string
+    /**
+     * Root of the parent chain (or `sessionID` itself if no parent). Used for
+     * GPD log correlation across subagent trees. Callers that own Session
+     * service access should compute with `Session.root(sessionID)`; if
+     * omitted, metadata injection falls back to `sessionID`.
+     */
+    rootSessionID?: string
     model: Provider.Model
     agent: Agent.Info
     permission?: Permission.Ruleset
@@ -201,7 +208,33 @@ export namespace LLM {
           const isLiteLLMProxy =
             item.options?.["litellmProxy"] === true ||
             input.model.providerID.toLowerCase().includes("litellm") ||
+            input.model.providerID === "gpd" ||
             input.model.api.id.toLowerCase().includes("litellm")
+
+          // For LiteLLM-bound calls (including GPD's PSI proxy), thread GPD
+          // session/parent/root IDs into the OpenAI `metadata` field. The
+          // @ai-sdk/openai-compatible provider spreads any extra key in
+          // `providerOptions[providerID]` onto the top-level request body
+          // (openai-compatible source: `getArgs` spreads unknown keys after
+          // schema filter), so LiteLLM receives `metadata: {...}` and records
+          // it into `proxy_server_request.metadata.*`. Empirically verified
+          // end-to-end against `/spend/logs/ui?request_id=<id>`.
+          if (isLiteLLMProxy) {
+            const root = input.rootSessionID ?? input.sessionID
+            const gpdMetadata: Record<string, string> = {
+              gpd_session_id: input.sessionID,
+              gpd_parent_session_id: input.parentSessionID ?? "",
+              gpd_root_session_id: root,
+              gpd_agent: input.agent.name,
+            }
+            params.options = {
+              ...params.options,
+              metadata: {
+                ...((params.options as any)?.metadata ?? {}),
+                ...gpdMetadata,
+              },
+            }
+          }
 
           // LiteLLM/Bedrock rejects requests where the message history contains tool
           // calls but no tools param is present. When there are no active tools (e.g.

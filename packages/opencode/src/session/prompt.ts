@@ -200,6 +200,9 @@ export namespace SessionPrompt {
             tools: {},
             model: mdl,
             sessionID: input.session.id,
+            // Title generation only fires for root sessions (guarded by the
+            // `if (input.session.parentID) return` above), so root === current.
+            rootSessionID: input.session.id,
             retries: 2,
             messages: [{ role: "user", content: "Generate a title for this conversation:\n" }, ...msgs],
           })
@@ -1491,12 +1494,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               const system = [...env, ...(skills ? [skills] : []), ...instructions]
               const format = lastUser.format ?? { type: "text" as const }
               if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+              const rootSessionID = session.parentID
+                ? yield* sessions.root(SessionID.make(sessionID))
+                : sessionID
               const result = yield* handle.process({
                 user: lastUser,
                 agent,
                 permission: session.permission,
                 sessionID,
                 parentSessionID: session.parentID,
+                rootSessionID,
                 system,
                 messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
                 tools,
