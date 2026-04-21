@@ -17,6 +17,11 @@ class HTTPClient:
         transport: httpx.BaseTransport | None = None,
         timeout_s: float = 120.0,
     ) -> None:
+        # Stash the caller's transport + timeout so rediscover() can rebuild
+        # the underlying httpx.Client without losing them (e.g. MockTransport
+        # in unit tests, or the default transport the fixture built with).
+        self._transport = transport
+        self._timeout_s = timeout_s
         self._client = httpx.Client(
             base_url=base_url,
             auth=(username, password),
@@ -26,6 +31,26 @@ class HTTPClient:
 
     def close(self) -> None:
         self._client.close()
+
+    def rediscover(self, pid: int) -> None:
+        """Re-point this client at a freshly-respawned sidecar.
+
+        After a GPD quit+launch cycle (or a SIGKILL-then-respawn) the
+        opencode-cli sidecar reappears on a new TCP port with new
+        OPENCODE_SERVER_USERNAME/PASSWORD. The old httpx.Client is still
+        pinned to the dead sidecar — calls fail with connection-refused or
+        401. Call this with the new sidecar pid to rebuild the underlying
+        client in place; the caller's transport + timeout are preserved.
+        """
+        port = discover_sidecar_port(pid=pid, timeout_s=15.0)
+        user, pw = discover_sidecar_credentials(pid)
+        self._client.close()
+        self._client = httpx.Client(
+            base_url=f"http://127.0.0.1:{port}",
+            auth=(user, pw),
+            transport=self._transport,
+            timeout=self._timeout_s,
+        )
 
     def __enter__(self) -> "HTTPClient":
         return self

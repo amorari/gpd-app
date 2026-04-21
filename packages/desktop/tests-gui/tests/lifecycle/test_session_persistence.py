@@ -33,12 +33,10 @@ def test_session_survives_quit_relaunch(http, app_state):
     app_state.launch()
     app_state.wait_launched()
 
-    # Sidecar was killed and respawned — the http fixture instance still holds
-    # the old port/creds. If the fixture doesn't auto-rediscover, this test
-    # will fail on the next http call; that failure is a legit finding worth
-    # escalating (gap: opencode_http.HTTPClient has no rediscover() method,
-    # and the root conftest http fixture is function-scoped so it only
-    # rediscovers on the NEXT test, not mid-test after a restart).
+    # Sidecar was killed and respawned on a new port with fresh auth creds —
+    # the HTTPClient instance this test holds still points at the dead
+    # sidecar. Re-point it at the new one (F9) before any further calls.
+    http.rediscover(app_state.sidecar_pid())
     post_msgs = http.messages(ses["id"])
     assert len(post_msgs) == len(pre_msgs)
 

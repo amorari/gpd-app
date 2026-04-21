@@ -13,7 +13,11 @@ def test_multiple_sessions_persist(http, app_state):
     app_state.quit()
     app_state.wait_quit(timeout_s=15)
     app_state.launch()
+    app_state.wait_launched()
 
+    # Sidecar was killed and respawned on a new port with fresh auth creds —
+    # re-point the HTTPClient at the new sidecar before querying sessions (F9).
+    http.rediscover(app_state.sidecar_pid())
     post = {s["id"] for s in http.sessions()}
     for sid in ses_ids:
         assert sid in post, f"session {sid} lost across restart"
