@@ -93,6 +93,7 @@ def test_oversized_message_body_accepted_or_rejected_cleanly(http):
     ses = http.create_session()
     try:
         big_text = (string.ascii_letters * (50_000 // len(string.ascii_letters) + 1))[:50_000]
+        rejection_exc: Exception | None = None
         try:
             http.send_message(
                 ses["id"],
@@ -101,17 +102,16 @@ def test_oversized_message_body_accepted_or_rejected_cleanly(http):
                 provider_id="anthropic",
                 agent="default",
             )
-            # Accepted — sidecar must still be reachable
-            health = http.health()
-            assert health.get("healthy") is True, (
-                f"sidecar unhealthy after oversized message: {health}"
-            )
-        except Exception:
-            # Rejected — verify sidecar is still alive
-            health = http.health()
-            assert health.get("healthy") is True, (
-                f"sidecar unhealthy after rejecting oversized message: {health}"
-            )
+        except Exception as exc:
+            rejection_exc = exc
+
+        # Whether accepted or rejected, the sidecar must remain healthy.
+        health = http.health()
+        assert health.get("healthy") is True, (
+            f"sidecar unhealthy after oversized message "
+            f"({'rejected' if rejection_exc else 'accepted'}): {health}"
+            + (f"\nRejection cause: {rejection_exc}" if rejection_exc else "")
+        )
     finally:
         _cleanup(ses["id"], http=http)
 
@@ -147,7 +147,7 @@ def test_10_concurrent_create_delete_no_count_drift(http):
 
 
 @pytest.mark.flows
-def test_unused_session_deletes_cleanly(http):
+def test_never_used_session_deletes_and_disappears(http):
     """A session created but never sent a message can be deleted and disappears."""
     ses = http.create_session()
     sid = ses["id"]

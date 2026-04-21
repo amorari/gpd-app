@@ -18,6 +18,7 @@ from gpd_tests.helpers.navigator import (
     Navigator,
     encode_dir_token,
     route_home,
+    route_project,
     route_session_in_project,
 )
 
@@ -128,7 +129,7 @@ def test_fork_dialog_opens_with_message_list(http, mcp, os_input, anthropic_key)
             pytest.skip(f"execute_js unavailable ({e})")
 
         if not triggered:
-            pytest.skip("could not find prompt input — session may not have loaded")
+            pytest.fail("could not find prompt input — session may not have loaded")
 
         # Type /fork to trigger the slash command.
         try:
@@ -138,13 +139,21 @@ def test_fork_dialog_opens_with_message_list(http, mcp, os_input, anthropic_key)
 
         time.sleep(0.3)
 
-        # The fork command should appear in the command palette / slash menu.
+        # The fork command should appear in the slash-command palette.
+        # Look for a slash-menu/command-palette element that mentions "fork" specifically,
+        # not just any page text (which would always match after we navigate to a session).
         fork_visible = _wait_for(
             probe,
             '(() => {'
-            '  const txt = document.body ? document.body.innerText.toLowerCase() : "";'
-            '  return txt.includes("fork") || '
-            '    !!document.querySelector("[data-component=\\"dialog\\"]");'
+            '  const palette = document.querySelector('
+            '    "[data-component=\\"slash-menu\\"], [data-component=\\"command-palette\\"],'
+            '    [data-component=\\"command-list\\"], [role=\\"listbox\\"],'
+            '    [role=\\"menu\\"]"'
+            '  );'
+            '  if (palette) {'
+            '    return palette.innerText.toLowerCase().includes("fork");'
+            '  }'
+            '  return !!document.querySelector("[data-component=\\"dialog\\"]");'
             '})()',
             timeout_s=3.0,
         )
@@ -203,8 +212,8 @@ def test_confirm_delete_project_dialog_opens_from_sidebar(
     probe = DOMProbe(mcp)
 
     # Navigate to the project to register it in the sidebar.
-    dir_token = encode_dir_token(_temp_project)
-    Navigator(mcp).go(route_session_in_project(dir_token), timeout_s=6.0)
+    # route_project triggers the auto-register hook on /:dir; route_session_in_project does not.
+    Navigator(mcp).go(route_project(_temp_project), timeout_s=6.0)
     time.sleep(0.4)
 
     # Go back to home so the project shows in the sidebar.
@@ -277,43 +286,39 @@ def test_confirm_delete_project_dialog_opens_from_sidebar(
 
     time.sleep(0.3)
 
-    # Assert the confirmation dialog appeared.
-    dialog_open = _wait_for(
-        probe,
-        '(() => {'
-        '  const d = document.querySelector('
-        '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
-        '  );'
-        '  if (!d) return false;'
-        '  const txt = d.innerText.toLowerCase();'
-        '  return txt.includes("delete") || txt.includes("cancel") || txt.includes("confirm");'
-        '})()',
-        timeout_s=3.0,
-    )
-    assert dialog_open, "confirm-delete dialog did not open after clicking Delete in sidebar"
-
-    # Verify the dialog has a Cancel button (user can back out).
-    cancel_present = False
     try:
-        cancel_present = probe.eval_bool(
+        # Assert the confirmation dialog appeared.
+        dialog_open = _wait_for(
+            probe,
             '(() => {'
             '  const d = document.querySelector('
             '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
             '  );'
             '  if (!d) return false;'
-            '  const btns = Array.from(d.querySelectorAll("button"));'
-            '  return btns.some(b => /cancel/i.test(b.textContent));'
-            '})()'
+            '  const txt = d.innerText.toLowerCase();'
+            '  return txt.includes("delete") || txt.includes("cancel") || txt.includes("confirm");'
+            '})()',
+            timeout_s=3.0,
         )
-    except ProbeSkip:
-        cancel_present = True  # can't read — assume present and move on
+        assert dialog_open, "confirm-delete dialog did not open after clicking Delete in sidebar"
 
-    assert cancel_present, "confirm-delete dialog is missing a Cancel button"
+        # Verify the dialog has a Cancel button (user can back out).
+        cancel_present = False
+        try:
+            cancel_present = probe.eval_bool(
+                '(() => {'
+                '  const d = document.querySelector('
+                '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+                '  );'
+                '  if (!d) return false;'
+                '  const btns = Array.from(d.querySelectorAll("button"));'
+                '  return btns.some(b => /cancel/i.test(b.textContent));'
+                '})()'
+            )
+        except ProbeSkip:
+            cancel_present = True  # can't read — assume present and move on
 
-    # Close via Escape — do NOT confirm the delete.
-    try:
-        os_input.press_key("escape")
-    except Exception:
-        pass
-    time.sleep(0.3)
-    _dismiss(probe, os_input)
+        assert cancel_present, "confirm-delete dialog is missing a Cancel button"
+    finally:
+        # Always dismiss — do NOT confirm the delete even if assertions fail.
+        _dismiss(probe, os_input)
