@@ -21,6 +21,15 @@ on:
     branches:
       - gpd
   workflow_dispatch:
+    inputs:
+      run_lifecycle:
+        description: "Run the destructive lifecycle suite (quits + relaunches GPD). Only use on a trusted runner."
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 concurrency:
   group: gpd-tests-gui-${{ github.ref }}
@@ -149,14 +158,41 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
       # -----------------------------------------------------------------------
+      # Resolve the debug bundle path.
+      # When TAURI_ENV_TARGET_TRIPLE (set by the rust-toolchain action) points
+      # at a specific triple, Tauri writes to target/<triple>/debug/bundle/...;
+      # without a target override it writes to target/debug/bundle/... . Try
+      # both so the workflow works on either CI or a developer laptop.
+      # -----------------------------------------------------------------------
+      - name: Resolve debug bundle path
+        shell: bash
+        run: |
+          BUNDLE_ROOT="packages/desktop/src-tauri/target"
+          BUNDLE=""
+          for candidate in \
+            "$BUNDLE_ROOT/aarch64-apple-darwin/debug/bundle/macos/GPD Dev.app" \
+            "$BUNDLE_ROOT/debug/bundle/macos/GPD Dev.app"; do
+            if [ -e "$candidate/Contents/MacOS" ]; then
+              BUNDLE="$candidate"
+              break
+            fi
+          done
+          if [ -z "$BUNDLE" ]; then
+            echo "No debug bundle found under $BUNDLE_ROOT/{aarch64-apple-darwin/,}debug/bundle/macos/"
+            find "$BUNDLE_ROOT" -maxdepth 4 -name "*.app" -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Using bundle: $BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------------
       # Verify the debug bundle produced the expected .app
       # -----------------------------------------------------------------------
       - name: Verify debug bundle
         shell: bash
         run: |
-          APP="packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app"
-          test -d "$APP" || { echo "bundle not found"; exit 1; }
-          strings "$APP/Contents/MacOS/GPD Dev" | grep -q "tauri-plugin-mcp" || { echo "MCP plugin missing from debug bundle"; exit 1; }
+          test -d "$BUNDLE" || { echo "bundle not found at $BUNDLE"; exit 1; }
+          strings "$BUNDLE/Contents/MacOS/GPD Dev" | grep -q "tauri-plugin-mcp" || { echo "MCP plugin missing from debug bundle"; exit 1; }
 
       # -----------------------------------------------------------------------
       # Accessibility permission
@@ -186,7 +222,7 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Launch GPD Dev
         run: |
-          APP_PATH="${GITHUB_WORKSPACE}/packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app"
+          APP_PATH="${GITHUB_WORKSPACE}/${BUNDLE}"
           echo "GPD_APP_PATH=${APP_PATH}" >> "$GITHUB_ENV"
           open "${APP_PATH}"
           echo "Waiting for sidecar (opencode-cli serve) to appear..."
@@ -345,13 +381,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Resolve debug bundle path
+        shell: bash
+        run: |
+          BUNDLE_ROOT="packages/desktop/src-tauri/target"
+          BUNDLE=""
+          for candidate in \
+            "$BUNDLE_ROOT/aarch64-apple-darwin/debug/bundle/macos/GPD Dev.app" \
+            "$BUNDLE_ROOT/debug/bundle/macos/GPD Dev.app"; do
+            if [ -e "$candidate/Contents/MacOS" ]; then
+              BUNDLE="$candidate"
+              break
+            fi
+          done
+          if [ -z "$BUNDLE" ]; then
+            echo "No debug bundle found under $BUNDLE_ROOT/{aarch64-apple-darwin/,}debug/bundle/macos/"
+            find "$BUNDLE_ROOT" -maxdepth 4 -name "*.app" -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Using bundle: $BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+
       - name: Install test dependencies
         working-directory: packages/desktop/tests-gui
         run: uv sync
 
       - name: Launch GPD Dev
         run: |
-          APP_PATH="${GITHUB_WORKSPACE}/packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app"
+          APP_PATH="${GITHUB_WORKSPACE}/${BUNDLE}"
           echo "GPD_APP_PATH=${APP_PATH}" >> "$GITHUB_ENV"
           open "${APP_PATH}"
           for i in $(seq 1 30); do
@@ -464,13 +521,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Resolve debug bundle path
+        shell: bash
+        run: |
+          BUNDLE_ROOT="packages/desktop/src-tauri/target"
+          BUNDLE=""
+          for candidate in \
+            "$BUNDLE_ROOT/aarch64-apple-darwin/debug/bundle/macos/GPD Dev.app" \
+            "$BUNDLE_ROOT/debug/bundle/macos/GPD Dev.app"; do
+            if [ -e "$candidate/Contents/MacOS" ]; then
+              BUNDLE="$candidate"
+              break
+            fi
+          done
+          if [ -z "$BUNDLE" ]; then
+            echo "No debug bundle found under $BUNDLE_ROOT/{aarch64-apple-darwin/,}debug/bundle/macos/"
+            find "$BUNDLE_ROOT" -maxdepth 4 -name "*.app" -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Using bundle: $BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+
       - name: Install test dependencies
         working-directory: packages/desktop/tests-gui
         run: uv sync
 
       - name: Launch GPD Dev
         run: |
-          APP_PATH="${GITHUB_WORKSPACE}/packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app"
+          APP_PATH="${GITHUB_WORKSPACE}/${BUNDLE}"
           echo "GPD_APP_PATH=${APP_PATH}" >> "$GITHUB_ENV"
           open "${APP_PATH}"
           for i in $(seq 1 30); do

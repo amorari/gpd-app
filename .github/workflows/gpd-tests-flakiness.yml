@@ -71,8 +71,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Resolve debug bundle path
+        shell: bash
+        run: |
+          BUNDLE_ROOT="packages/desktop/src-tauri/target"
+          BUNDLE=""
+          for candidate in \
+            "$BUNDLE_ROOT/aarch64-apple-darwin/debug/bundle/macos/GPD Dev.app" \
+            "$BUNDLE_ROOT/debug/bundle/macos/GPD Dev.app"; do
+            if [ -e "$candidate/Contents/MacOS" ]; then
+              BUNDLE="$candidate"
+              break
+            fi
+          done
+          if [ -z "$BUNDLE" ]; then
+            echo "No debug bundle found under $BUNDLE_ROOT/{aarch64-apple-darwin/,}debug/bundle/macos/"
+            find "$BUNDLE_ROOT" -maxdepth 4 -name "*.app" -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Using bundle: $BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+
       - name: Launch debug app
-        run: open ./packages/desktop/src-tauri/target/debug/bundle/macos/GPD\ Dev.app
+        run: open "$BUNDLE"
 
       - name: Wait for sidecar
         working-directory: packages/desktop/tests-gui
