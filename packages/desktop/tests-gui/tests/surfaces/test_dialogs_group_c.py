@@ -207,12 +207,13 @@ def test_dialog_edit_project_opens_and_closes(
         if not clicked_menu:
             pytest.skip("could not click project-menu trigger")
 
-        # Wait for the DropdownMenu to open (it renders a [role="menu"] or
-        # items that contain an "Edit" label).
+        # Wait for the DropdownMenu portal to mount. Kobalte DropdownMenu.Content
+        # renders with role="menu"; [data-component="dropdown-menu"] is on the
+        # non-rendering root component and never appears in the DOM.
         try:
             menu_open = _wait_for(
                 probe,
-                '!!document.querySelector("[role=\\"menu\\"], [data-component=\\"dropdown-menu\\"]")',
+                '!!document.querySelector("[role=\\"menu\\"]")',
                 timeout_s=2.0,
             )
         except ProbeSkip as e:
