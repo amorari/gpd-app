@@ -255,7 +255,8 @@ def test_kill_stale_raises_when_sigkill_insufficient(monkeypatch):
 
 
 @pytest.mark.unit
-def test_launch_background_default(monkeypatch):
+def test_launch_always_foreground(monkeypatch):
+    """launch() uses `open -a` without -g so the webview is always active."""
     calls: list[list[str]] = []
 
     def run(argv, *a, **kw):
@@ -270,27 +271,8 @@ def test_launch_background_default(monkeypatch):
     s.launch()
     open_calls = [c for c in calls if c[0] == "open"]
     assert open_calls, "expected an `open` call"
-    # -g inserted at index 1 for background launch.
-    assert "-g" in open_calls[0]
-    assert open_calls[0].index("-g") == 1
+    assert "-g" not in open_calls[0], "-g must not be present (foreground launch required in VM)"
     assert s._launched_pid == 8080
-
-
-@pytest.mark.unit
-def test_launch_foreground_omits_dash_g(monkeypatch):
-    calls: list[list[str]] = []
-
-    def run(argv, *a, **kw):
-        calls.append(list(argv))
-        if argv[0] == "pgrep":
-            return _cp("9090", 0)
-        return _cp("", 0)
-
-    monkeypatch.setattr(mod.subprocess, "run", run)
-    monkeypatch.setattr(mod, "wait_until", lambda pred, **kw: True)
-    mod.AppState().launch(background=False)
-    open_calls = [c for c in calls if c[0] == "open"]
-    assert open_calls and "-g" not in open_calls[0]
 
 
 @pytest.mark.unit
