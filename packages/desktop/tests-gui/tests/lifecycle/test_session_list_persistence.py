@@ -11,7 +11,7 @@ def test_multiple_sessions_persist(http, app_state):
         assert sid in pre, f"session {sid} not visible before restart"
 
     app_state.quit()
-    app_state.wait_quit(timeout=15)
+    app_state.wait_quit(timeout_s=15)
     app_state.launch()
 
     post = {s["id"] for s in http.sessions()}
