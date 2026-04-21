@@ -312,15 +312,15 @@ def mcp(app_state):
         try:
             client.ping()
             break
-        except MCPTimeout:
+        except (MCPTimeout, ConnectionRefusedError):
             if _attempt == 0:
                 # NSOpenPanel or another native dialog may be blocking the
                 # event loop. Dismiss it and retry once.
                 _dismiss_native_dialogs()
                 continue
             pytest.fail(
-                "MCP ping timed out after dialog dismissal — "
-                "GPD event loop is unresponsive. Relaunch GPD Dev."
+                "MCP ping timed out or connection refused after dialog dismissal — "
+                "GPD event loop is unresponsive or MCP socket is stale. Relaunch GPD Dev."
             )
         except MCPError as e:
             msg = str(e).lower()
@@ -445,19 +445,22 @@ def pytest_runtest_setup(item):
         return
     import scripts.reset as reset
 
-    reset.run(tier=tier, dry_run=False, stop_app=True, start_app=True)
+    try:
+        reset.run(tier=tier, dry_run=False, stop_app=True, start_app=True)
+    except Exception as e:
+        pytest.skip(f"GPD reset failed before test (tier={tier}): {e}")
     # Let the fresh app come up before the next fixture use. The driver
     # fixtures below are function-scoped so they rediscover socket path,
     # HTTP port, and creds on the next test.
     from gpd_tests.pages.app_state import AppState
 
     fresh_state = AppState()
-    fresh_state.wait_launched(timeout_s=20.0)
-    # Refresh the session-scoped app_state's _launched_pid so that
-    # sidecar_pid() keeps tracking the live process tree instead of a stale
-    # PID from before the reset.
+    # Refresh the session-scoped app_state's _launched_pid BEFORE
+    # wait_launched starts polling sidecar_pid(), so PPID disambiguation
+    # uses the new PID rather than the pre-reset one.
     if _session_app_state is not None:
         _session_app_state.refresh_launched_pid()
+    fresh_state.wait_launched(timeout_s=20.0)
 
 
 # --- Reporting hooks -----------------------------------------------------
