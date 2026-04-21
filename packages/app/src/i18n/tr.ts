@@ -978,6 +978,12 @@ export const dict = {
   "gpd.firstRun.toast.description": "Fizik araçları, asistanlar ve ayarlar ~/.config/gpd/ konumunda saklanır. Proje bazlı planlar her proje klasörünün içindeki .opencode/ klasöründedir. Araştırma dosyalarınız koyduğunuz yerde kalır.",
 
   "dock.gpdSkills": "GPD Skills",
+  "dock.equation": "Denklem",
+  "equation.dialog.title": "Denklem Düzenleyici",
+  "equation.dialog.loading": "Denklem düzenleyici yükleniyor...",
+  "equation.dialog.unavailable": "Denklem düzenleyici kullanılamıyor",
+  "equation.dialog.discard": "İptal",
+  "equation.dialog.insert": "Denklemi Ekle",
   "gpdSkills.dialog.title": "GPD Skills",
   "gpdSkills.dialog.description": "Browse GPD research commands by category. Select one to insert it into the prompt.",
   "gpdSkills.search.placeholder": "Search GPD commands...",

@@ -348,29 +348,9 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     })
   }
 
-  const shareCmds = () => {
-    if (sync.data.config.share === "disabled") return []
-    return [
-      sessionCommand({
-        id: "session.share",
-        title: info()?.share?.url ? language.t("session.share.copy.copyLink") : language.t("command.session.share"),
-        description: info()?.share?.url
-          ? language.t("toast.session.share.success.description")
-          : language.t("command.session.share.description"),
-        slash: "share",
-        disabled: !params.id,
-        onSelect: share,
-      }),
-      sessionCommand({
-        id: "session.unshare",
-        title: language.t("command.session.unshare"),
-        description: language.t("command.session.unshare.description"),
-        slash: "unshare",
-        disabled: !params.id || !info()?.share?.url,
-        onSelect: unshare,
-      }),
-    ]
-  }
+  // GPD: session sharing is disabled until we ship a PSI-hosted share service.
+  // See the shareEnabled() comment in message-timeline.tsx for details.
+  const shareCmds = () => [] as CommandOption[]
 
   const sessionCmds = () => [
     sessionCommand({

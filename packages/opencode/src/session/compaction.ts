@@ -251,10 +251,14 @@ When constructing the summary, try to stick to this template:
           sessionID: input.sessionID,
           model,
         })
+        const info = yield* session.get(input.sessionID)
+        const rootSessionID = info.parentID ? yield* session.root(input.sessionID) : input.sessionID
         const result = yield* processor.process({
           user: userMessage,
           agent,
           sessionID: input.sessionID,
+          parentSessionID: info.parentID,
+          rootSessionID,
           tools: {},
           system: [],
           messages: [

@@ -355,6 +355,12 @@ export namespace Session {
     readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
     readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<MessageV2.WithParts[]>
     readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
+    /**
+     * Walk the `parent_id` chain up to the root session.
+     * Returns the input `id` if it has no parent. Bounded at 100 hops as a
+     * safety net against cycles — in practice subagent nesting is single-digit.
+     */
+    readonly root: (id: SessionID) => Effect.Effect<SessionID>
     readonly remove: (sessionID: SessionID) => Effect.Effect<void>
     readonly updateMessage: <T extends MessageV2.Info>(msg: T) => Effect.Effect<T>
     readonly removeMessage: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MessageID>
@@ -451,6 +457,22 @@ export namespace Session {
             .all(),
         )
         return rows.map(fromRow)
+      })
+
+      const root = Effect.fn("Session.root")(function* (id: SessionID) {
+        let current: SessionID = id
+        for (let i = 0; i < 100; i++) {
+          const row = yield* db((d) =>
+            d
+              .select({ parent_id: SessionTable.parent_id })
+              .from(SessionTable)
+              .where(eq(SessionTable.id, current))
+              .get(),
+          )
+          if (!row || !row.parent_id) return current
+          current = row.parent_id as SessionID
+        }
+        return current
       })
 
       const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -690,6 +712,7 @@ export namespace Session {
         diff,
         messages,
         children,
+        root,
         remove,
         updateMessage,
         removeMessage,

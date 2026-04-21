@@ -54,23 +54,38 @@ pub fn build_config_json() -> String {
     let m = r#""modalities":{"input":["text","image","pdf"],"output":["text"]}"#;
     let mg = r#""modalities":{"input":["text","image","pdf","video","audio"],"output":["text"]}"#;
     let mt = r#""modalities":{"input":["text"],"output":["text"]}"#;
-    format!(r#"{{"provider":{{"gpd":{{"name":"GPD (PSI)","api":"{url}","env":["GPD_API_KEY"],"models":{{"claude-opus-4-6":{{"name":"Claude Opus 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":131072}}}},"claude-sonnet-4-6":{{"name":"Claude Sonnet 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":65536}}}},"claude-haiku-4-5":{{"name":"Claude Haiku 4.5","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":200000,"output":65536}}}},"gpt-5.4":{{"name":"GPT-5.4","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-mini":{{"name":"GPT-5.4 mini","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-nano":{{"name":"GPT-5.4 nano","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-pro":{{"name":"GPT-5.4 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.3-codex":{{"name":"GPT-5.3 Codex","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1":{{"name":"GPT-4.1","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1-mini":{{"name":"GPT-4.1 mini","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"o4-mini":{{"name":"o4-mini (reasoning)","tool_call":true,"reasoning":true,"temperature":true,{mt},"limit":{{"context":200000,"output":100000}}}},"gemini-3.1-pro-preview":{{"name":"Gemini 3.1 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{mg},"limit":{{"context":1000000,"output":65536}}}},"gemini-3-flash-preview":{{"name":"Gemini 3 Flash","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{mg},"limit":{{"context":1000000,"output":65536}}}},"gemini-3.1-flash-lite-preview":{{"name":"Gemini 3.1 Flash-Lite","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":65536}}}}}}}}}},"model":"gpd/claude-sonnet-4-6","enabled_providers":["gpd"],"mcp":{mcp}}}"#,
+    // See comment in inject_provider_config() about why there's no
+    // "env" field on the gpd provider — opencode falls back to
+    // auth.json (populated by the installer) when env is absent.
+    format!(r#"{{"provider":{{"gpd":{{"name":"GPD (PSI)","api":"{url}","models":{{"claude-opus-4-6":{{"name":"Claude Opus 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":131072}}}},"claude-sonnet-4-6":{{"name":"Claude Sonnet 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":65536}}}},"claude-haiku-4-5":{{"name":"Claude Haiku 4.5","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":200000,"output":65536}}}},"gpt-5.4":{{"name":"GPT-5.4","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-mini":{{"name":"GPT-5.4 mini","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-nano":{{"name":"GPT-5.4 nano","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-pro":{{"name":"GPT-5.4 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.3-codex":{{"name":"GPT-5.3 Codex","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1":{{"name":"GPT-4.1","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1-mini":{{"name":"GPT-4.1 mini","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"o4-mini":{{"name":"o4-mini (reasoning)","tool_call":true,"reasoning":true,"temperature":true,{mt},"limit":{{"context":200000,"output":100000}}}},"gemini-3.1-pro-preview":{{"name":"Gemini 3.1 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{mg},"limit":{{"context":1000000,"output":65536}}}},"gemini-3-flash-preview":{{"name":"Gemini 3 Flash","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{mg},"limit":{{"context":1000000,"output":65536}}}},"gemini-3.1-flash-lite-preview":{{"name":"Gemini 3.1 Flash-Lite","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":65536}}}}}}}}}},"model":"gpd/claude-sonnet-4-6","enabled_providers":["gpd"],"mcp":{mcp}}}"#,
         url = LITELLM_URL,
         mcp = mcp_servers,
     )
 }
 
-/// Returns the GPD config directory path (~/.config/gpd/)
+/// Returns the GPD home directory (~/.gpd, or $GPD_HOME if set).
+///
+/// This is the single base directory that BOTH the CLI installer
+/// (install-gpd/install and install-gpd/windows_11/install.ps1) AND
+/// the desktop app use for their bootstrap state: Python venv,
+/// get-physics-done package, LiteLLM config, and the
+/// `.gpd-initialized` marker.
+///
+/// When the CLI installer runs first, it pre-populates everything
+/// under this path so the desktop app's `run_first_setup` short-
+/// circuits via `is_venv_valid()` on first launch — no uv reinstall,
+/// no pip reinstall, no cascade of console windows.
+///
+/// Before this unification (tracked as product bug 2026-04-21), the
+/// desktop app used `~/.config/gpd/` while the installer used
+/// `~/.gpd/`, so each re-did the other's work.
 pub fn config_dir() -> PathBuf {
-    let config_home = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .expect("cannot determine home directory")
-                .join(".config")
-        });
-    config_home.join(GPD_CONFIG_DIR_NAME)
+    if let Some(home) = std::env::var_os("GPD_HOME").filter(|v| !v.is_empty()) {
+        return PathBuf::from(home);
+    }
+    dirs::home_dir()
+        .expect("cannot determine home directory")
+        .join(".gpd")
 }
 
 /// Returns true if GPD has already been initialized
@@ -197,9 +212,17 @@ fn uv_path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("GPD's Python helper (uv) couldn't be located. Try reinstalling the app. ({e})"))
 }
 
-/// GPD venv location: ~/.config/gpd/.venv/
+/// GPD venv location.
+///
+/// Matches the CLI installer layout:
+///   Linux / macOS: ~/.gpd/venv/
+///   Windows:       %USERPROFILE%\.gpd\venv\
+///
+/// Previously this was `config_dir().join(".venv")` which pointed at
+/// ~/.config/gpd/.venv/ — a different directory from what the
+/// installer built. Unified in the 2026-04-21 refactor.
 fn gpd_venv_dir() -> PathBuf {
-    config_dir().join(".venv")
+    config_dir().join("venv")
 }
 
 /// The Python interpreter inside the GPD venv
@@ -421,10 +444,23 @@ fn inject_provider_config(config: &Path) -> Result<(), String> {
         // Add provider
         let provider = obj.entry("provider").or_insert_with(|| serde_json::json!({}));
         if let Some(provider_obj) = provider.as_object_mut() {
+            // NO "env" field here on purpose — previously we had
+            // "env": ["GPD_API_KEY"] which told opencode to ONLY read
+            // the key from that environment variable. GUI apps on
+            // Windows/macOS don't inherit env from .profile / user
+            // profile, so GPD.exe launched from the Start menu had
+            // an empty GPD_API_KEY and opencode showed "Sign-in
+            // failed. Check your access key in Settings." even though
+            // the installer had correctly written the key to
+            // auth.json. Removing the env field makes opencode fall
+            // back to auth.json (which is what we populate from the
+            // installer on all platforms). Users who prefer setting
+            // the key via env can still do so — opencode honors
+            // OPENCODE_API_KEY / provider-specific env overrides
+            // regardless of whether env is declared here.
             provider_obj.insert("gpd".to_string(), serde_json::json!({
                 "name": "GPD (PSI)",
                 "api": LITELLM_URL,
-                "env": ["GPD_API_KEY"],
                 "models": {
                     "claude-opus-4-6": { "name": "Claude Opus 4.6", "tool_call": true, "reasoning": true, "attachment": true, "temperature": true, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }, "limit": { "context": 1000000, "output": 131072 } },
                     "claude-sonnet-4-6": { "name": "Claude Sonnet 4.6", "tool_call": true, "reasoning": true, "attachment": true, "temperature": true, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }, "limit": { "context": 1000000, "output": 65536 } },

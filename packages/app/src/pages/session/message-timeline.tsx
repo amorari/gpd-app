@@ -304,7 +304,12 @@ export function MessageTimeline(props: {
   const titleValue = createMemo(() => info()?.title)
   const titleLabel = createMemo(() => sessionTitle(titleValue()))
   const shareUrl = createMemo(() => info()?.share?.url)
-  const shareEnabled = createMemo(() => sync.data.config.share !== "disabled")
+  // GPD: sharing is disabled app-wide until we ship a PSI-hosted share service.
+  // Upstream OpenCode's share endpoint points at opncd.ai (a third-party opencode.ai
+  // service). We don't want researcher sessions flowing through that, so we hide the
+  // UI outright. The runtime is also gated via OPENCODE_DISABLE_SHARE=1 on the
+  // sidecar so programmatic calls no-op too.
+  const shareEnabled = createMemo(() => false)
   const parentID = createMemo(() => info()?.parentID)
   const parent = createMemo(() => {
     const id = parentID()

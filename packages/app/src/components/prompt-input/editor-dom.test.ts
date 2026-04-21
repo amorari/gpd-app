@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { createTextFragment, getCursorPosition, getNodeLength, getTextLength, setCursorPosition } from "./editor-dom"
+import {
+  containsControlChar,
+  createTextFragment,
+  getCursorPosition,
+  getNodeLength,
+  getTextLength,
+  sanitizeControlChars,
+  setCursorPosition,
+  stripControlChars,
+} from "./editor-dom"
 
 describe("prompt-input editor dom", () => {
   test("createTextFragment preserves newlines with consecutive br nodes", () => {
@@ -134,6 +143,50 @@ describe("prompt-input editor dom", () => {
     // After the pill
     setCursorPosition(container, 7)
     expect(getCursorPosition(container)).toBe(7)
+
+    container.remove()
+  })
+
+  test("containsControlChar flags C0 control characters", () => {
+    expect(containsControlChar("hello")).toBe(false)
+    expect(containsControlChar("")).toBe(false)
+    expect(containsControlChar(null)).toBe(false)
+    expect(containsControlChar(undefined)).toBe(false)
+    // Tab, newline, carriage return are NOT stripped — they're legitimate.
+    expect(containsControlChar("\t")).toBe(false)
+    expect(containsControlChar("\n")).toBe(false)
+    expect(containsControlChar("\r")).toBe(false)
+    // The WebKit empty-editor arrow-key bug inserts U+001C / U+001D.
+    expect(containsControlChar("\u001c")).toBe(true)
+    expect(containsControlChar("\u001d")).toBe(true)
+    // ZWSP is visual and harmless via this filter — sentinel handling owns it.
+    expect(containsControlChar("\u200b")).toBe(false)
+    // Any other C0 control char is flagged.
+    expect(containsControlChar("\u0001")).toBe(true)
+    expect(containsControlChar("\u001f")).toBe(true)
+  })
+
+  test("stripControlChars removes C0 control chars but preserves tab/newline/cr", () => {
+    expect(stripControlChars("hello")).toBe("hello")
+    expect(stripControlChars("hello\u001cworld")).toBe("helloworld")
+    expect(stripControlChars("\u001c\u001d\u001c\u001d")).toBe("")
+    expect(stripControlChars("line1\nline2\tcol")).toBe("line1\nline2\tcol")
+    expect(stripControlChars("carriage\rreturn")).toBe("carriage\rreturn")
+  })
+
+  test("sanitizeControlChars walks all text nodes and mutates in place", () => {
+    const container = document.createElement("div")
+    container.appendChild(document.createTextNode("hello\u001c"))
+    container.appendChild(document.createElement("br"))
+    container.appendChild(document.createTextNode("\u001dworld"))
+    document.body.appendChild(container)
+
+    const mutated = sanitizeControlChars(container)
+    expect(mutated).toBe(true)
+    expect(container.textContent).toBe("helloworld")
+
+    // Running again on clean content should be a no-op.
+    expect(sanitizeControlChars(container)).toBe(false)
 
     container.remove()
   })

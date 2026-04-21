@@ -104,6 +104,7 @@ const icons = {
   models: `<path fill-rule="evenodd" clip-rule="evenodd" d="M17.5 10C12.2917 10 10 12.2917 10 17.5C10 12.2917 7.70833 10 2.5 10C7.70833 10 10 7.70833 10 2.5C10 7.70833 12.2917 10 17.5 10Z" stroke="currentColor"/>`,
   home: `<path d="M2.5 9.16667L10 2.5L17.5 9.16667V17.5H12.5V12.5H7.5V17.5H2.5V9.16667Z" stroke="currentColor" stroke-linecap="square" stroke-linejoin="miter"/>`,
   sparkles: `<path d="M7.5 2.5L8.33333 5L10.8333 5.83333L8.33333 6.66667L7.5 9.16667L6.66667 6.66667L4.16667 5.83333L6.66667 5L7.5 2.5Z" stroke="currentColor" stroke-linejoin="round"/><path d="M14.1667 9.16667L14.7917 11.0417L16.6667 11.6667L14.7917 12.2917L14.1667 14.1667L13.5417 12.2917L11.6667 11.6667L13.5417 11.0417L14.1667 9.16667Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8.33333 12.5L9.16667 14.5833L11.25 15.4167L9.16667 16.25L8.33333 18.3333L7.5 16.25L5.41667 15.4167L7.5 14.5833L8.33333 12.5Z" stroke="currentColor" stroke-linejoin="round"/>`,
+  sigma: `<path d="M16 3.33301H4L10 10L4 16.667H16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
 }
 
 export interface IconProps extends ComponentProps<"svg"> {

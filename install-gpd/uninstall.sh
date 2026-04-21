@@ -10,6 +10,9 @@
 #   - PATH entries from shell rc files
 #   - GPD_API_KEY exports from login profiles
 #   - GPD .deb package (Ubuntu, if installed)
+#   - "gpd" provider entry from opencode's auth.json
+#   - GUI config dirs (~/.config/gpd, ~/.config/inc.psi.gpd)
+#   - GPD-specific entries inside ~/.config/opencode/ (preserves opencode itself)
 
 set -euo pipefail
 
@@ -47,6 +50,60 @@ done
 
 GPD_HOME="${GPD_HOME:-$HOME/.gpd}"
 GPD_BIN_DIR="$GPD_HOME/bin"
+
+# auth.json lives under XDG_DATA_HOME (Linux) or ~/Library/Application Support (macOS).
+# The installer writes all three on the respective platforms; check all of them
+# so we clean up correctly even if XDG_DATA_HOME was set at install time but
+# not now (or vice versa).
+auth_json_candidates=()
+if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    auth_json_candidates+=("$XDG_DATA_HOME/opencode/auth.json")
+fi
+auth_json_candidates+=("$HOME/.local/share/opencode/auth.json")
+auth_json_candidates+=("$HOME/Library/Application Support/opencode/auth.json")
+
+# GUI config directories (full app state — safe to remove entirely).
+# Also includes the Tauri WebView data dirs under ~/.local/share and
+# ~/.cache where the browser localStorage (incl. "gpd.key.saved" flag),
+# cookies, IndexedDB, and cache live. Without these, a fresh install
+# would inherit the previous user's key prompt state. macOS paths are
+# covered by the macOS uninstaller (uninstall_macos.sh); here we handle
+# Linux XDG layout.
+gui_config_dirs=(
+    "$HOME/.config/gpd"
+    "$HOME/.config/inc.psi.gpd"
+    "$HOME/.local/share/inc.psi.gpd"
+    "$HOME/.cache/inc.psi.gpd"
+)
+
+# opencode's global config dir — we ORIGINALLY preserved this to be safe
+# for users who had opencode installed for other workflows. In practice,
+# when opencode was bootstrapped by the GPD installer, the dir contains
+# a GPD-specific `get-physics-done/` subdir (templates, commands, agents
+# that `gpd install opencode --global` dropped in). That's a reliable
+# signal that opencode exists only to serve GPD. When we see that, we
+# can safely `rm -rf` both the config dir AND its data dir (logs,
+# opencode.db) so a reinstall is truly clean.
+opencode_config_dir="$HOME/.config/opencode"
+opencode_data_dirs=()
+# XDG_DATA_HOME (session DB, auth.json). Defaults to ~/.local/share.
+if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    opencode_data_dirs+=("$XDG_DATA_HOME/opencode")
+fi
+opencode_data_dirs+=("$HOME/.local/share/opencode")
+# XDG_STATE_HOME (persistent session state). Defaults to ~/.local/state.
+# opencode writes lock files, session markers, and crash reports here.
+if [[ -n "${XDG_STATE_HOME:-}" ]]; then
+    opencode_data_dirs+=("$XDG_STATE_HOME/opencode")
+fi
+opencode_data_dirs+=("$HOME/.local/state/opencode")
+# XDG_CACHE_HOME (bin cache, compiled artifacts). Defaults to ~/.cache.
+# opencode caches downloaded binaries and temporary build output here;
+# ~40 MB on a typical install.
+if [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+    opencode_data_dirs+=("$XDG_CACHE_HOME/opencode")
+fi
+opencode_data_dirs+=("$HOME/.cache/opencode")
 
 # ── Discovery: show what will be removed ──────────────────────────────────
 
@@ -90,6 +147,69 @@ for profile in "$HOME/.profile" "$HOME/.zprofile" "${ZDOTDIR:-$HOME}/.zprofile";
         profiles_with_key+=("$profile")
         log "Found GPD_API_KEY export in: $profile"
         found_anything=true
+    fi
+done
+
+# Check for auth.json files containing a "gpd" provider entry
+auth_json_files=()
+seen_auth=""
+for candidate in "${auth_json_candidates[@]}"; do
+    # de-dupe (XDG_DATA_HOME may resolve to the same path)
+    case "$seen_auth" in *"|$candidate|"*) continue ;; esac
+    seen_auth="$seen_auth|$candidate|"
+    if [[ -f "$candidate" ]] && grep -q '"gpd"' "$candidate" 2>/dev/null; then
+        auth_json_files+=("$candidate")
+        log "Found auth.json at: $candidate"
+        found_anything=true
+    fi
+done
+
+# Check for GUI config directories
+gui_dirs_found=()
+for d in "${gui_config_dirs[@]}"; do
+    if [[ -d "$d" ]]; then
+        gui_dirs_found+=("$d")
+        log "Found GUI config directory: $d"
+        found_anything=true
+    fi
+done
+
+# Check for GPD-specific artifacts inside opencode's global config
+opencode_json_has_gpd=false
+opencode_manifest=""
+if [[ -f "$opencode_config_dir/opencode.json" ]] && grep -q '"gpd"' "$opencode_config_dir/opencode.json" 2>/dev/null; then
+    opencode_json_has_gpd=true
+    log "Found GPD entry in: $opencode_config_dir/opencode.json"
+    found_anything=true
+fi
+if [[ -f "$opencode_config_dir/gpd-file-manifest.json" ]]; then
+    opencode_manifest="$opencode_config_dir/gpd-file-manifest.json"
+    log "Found GPD file manifest: $opencode_manifest"
+    found_anything=true
+fi
+
+# If opencode's config dir contains get-physics-done/ (GPD templates/
+# commands/agents), opencode was bootstrapped by GPD — safe to remove
+# the whole config + data tree. Otherwise keep it (user had opencode
+# before GPD or uses it for other workflows).
+opencode_is_gpd_only=false
+if [[ -d "$opencode_config_dir/get-physics-done" ]]; then
+    opencode_is_gpd_only=true
+    log "Found GPD-only opencode install (has get-physics-done templates)"
+    log "  Will remove opencode config + data dirs entirely"
+    found_anything=true
+fi
+
+# Check for opencode data dirs (logs, opencode.db) — we'll only remove
+# these if opencode_is_gpd_only is true (decided above).
+opencode_data_dirs_found=()
+for d in "${opencode_data_dirs[@]}"; do
+    if [[ -d "$d" ]]; then
+        opencode_data_dirs_found+=("$d")
+        if [[ "$opencode_is_gpd_only" == true ]]; then
+            log "Found opencode data directory: $d"
+            found_anything=true
+        fi
     fi
 done
 
@@ -178,6 +298,172 @@ else
     skip "No GPD_API_KEY exports to remove"
 fi
 
+# ── Remove "gpd" entry from auth.json (preserve other providers) ──────────
+
+remove_gpd_from_auth_json() {
+    local file="$1"
+
+    if command -v python3 &>/dev/null; then
+        # Use python to drop just the "gpd" key; delete the file entirely if
+        # nothing else remains. Exit codes:
+        #   0  removed gpd entry, file still has other providers
+        #   1  removed gpd entry, file was empty afterwards (deleted)
+        #   2  no gpd entry present, nothing to do
+        #   3  JSON parse error — caller should fall back
+        #
+        # NOTE: `set -e` aborts on any non-zero exit of a simple command, so
+        # we must capture the python exit code via `|| rc=$?` rather than
+        # reading $? on the next line (which would never execute).
+        local rc=0
+        python3 - "$file" <<'PY' || rc=$?
+import json, os, sys
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(3)
+if not isinstance(data, dict) or "gpd" not in data:
+    sys.exit(2)
+del data["gpd"]
+if not data:
+    os.remove(path)
+    sys.exit(1)
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+os.chmod(path, 0o600)
+sys.exit(0)
+PY
+        case "$rc" in
+            0) success "Removed 'gpd' entry from $file (other providers preserved)" ;;
+            1) success "Removed $file (only contained 'gpd' entry)" ;;
+            2) skip "No 'gpd' entry in $file" ;;
+            3)
+                warn "Could not parse $file as JSON — removing it entirely"
+                rm -f "$file"
+                ;;
+        esac
+    else
+        # No python3 available. We detected a "gpd" entry, but we can't safely
+        # edit JSON with pure bash. If the file contains other provider keys,
+        # warn before removing. Otherwise just remove it.
+        local other_providers
+        # crude: count top-level quoted keys other than "gpd"
+        other_providers=$(grep -oE '"[A-Za-z0-9_-]+"[[:space:]]*:' "$file" 2>/dev/null \
+            | grep -v '^"gpd"' | head -1 || true)
+        if [[ -n "$other_providers" ]]; then
+            warn "python3 not available and $file has other providers — removing whole file anyway"
+            warn "  You may need to re-authenticate other providers in opencode"
+        fi
+        rm -f "$file"
+        success "Removed $file"
+    fi
+}
+
+if (( ${#auth_json_files[@]} > 0 )); then
+    for f in "${auth_json_files[@]}"; do
+        remove_gpd_from_auth_json "$f"
+    done
+else
+    skip "No auth.json with 'gpd' entry to clean up"
+fi
+
+# ── Remove GUI config directories ─────────────────────────────────────────
+
+if (( ${#gui_dirs_found[@]} > 0 )); then
+    for d in "${gui_dirs_found[@]}"; do
+        rm -rf "$d"
+        success "Removed GUI config directory: $d"
+    done
+else
+    skip "No GUI config directories to remove"
+fi
+
+# ── Clean GPD bits from opencode's global config (preserve the dir) ───────
+
+clean_opencode_json() {
+    local file="$1"
+
+    if command -v python3 &>/dev/null; then
+        # NOTE: same `set -e` caveat as remove_gpd_from_auth_json — capture
+        # the python exit code via `|| rc=$?` so non-zero "signal" exits
+        # (1/2/3) don't abort the whole uninstaller.
+        local rc=0
+        python3 - "$file" <<'PY' || rc=$?
+import json, sys
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(3)
+if not isinstance(data, dict):
+    sys.exit(2)
+changed = False
+# Drop the "gpd" provider entry
+provider = data.get("provider")
+if isinstance(provider, dict) and "gpd" in provider:
+    del provider["gpd"]
+    changed = True
+    if not provider:
+        del data["provider"]
+# Clear default model if it points at gpd/*
+model = data.get("model")
+if isinstance(model, str) and model.startswith("gpd/"):
+    del data["model"]
+    changed = True
+# Remove "gpd" from enabled_providers (or drop the key if empty)
+enabled = data.get("enabled_providers")
+if isinstance(enabled, list) and "gpd" in enabled:
+    data["enabled_providers"] = [p for p in enabled if p != "gpd"]
+    changed = True
+    if not data["enabled_providers"]:
+        del data["enabled_providers"]
+if not changed:
+    sys.exit(2)
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+sys.exit(0)
+PY
+        case "$rc" in
+            0) success "Cleaned GPD entries from $file (opencode config preserved)" ;;
+            2) skip "No GPD entries to clean from $file" ;;
+            3) warn "Could not parse $file as JSON — leaving it alone" ;;
+        esac
+    else
+        warn "python3 not available — cannot safely edit $file"
+        warn "  Please manually remove \"gpd\" entries from $file"
+    fi
+}
+
+# If opencode was bootstrapped only for GPD, the config dir has
+# get-physics-done/ templates that have no meaning without GPD, and the
+# data dir holds session logs + opencode.db that the user can't open
+# without the CLI/GUI. Remove both entirely. Otherwise just surgically
+# strip the GPD entries and preserve the rest.
+if [[ "$opencode_is_gpd_only" == true ]]; then
+    if [[ -d "$opencode_config_dir" ]]; then
+        rm -rf "$opencode_config_dir"
+        success "Removed $opencode_config_dir"
+    fi
+    for d in "${opencode_data_dirs_found[@]}"; do
+        rm -rf "$d"
+        success "Removed $d"
+    done
+else
+    if [[ "$opencode_json_has_gpd" == true ]]; then
+        clean_opencode_json "$opencode_config_dir/opencode.json"
+    else
+        skip "No GPD entries in opencode's global config"
+    fi
+
+    if [[ -n "$opencode_manifest" ]]; then
+        rm -f "$opencode_manifest"
+        success "Removed $opencode_manifest"
+    fi
+fi
+
 # ── Remove GPD directory ─────────────────────────────────────────────────
 
 if [[ -d "$GPD_HOME" ]]; then
@@ -192,4 +478,11 @@ fi
 printf "\n"
 printf " ${GREEN}${BOLD}GPD has been uninstalled.${RESET}\n"
 printf " ${DIM}Open a new terminal to clear any cached PATH entries.${RESET}\n"
+printf "\n"
+printf " ${BOLD}Note:${RESET} the following system packages were ${BOLD}not${RESET} removed,\n"
+printf " since other applications on your machine may depend on them:\n"
+printf "   ${DIM}- LaTeX tools: texlive-latex-base, texlive-binaries, latexmk${RESET}\n"
+printf "   ${DIM}- git${RESET}\n"
+printf " If you want to remove LaTeX, run:\n"
+printf "   ${BOLD}sudo apt remove texlive-latex-base texlive-binaries latexmk${RESET}\n"
 printf "\n"

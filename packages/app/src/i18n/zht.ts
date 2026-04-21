@@ -941,6 +941,12 @@ export const dict = {
   "gpd.firstRun.toast.description": "物理工具、助理和設定儲存於 ~/.config/gpd/ 中。每個專案的計畫儲存於該專案資料夾中的 .opencode/ 內。您的研究檔案保持原位。",
 
   "dock.gpdSkills": "GPD Skills",
+  "dock.equation": "方程式",
+  "equation.dialog.title": "方程式編輯器",
+  "equation.dialog.loading": "正在載入方程式編輯器...",
+  "equation.dialog.unavailable": "方程式編輯器無法使用",
+  "equation.dialog.discard": "捨棄",
+  "equation.dialog.insert": "插入方程式",
   "gpdSkills.dialog.title": "GPD Skills",
   "gpdSkills.dialog.description": "Browse GPD research commands by category. Select one to insert it into the prompt.",
   "gpdSkills.search.placeholder": "Search GPD commands...",

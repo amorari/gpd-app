@@ -161,14 +161,30 @@ check_prerequisites() {
             sudo apt-get install -y -qq "${missing[@]}" || \
                 die "Failed to install system deps: ${missing[*]}"
         fi
+    elif [[ "$os" == "darwin" ]]; then
+        # On macOS we intentionally skip probing for `git` and `python3`.
+        #
+        # Apple ships /usr/bin/git and /usr/bin/python3 as STUBS that pop a
+        # "Install the Xcode Command Line Tools?" GUI dialog the moment they
+        # are invoked on a Mac without the full CLT package installed. The
+        # dialog blocks the process, never returns from SSH, and can kick off
+        # a ~1 GB download if the user clicks the wrong button. Even
+        # `command -v` returns the stub path, so probing either tool is a
+        # trap: detection succeeds but invocation is the footgun.
+        #
+        # Our installer does not actually need git (it pulls get-physics-done
+        # as a tarball via curl, not a git clone) and it does not need the
+        # system python3 (we bootstrap an app-local standalone Python via
+        # python-build-standalone further down in ensure_python). So we just
+        # stop checking. `curl`, `tar`, `unzip` ARE real on macOS and safe.
+        for cmd in tar unzip; do
+            command -v "$cmd" &>/dev/null || die "'$cmd' is required but not installed."
+        done
     else
-        # Non-Debian Linux or macOS: can't auto-install, just check + die
+        # Non-Debian Linux (Fedora, Arch, etc.): can't auto-install, just die.
         for cmd in tar git; do
             command -v "$cmd" &>/dev/null || die "'$cmd' is required but not installed."
         done
-        if [[ "$os" == "darwin" ]]; then
-            command -v unzip &>/dev/null || die "'unzip' is required. Run: xcode-select --install"
-        fi
     fi
 }
 
@@ -291,8 +307,16 @@ install_gpd_deb() {
 
     download "$deb_url" "$deb_file"
     log "Installing GPD desktop app (.deb, ~80MB)..."
-    sudo dpkg -i "$deb_file" 2>&1 || sudo apt-get install -f -y -qq 2>&1 || \
-        die "dpkg install failed. Check sudo access and disk space."
+    # dpkg -i leaves packages unconfigured if deps are missing; apt-get
+    # install -f fixes deps but we must re-run dpkg afterwards to complete
+    # the original install. Chaining them with just `|| apt-get install -f`
+    # leaves GPD half-installed when deps need to be pulled in.
+    if ! sudo dpkg -i "$deb_file" 2>&1; then
+        sudo apt-get install -f -y -qq 2>&1 || \
+            die "apt-get failed to resolve GPD dependencies. Check network and disk space."
+        sudo dpkg -i "$deb_file" 2>&1 || \
+            die "dpkg install failed after dependency fix. Check sudo access and disk space."
+    fi
 
     if [[ -x "/usr/bin/opencode-cli" ]]; then
         ln -sf /usr/bin/opencode-cli "$dest"
@@ -382,26 +406,37 @@ pbs_triple() {
 ensure_python() {
     local python_bin="$GPD_PYTHON_DIR/bin/python3"
 
-    # Check app-local Python first
+    # Check app-local Python first (works on all platforms)
     if [[ -x "$python_bin" ]] && python_version_ok "$python_bin"; then
         success "Using app-local Python"
         PYTHON="$python_bin"
         return 0
     fi
 
-    # Check system Python
-    for cmd in python3 python; do
-        if command -v "$cmd" &>/dev/null && python_version_ok "$cmd"; then
-            local ver
-            ver="$("$cmd" --version 2>&1)"
-            success "Found system $ver"
-            PYTHON="$(command -v "$cmd")"
-            return 0
-        fi
-    done
+    # Check system Python -- but NOT on macOS.
+    #
+    # /usr/bin/python3 on macOS is a stub that pops a GUI "Install Xcode
+    # Command Line Tools?" dialog the moment it's invoked on a Mac without
+    # the full CLT package. `command -v` returns the stub path (detection
+    # succeeds), but then `python_version_ok` runs the stub and triggers
+    # the dialog from what the user expects to be a silent installer.
+    # Skip the probe entirely; we always download the app-local standalone
+    # Python on macOS (30MB, offline-friendly, no CLT dependency).
+    if [[ "$os" != "darwin" ]]; then
+        for cmd in python3 python; do
+            if command -v "$cmd" &>/dev/null && python_version_ok "$cmd"; then
+                local ver
+                ver="$("$cmd" --version 2>&1)"
+                success "Found system $ver"
+                PYTHON="$(command -v "$cmd")"
+                return 0
+            fi
+        done
+    fi
 
-    # Download standalone Python
-    log "No Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+ found — installing app-local Python"
+    # Download standalone Python (always on macOS; Linux only if system
+    # python3 is missing or older than 3.11)
+    log "Installing app-local Python ${PBS_PYTHON} (${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+ not found or Mac)"
     local triple
     triple="$(pbs_triple)"
     local filename="cpython-${PBS_PYTHON}+${PBS_TAG}-${triple}-install_only.tar.gz"
@@ -483,14 +518,22 @@ configure_litellm_key() {
 
     ( umask 077; cat > "$env_file" <<EOF
 # GPD configuration — used by CLI wrapper and sourced into desktop app session
-GPD_API_KEY=${key}
-LITELLM_API_BASE=${LITELLM_PROXY_URL}
+GPD_API_KEY="${key}"
+LITELLM_API_BASE="${LITELLM_PROXY_URL}"
 EOF
     )
 
-    # Export GPD_API_KEY in login profile so the desktop app inherits it
+    # Export GPD_API_KEY in the right login-profile file so the desktop app
+    # inherits it. Bash's lookup order is .bash_profile → .bash_login →
+    # .profile, reading whichever exists first. Writing unconditionally to
+    # .profile fails on macOS Terminal.app users who have a .bash_profile
+    # (common when Homebrew or similar installers created one) because bash
+    # stops at .bash_profile and never reaches .profile.
     local profile="$HOME/.profile"
-    [[ "$(basename "${SHELL:-bash}")" == "zsh" ]] && profile="${ZDOTDIR:-$HOME}/.zprofile"
+    case "$(basename "${SHELL:-bash}")" in
+        zsh)  profile="${ZDOTDIR:-$HOME}/.zprofile" ;;
+        bash) [[ -f "$HOME/.bash_profile" ]] && profile="$HOME/.bash_profile" ;;
+    esac
     local export_line="export GPD_API_KEY=\"${key}\""
     if ! grep -qF "GPD_API_KEY" "$profile" 2>/dev/null; then
         printf '\n# GPD API key for desktop app\n%s\n' "$export_line" >> "$profile"
@@ -503,29 +546,43 @@ EOF
     # again when they open the desktop app (matching fix in
     # packages/app/src/app.tsx:SetupGate).
     #
-    # auth.json path follows XDG: ~/.local/share/opencode/auth.json on
-    # Linux, ~/Library/Application Support/opencode/auth.json on macOS.
+    # auth.json path: opencode uses xdg-basedir (npm), which in v5.x
+    # ignores platform and always resolves xdgData to ~/.local/share on
+    # macOS and Windows too — it does NOT honor ~/Library/Application
+    # Support on darwin. Match that behavior exactly; writing to the
+    # conventional macOS path would leave the file invisible to opencode
+    # and the desktop app would re-prompt for the key on first launch.
     # Format: {"<providerID>": {"type":"api","key":"sk-..."}}
     local xdg_data="${XDG_DATA_HOME:-$HOME/.local/share}"
-    if [[ "$os" == "darwin" ]]; then
-        xdg_data="$HOME/Library/Application Support"
-    fi
     local auth_dir="$xdg_data/opencode"
     local auth_file="$auth_dir/auth.json"
     mkdir -p "$auth_dir"
     # If auth.json already has other providers, preserve them. Otherwise
-    # write a fresh one. We use python/jq if available for a proper merge;
-    # fall back to a fresh overwrite if the user has neither (rare).
-    if [[ -f "$auth_file" ]] && command -v python3 &>/dev/null; then
-        python3 - "$auth_file" "$key" <<'PY'
-import json, os, sys, stat
-path, key = sys.argv[1], sys.argv[2]
+    # write a fresh one. Prefer the app-local Python we just installed —
+    # using bare `python3` on a fresh macOS where Xcode CLT is absent
+    # triggers the "install developer tools" GUI prompt even though the
+    # stub succeeds `command -v` checks.
+    local merger_python=""
+    if [[ -n "${PYTHON:-}" && -x "${PYTHON:-}" ]]; then
+        merger_python="$PYTHON"
+    elif [[ -x "$GPD_VENV_DIR/bin/python" ]]; then
+        merger_python="$GPD_VENV_DIR/bin/python"
+    fi
+    if [[ -f "$auth_file" && -n "$merger_python" ]]; then
+        # Pass the key through an env var, not argv, so it doesn't show up
+        # in /proc/<pid>/cmdline (visible via `ps` to the owner on most
+        # systems, and to other users on systems without hidepid).
+        GPD_AUTH_KEY="$key" "$merger_python" - "$auth_file" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+key = os.environ["GPD_AUTH_KEY"]
 try:
     with open(path) as f:
         data = json.load(f)
 except Exception:
     data = {}
 data["gpd"] = {"type": "api", "key": key}
+# umask doesn't apply to files that already exist; re-apply 0600 after write.
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
 os.chmod(path, 0o600)
@@ -574,16 +631,54 @@ configure_path() {
     current_shell="$(basename "${SHELL:-bash}")"
     local added=false
 
-    # Determine rc files by shell
-    local rc_files
+    # Determine rc files by shell. We use arrays (not space-delimited
+    # strings) so paths containing spaces — $HOME or $ZDOTDIR on some
+    # macOS setups — are not word-split. We target both the interactive
+    # rc (.bashrc/.zshrc) and the login rc (.bash_profile/.zprofile) so
+    # that non-interactive login shells (launchd, `ssh host cmd`, VSCode
+    # tasks) also see $PATH, not just Terminal.app.
+    local -a rc_files
     case "$current_shell" in
-        fish) rc_files="$HOME/.config/fish/config.fish" ;;
-        zsh)  rc_files="${ZDOTDIR:-$HOME}/.zshrc" ;;
-        *)    rc_files="$HOME/.bashrc $HOME/.bash_profile $HOME/.profile" ;;
+        fish)
+            rc_files=("$HOME/.config/fish/config.fish")
+            ;;
+        zsh)
+            rc_files=("${ZDOTDIR:-$HOME}/.zshrc" "${ZDOTDIR:-$HOME}/.zprofile")
+            ;;
+        *)
+            # Bash: .bashrc for interactive non-login, plus whichever of
+            # .bash_profile/.profile bash would actually read on login.
+            # Bash reads .bash_profile → .bash_login → .profile in order
+            # and stops at the first that exists, so picking the wrong
+            # one means our PATH entry is never sourced on login.
+            rc_files=("$HOME/.bashrc")
+            if [[ -f "$HOME/.bash_profile" ]]; then
+                rc_files+=("$HOME/.bash_profile")
+            elif [[ -f "$HOME/.bash_login" ]]; then
+                rc_files+=("$HOME/.bash_login")
+            else
+                rc_files+=("$HOME/.profile")
+            fi
+            ;;
     esac
 
-    for rc in $rc_files; do
-        if [[ -f "$rc" ]] && ! grep -qF "$GPD_BIN_DIR" "$rc"; then
+    for rc in "${rc_files[@]}"; do
+        # Create missing login-shell rc files so non-interactive logins
+        # (zsh -l -c, launchd, etc.) pick up $PATH. Don't create .bashrc/
+        # .zshrc if missing — the parent dir may legitimately not exist
+        # (fish) and we write to the login file anyway.
+        if [[ ! -f "$rc" ]]; then
+            case "$rc" in
+                *.zprofile|*.bash_profile|*.profile|*.bash_login)
+                    mkdir -p "$(dirname "$rc")" 2>/dev/null || true
+                    : > "$rc"
+                    ;;
+                *)
+                    continue
+                    ;;
+            esac
+        fi
+        if ! grep -qF "$GPD_BIN_DIR" "$rc"; then
             if [[ "$current_shell" == "fish" ]]; then
                 printf '\n# GPD CLI\nfish_add_path %s\n' "$GPD_BIN_DIR" >> "$rc"
             else
@@ -591,7 +686,6 @@ configure_path() {
             fi
             log "Added to $rc"
             added=true
-            break
         fi
     done
 
@@ -621,6 +715,19 @@ configure_gpd_runtime() {
         if ! ( cd "$HOME" && "$GPD_VENV_DIR/bin/python" -m gpd.cli install opencode --global --skip-readiness-check ); then
             warn "GPD runtime configuration failed. Run manually from your home dir:"
             warn "  cd ~ && ~/.gpd/venv/bin/gpd install opencode --global"
+        fi
+    fi
+
+    # Write the .gpd-initialized marker so the GPD desktop app's first-run
+    # setup short-circuits via is_venv_valid() -- no uv/python/pip cascade
+    # of console windows, no ~3 minutes of re-downloading what we just
+    # installed. The app looks for this file at $GPD_HOME/.gpd-initialized
+    # (matches the unified path in packages/desktop/src-tauri/src/gpd_setup.rs).
+    if [[ -f "$GPD_VENV_DIR/bin/gpd" ]] || [[ -f "$GPD_VENV_DIR/bin/python" ]]; then
+        local marker="$GPD_HOME/.gpd-initialized"
+        if [[ ! -f "$marker" ]]; then
+            printf 'initialized\n' > "$marker"
+            success "GPD desktop app will skip first-run setup"
         fi
     fi
 }

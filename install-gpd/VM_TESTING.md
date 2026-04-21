@@ -100,7 +100,7 @@ EOF
 
 ---
 
-## Windows 11 VM (`gpd-win11`)
+## Windows 11 VM (`win11`)
 
 **Status**: STOPPED, Windows NOT yet installed (OS install requires VGA console interaction)
 
@@ -119,8 +119,8 @@ EOF
 1. Start the VM and connect to VGA console:
    ```bash
    newgrp incus-admin <<'EOF'
-   incus start gpd-win11
-   incus console gpd-win11 --type=vga
+   incus start win11
+   incus console win11 --type=vga
    EOF
    ```
 
@@ -139,8 +139,8 @@ EOF
 6. Remove ISOs after install:
    ```bash
    newgrp incus-admin <<'EOF'
-   incus config device remove gpd-win11 win11-iso
-   incus config device remove gpd-win11 virtio-drivers
+   incus config device remove win11 win11-iso
+   incus config device remove win11 virtio-drivers
    EOF
    ```
 
@@ -170,7 +170,7 @@ macOS cannot be easily virtualized on Linux. Options to explore:
 # Delete VMs when testing is complete
 newgrp incus-admin <<'EOF'
 incus delete gpd-test --force
-incus delete gpd-win11 --force
+incus delete win11 --force
 EOF
 
 # Optionally remove incus entirely

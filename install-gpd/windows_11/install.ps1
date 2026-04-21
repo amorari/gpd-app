@@ -1,4 +1,4 @@
-# GPD CLI installer for Windows 11
+﻿# GPD CLI installer for Windows 11
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File install.ps1
@@ -9,7 +9,26 @@
 # Does not require administrator privileges.
 
 #Requires -Version 5.1
+[CmdletBinding()]
+param(
+    # Suppress the automatic GPD.exe launch at the end of install.
+    # Useful for CI / scripted installs that just want the files in
+    # place without a window popping up.
+    [switch]$SkipLaunch
+)
 $ErrorActionPreference = "Stop"
+
+# Force the console to UTF-8 for output so the Unicode box-drawing chars
+# in the GPD banner render correctly on PowerShell 5.1. Without this,
+# PS 5.1 writes to the OEM codepage (CP850/CP1252) which doesn't contain
+# U+2500-257F (box drawing) — users see mojibake like "�����ۻ" instead
+# of "██████╗". PS 7+ already uses UTF-8 by default; this is a no-op
+# there.
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+} catch {
+    # Non-fatal if the console doesn't let us change encoding (rare)
+}
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
@@ -104,10 +123,23 @@ function Write-SuccessBanner {
 # ── Utilities ──────────────────────────────────────────────────────────────
 
 function Get-Arch {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    # Use $env:PROCESSOR_ARCHITECTURE (always set by Windows) instead of
+    # [RuntimeInformation]::OSArchitecture. The latter returns $null in
+    # PowerShell 5.1 + .NET Framework 4.x combinations we've seen on
+    # Windows 11 25H2, causing a "null method call" on .ToString().
+    # PROCESSOR_ARCHITECTURE is reliable across all Windows versions.
+    #
+    # On 64-bit Windows: AMD64 (x64) or ARM64
+    # Under WOW64 (32-bit process on 64-bit host): PROCESSOR_ARCHITECTURE
+    # reports x86, but PROCESSOR_ARCHITEW6432 has the real value — check
+    # both since PowerShell 5.1 is a 64-bit process by default but
+    # scheduled/remote contexts can run 32-bit.
+    $arch = $env:PROCESSOR_ARCHITEW6432
+    if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
     switch ($arch) {
-        "X64"   { return "x64" }
-        "Arm64" { return "arm64" }
+        "AMD64" { return "x64" }
+        "ARM64" { return "arm64" }
+        "x86"   { Stop-WithError "32-bit Windows is not supported. Use 64-bit Windows." }
         default { Stop-WithError "Unsupported architecture: $arch" }
     }
 }
@@ -136,8 +168,14 @@ function Invoke-Download {
     )
     Write-Log "Downloading $(Split-Path $Destination -Leaf)..."
     try {
-        # Use TLS 1.2+ for GitHub downloads
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+        # Force TLS 1.2 minimum for GitHub (it rejects TLS 1.0/1.1). TLS 1.3
+        # is not guaranteed: PS 5.1 on .NET 4.7.x ships without the Tls13
+        # enum value, so referencing it throws at parse/dispatch time and
+        # every download fails. Probe for Tls13 dynamically and OR it in
+        # only when present.
+        $proto = [Net.SecurityProtocolType]::Tls12
+        try { $proto = $proto -bor [Net.SecurityProtocolType]::Tls13 } catch { }
+        [Net.ServicePointManager]::SecurityProtocol = $proto
         $ProgressPreference = "SilentlyContinue"
         Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
     }
@@ -152,14 +190,26 @@ function Invoke-Download {
 # The filename includes the version so we use the web redirect on
 # /releases/latest to discover the tag without hitting the rate-limited API.
 function Get-GpdLatestTag {
+    # GitHub's /releases/latest URL redirects twice for repos that have
+    # been renamed: the first hop goes from the old repo name to the new
+    # one (repo rename redirect), and only the second hop has /tag/... in
+    # the Location. Example chain as of 2026-04:
+    #   github.com/psi-oss/opencode/releases/latest
+    #     --> github.com/psi-oss/gpd-app/releases/latest   (rename)
+    #     --> github.com/psi-oss/gpd-app/releases/tag/gpd-desktop-v1.1.4
+    # So follow up to 3 redirects, parsing the tag from whichever hop
+    # actually has it. Using AllowAutoRedirect=true + ResponseUri is the
+    # simplest correct path; .NET follows all 3xx for us and lands on
+    # the tagged URL which we can regex on directly.
     try {
         $req = [System.Net.WebRequest]::Create("https://github.com/$OpenCodeOrg/$OpenCodeRepo/releases/latest")
         $req.Method = "HEAD"
-        $req.AllowAutoRedirect = $false
+        $req.AllowAutoRedirect = $true
+        $req.MaximumAutomaticRedirections = 5
         $r = $req.GetResponse()
-        $loc = $r.Headers["Location"]
+        $finalUri = $r.ResponseUri.AbsoluteUri
         $r.Close()
-        if ($loc -match 'tag/([^/]+)') { return $Matches[1] }
+        if ($finalUri -match 'tag/([^/]+)') { return $Matches[1] }
     } catch {
         return $null
     }
@@ -174,8 +224,12 @@ function Install-GpdDesktop {
         return $false
     }
 
-    # Standard Tauri per-user install path
-    $tauriPath = Join-Path $env:LOCALAPPDATA "Programs\GPD\GPD.exe"
+    # Tauri NSIS per-user install path. The default is %LOCALAPPDATA%\GPD\
+    # (confirmed via HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall
+    # on a fresh install — InstallLocation = "C:\Users\<user>\AppData\Local\GPD").
+    # An earlier version of this script checked %LOCALAPPDATA%\Programs\GPD\
+    # which is the Electron convention — Tauri uses the non-Programs path.
+    $tauriPath = Join-Path $env:LOCALAPPDATA "GPD\GPD.exe"
     if (Test-Path $tauriPath) {
         Write-Success "GPD desktop app already installed at $tauriPath"
         return $true
@@ -187,7 +241,15 @@ function Install-GpdDesktop {
         return $false
     }
 
-    $ver = $tag -replace '.*-v', ''
+    # Extract semver from tags like "gpd-desktop-v1.1.6" or "v1.1.6". The
+    # previous -replace '.*-v','' was greedy — "v1.1.6" (no dash-v) left
+    # $ver equal to the whole tag, then the download URL 404'd.
+    if ($tag -match 'v(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)') {
+        $ver = $Matches[1]
+    } else {
+        Write-Warn "Could not parse version from tag '$tag' - skipping desktop app."
+        return $false
+    }
     $setupFile = "GPD_" + $ver + "_x64-setup.exe"
     $setupUrl = "https://github.com/$OpenCodeOrg/$OpenCodeRepo/releases/download/$tag/$setupFile"
 
@@ -591,29 +653,41 @@ LITELLM_API_BASE=$LiteLlmProxyUrl
     # again when they open the desktop app (matching fix in
     # packages/app/src/app.tsx:SetupGate).
     #
-    # auth.json path on Windows: %APPDATA%\opencode\auth.json
-    # (XDG_DATA_HOME fallback on Windows per xdg-basedir).
-    $xdgData = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { $env:APPDATA }
+    # auth.json path: opencode uses the xdg-basedir npm package (v5.x),
+    # which does NOT special-case Windows — it always resolves xdgData
+    # to "$HOME/.local/share", i.e. %USERPROFILE%\.local\share on
+    # Windows. Writing to %APPDATA%\opencode (conventional for Windows)
+    # leaves the file invisible to opencode; the desktop app then re-
+    # prompts for the PSI key on first launch even though the installer
+    # "saved" it. Honor $XDG_DATA_HOME when set, else match xdg-basedir.
+    $xdgData = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { Join-Path $HOME ".local\share" }
     $authDir = Join-Path $xdgData "opencode"
     $authFile = Join-Path $authDir "auth.json"
     New-Item -ItemType Directory -Path $authDir -Force | Out-Null
 
     # If auth.json already has other providers, merge (don't clobber).
-    # Otherwise write fresh.
-    $authData = @{}
-    if (Test-Path $authFile) {
+    # Otherwise write fresh. We keep the container as a PSCustomObject
+    # (not a hashtable) because PS 5.1's ConvertTo-Json serializes
+    # hashtable values that happen to be PSCustomObjects as the string
+    # "@{type=api; key=sk-...}" instead of nested JSON — which would
+    # silently corrupt any other provider entries already in auth.json
+    # (bug found during Windows installer review, 2026-04-21).
+    $authData = if (Test-Path $authFile) {
         try {
-            $existing = Get-Content $authFile -Raw | ConvertFrom-Json
-            # Copy existing providers into our hashtable
-            $existing.PSObject.Properties | ForEach-Object {
-                $authData[$_.Name] = $_.Value
-            }
-        }
-        catch {
+            Get-Content $authFile -Raw | ConvertFrom-Json
+        } catch {
             Write-Warn "Couldn't parse existing $authFile; overwriting."
+            [PSCustomObject]@{}
         }
+    } else {
+        [PSCustomObject]@{}
     }
-    $authData["gpd"] = @{ type = "api"; key = $key }
+    $gpdEntry = [PSCustomObject]@{ type = "api"; key = $key }
+    if ($authData.PSObject.Properties.Name -contains "gpd") {
+        $authData.gpd = $gpdEntry
+    } else {
+        $authData | Add-Member -MemberType NoteProperty -Name "gpd" -Value $gpdEntry -Force
+    }
     $authData | ConvertTo-Json -Depth 5 | Set-Content -Path $authFile -Encoding UTF8
 
     Write-Success "PSI key saved to $envFile"
@@ -650,10 +724,18 @@ function Install-Git {
 
     Write-Log "Installing git via winget..."
     try {
-        & winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        # --scope user installs per-user (no UAC admin prompt needed).
+        # Default scope for Git.Git is machine, which would require admin.
+        # Capture stdout+stderr so a non-zero exit gives the user a real
+        # diagnostic (previously we piped to Out-Null and failed silently).
+        $wingetOut = & winget install --id Git.Git -e --silent --scope user --accept-package-agreements --accept-source-agreements 2>&1
+        $wingetExit = $LASTEXITCODE
         Update-SessionPath
         if (Test-CommandExists "git") {
             Write-Success "git installed"
+        } elseif ($wingetExit -ne 0) {
+            Write-Warn "git install via winget failed (exit $wingetExit):"
+            ($wingetOut | Select-Object -Last 15) | ForEach-Object { Write-Warn "  $_" }
         } else {
             Write-Warn "git installed but not on PATH yet -- open a new terminal"
         }
@@ -676,10 +758,15 @@ function Install-LaTeX {
 
     Write-Log "Installing MiKTeX via winget (~200MB download, takes several minutes)..."
     try {
-        & winget install --id MiKTeX.MiKTeX -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        # --scope user installs MiKTeX per-user (no UAC prompt).
+        $wingetOut = & winget install --id MiKTeX.MiKTeX -e --silent --scope user --accept-package-agreements --accept-source-agreements 2>&1
+        $wingetExit = $LASTEXITCODE
         Update-SessionPath
         if (Test-CommandExists "pdflatex") {
             Write-Success "LaTeX (MiKTeX) installed"
+        } elseif ($wingetExit -ne 0) {
+            Write-Warn "MiKTeX install via winget failed (exit $wingetExit):"
+            ($wingetOut | Select-Object -Last 15) | ForEach-Object { Write-Warn "  $_" }
         } else {
             Write-Warn "MiKTeX installed but not on PATH yet -- open a new terminal"
         }
@@ -828,7 +915,57 @@ function Invoke-GpdInstall {
         }
     }
 
+    # Write the .gpd-initialized marker so the GPD desktop app's first-run
+    # setup short-circuits via is_venv_valid() -- no uv/python/pip cascade
+    # of console windows, no ~3 minutes of re-downloading what we just
+    # installed. The app looks for this file at $GpdHome\.gpd-initialized
+    # (matches the unified path in packages/desktop/src-tauri/src/gpd_setup.rs).
+    if ((Test-Path $gpdExe) -or (Test-Path (Join-Path $GpdVenvDir "Scripts\python.exe"))) {
+        $marker = Join-Path $GpdHome ".gpd-initialized"
+        if (-not (Test-Path $marker)) {
+            Set-Content -Path $marker -Value "initialized" -Encoding ASCII
+            Write-Success "GPD desktop app will skip first-run setup"
+        }
+    }
+
     Write-SuccessBanner
+
+    # ── Auto-launch GPD.exe to work around Windows PATH caching ───────────
+    #
+    # Problem: git (and LaTeX / MiKTeX) were just installed via winget.
+    # winget updates the Machine/User PATH registry values, but Windows
+    # Explorer caches its environment at login — so Explorer's PATH does
+    # NOT include C:\Program Files\Git\cmd until the user restarts
+    # Explorer or reboots. Any app Explorer launches (e.g. GPD from the
+    # Start Menu) inherits Explorer's stale PATH and can't find git,
+    # which breaks GPD's first-run setup (it shells out to `git` when
+    # installing get-physics-done from GitHub).
+    #
+    # Workaround: launch GPD.exe directly from THIS installer process.
+    # Our PATH was refreshed by Update-SessionPath after each winget
+    # install, so the child process inherits the correct env. This
+    # gives the user a working app immediately without asking them to
+    # reboot or manually restart Explorer.
+    #
+    # Skipped when -SkipLaunch is set or when we're non-interactive
+    # (CI / scripted installs often don't want a GUI popping up).
+    $gpdExePath = Join-Path $env:LOCALAPPDATA "GPD\GPD.exe"
+    if ($SkipLaunch) {
+        Write-Log "Skipping auto-launch (-SkipLaunch set)"
+    } elseif (-not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
+        # UserInteractive alone is insufficient: PowerShell itself is
+        # "interactive" even when launched via `irm | iex`, where stdin is
+        # actually redirected from the pipe. CI runners that pipe the
+        # installer through would otherwise spawn GPD.exe unexpectedly.
+        Write-Log "Skipping auto-launch (non-interactive session)"
+    } elseif (Test-Path $gpdExePath) {
+        Write-Log "Launching GPD desktop app..."
+        try {
+            Start-Process -FilePath $gpdExePath
+        } catch {
+            Write-Warn "Couldn't auto-launch GPD ($_). Open it from the Start menu."
+        }
+    }
 }
 
 # ── Entry point ────────────────────────────────────────────────────────────

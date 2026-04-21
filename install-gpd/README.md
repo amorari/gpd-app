@@ -1,36 +1,60 @@
-# GPD CLI Installers
+# GPD Installers
 
-Platform-specific installers that set up the complete GPD terminal environment from scratch. No prerequisites required — each installer handles everything.
+Installers that set up GPD (Get Physics Done) — desktop app + CLI + Python
+runtime + LaTeX — on Ubuntu, macOS, and Windows. Nothing else is required;
+each installer handles every dependency.
 
 ## Quick Start
+
+> Canonical URL will be `download.gpd.psi.inc` once DNS is set up. Until
+> then, use the GitHub raw URLs below.
 
 ### Ubuntu / macOS (recommended)
 
 ```bash
-bash <(curl -fsSL https://download.gpd.psi.inc/install)
+bash <(curl -fsSL https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/install)
 ```
 
-This uses process substitution so interactive prompts (sudo password, PSI
-key) work normally. On Ubuntu it installs the GPD desktop `.deb` (GUI +
-CLI); on other Linux and macOS it installs the standalone CLI.
+Process substitution keeps stdin connected to your terminal so the sudo
+password and PSI key prompts work. On **Ubuntu** this installs the GPD
+desktop `.deb` (GUI + CLI); on **other Linux** and **macOS** it installs
+the standalone CLI.
 
-For fully non-interactive installs, preset the key and pipe:
+For fully non-interactive installs (CI / scripted), preset the key:
 
 ```bash
-curl -fsSL https://download.gpd.psi.inc/install | GPD_API_KEY=sk-... bash
+curl -fsSL https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/install | GPD_API_KEY=sk-... bash
 ```
 
-Options: `--skip-key`, `--no-modify-path`, `--version 1.0.180`.
+Flags: `--skip-key`, `--no-modify-path`, `--version <v>`.
 
 ### Windows 11
 
+Run in **non-admin** PowerShell (admin is not required — all installs
+are per-user):
+
 ```powershell
-irm https://download.gpd.psi.inc/install.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/windows_11/install.ps1 -OutFile $env:TEMP\install.ps1; & $env:TEMP\install.ps1
 ```
 
-### Local testing (developers only)
+Or as three separate lines if you prefer:
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force
+irm https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/windows_11/install.ps1 -OutFile $env:TEMP\install.ps1
+& $env:TEMP\install.ps1
+```
 
-If you're editing the installer itself, test from a local clone:
+Download-then-run (instead of `irm | iex`) keeps stdin connected so the
+PSI key prompt works. For fully non-interactive installs:
+```powershell
+$env:GPD_API_KEY = "sk-your-key"
+irm https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/windows_11/install.ps1 | iex
+```
+
+Windows-specific flags: `-SkipLaunch` (suppress auto-launching GPD at the
+end — useful for CI).
+
+### Local testing (developers only)
 
 ```bash
 bash install                              # Run local version
@@ -39,57 +63,71 @@ GPD_API_KEY=sk-test bash install          # Non-interactive
 
 ## What Gets Installed
 
-All files are installed to `~/.gpd/` (or `$HOME\.gpd\` on Windows):
+Everything GPD-related goes into one directory per user:
 
 ```
-~/.gpd/
+~/.gpd/                          # Linux + macOS; %USERPROFILE%\.gpd on Windows
 ├── bin/
-│   ├── opencode      # GPD runtime binary (symlinked to /usr/bin/opencode-cli on Ubuntu)
-│   └── gpd           # The `gpd` command you'll use
-├── python/           # App-local Python 3.13 (only if system Python < 3.11)
-├── venv/             # Python venv with the GPD package
-└── config/
-    └── litellm.env   # PSI API key (user-only permissions)
+│   ├── opencode                 # Runtime binary (symlink on Ubuntu)
+│   └── gpd                      # The `gpd` CLI command (gpd.cmd + gpd.ps1 on Windows)
+├── python/                      # App-local Python 3.13 (only if system Python < 3.11)
+├── venv/                        # Python venv with the GPD package (shared with desktop app)
+├── config/
+│   └── litellm.env              # PSI API key (user-only permissions)
+└── .gpd-initialized             # Marker so the desktop app skips its first-run setup
 ```
 
-On Ubuntu, GPD is also installed system-wide via `.deb`:
-```
-/usr/bin/GPD             # Desktop app (launched from menu)
-```
+Plus the desktop app is installed system- or user-wide:
+
+| Platform | Path |
+|----------|------|
+| Ubuntu | `/usr/bin/GPD` (via `.deb`) |
+| macOS | `/Applications/GPD.app` (via `.dmg`) |
+| Windows | `%LOCALAPPDATA%\GPD\GPD.exe` (per-user Tauri NSIS) |
+
+The installer also ensures these system dependencies:
+
+| Tool | Ubuntu | macOS | Windows |
+|------|--------|-------|---------|
+| git | apt (if missing) | warn + suggest xcode-select | winget --scope user |
+| LaTeX (pdflatex, bibtex, latexmk, kpsewhich) | apt `texlive-latex-base texlive-binaries latexmk` | Homebrew `basictex` + `tlmgr install latexmk` | winget MiKTeX --scope user |
+| Python 3.11+ | system or app-local standalone | system or app-local | app-local standalone |
+
+Git, LaTeX, and Python are installed **per-user** where possible so the
+installer does not require admin on Windows.
 
 ## Prerequisites
 
-- **Ubuntu**: `curl`, `tar`, `git` (installer will `apt-get install` if missing)
-- **macOS**: `curl`, `unzip`, `tar` (ships with macOS; install Xcode CLT if missing)
-- **Windows**: PowerShell 5.1+, internet access
-
-No Python required -- the installer downloads a standalone build if system Python < 3.11.
+- **Ubuntu/Debian**: `curl` (`sudo apt install curl` if missing). Everything else is auto-installed.
+- **macOS**: `curl`, `unzip`, `tar` (all ship with macOS; install Xcode CLT if missing).
+- **Windows 11**: PowerShell 5.1+. No admin required.
 
 ## Installation Steps
 
 Each installer performs these steps:
 
-1. **GPD runtime** -- On Ubuntu, installs the GPD desktop `.deb` (GUI + CLI). Elsewhere, downloads the standalone CLI.
-2. **Python 3.11+** -- Checks for system Python; if missing or too old, downloads a portable build from [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
-3. **GPD package** -- Creates a Python venv and installs `get-physics-done`
-4. **LaTeX tools** -- Installs pdflatex, bibtex, latexmk, kpsewhich for physics paper compilation (via apt on Linux, BasicTeX on macOS, MiKTeX on Windows). Warns and skips if the platform package manager is unavailable.
-5. **PSI key** -- Prompts for your virtual key (get it from your lab administrator), or reads `GPD_API_KEY` env var for non-interactive installs
-6. **`gpd` command** -- Creates the `gpd` launcher
-7. **PATH** -- Adds `~/.gpd/bin` to your shell PATH
-8. **Runtime config** -- Installs 24 agents and 69 commands into your global config
+1. **System dependencies** — git + LaTeX + Python 3.11+ via the platform's package manager.
+2. **GPD desktop app + CLI runtime** — the platform's Tauri bundle (`.deb` / `.dmg` / NSIS `.exe`).
+3. **Python venv** — creates `~/.gpd/venv/` with `get-physics-done` installed from GitHub.
+4. **PSI key** — prompts for your virtual key (get it from your lab administrator), or reads `GPD_API_KEY` env var for non-interactive installs. Writes it to both `~/.gpd/config/litellm.env` and opencode's `auth.json`.
+5. **`gpd` command** — creates the `gpd` wrapper on PATH.
+6. **PATH** — adds `~/.gpd/bin` to your shell / user PATH.
+7. **Runtime config** — runs `gpd install opencode --global` to deploy agents, commands, and the GPD provider config.
+8. **First-run marker** — writes `~/.gpd/.gpd-initialized` so the desktop app skips its own setup and launches instantly.
+9. **Windows only**: auto-launches GPD at the end so the child process inherits the fresh PATH (works around a Windows Explorer env-caching issue — see `--SkipLaunch` to disable).
 
 ## Configuration
 
 ### PSI Key
 
-The installer prompts for your key during setup. To change it later:
+The installer prompts during setup. To change later:
 
 ```bash
-# Edit the config file directly
-nano ~/.gpd/config/litellm.env
+nano ~/.gpd/config/litellm.env       # Linux/macOS
+notepad $HOME\.gpd\config\litellm.env # Windows
 ```
 
-The file contains:
+File contents:
 ```
 GPD_API_KEY=sk-your-key-here
 LITELLM_API_BASE=https://litellm-production-46bb.up.railway.app
@@ -97,69 +135,106 @@ LITELLM_API_BASE=https://litellm-production-46bb.up.railway.app
 
 ### Custom Install Location
 
-Set `GPD_HOME` before running the installer:
-
+Set `GPD_HOME` before running:
 ```bash
 GPD_HOME=/opt/gpd bash install
 ```
 
 ## Re-running the Installer
 
-Installers are idempotent — they skip steps that are already complete. Safe to re-run after updates or if a step failed.
+Installers are idempotent — each step short-circuits if already done.
+Safe to re-run after updates or if a step previously failed.
 
 ## Uninstalling
 
+### Linux
+
 ```bash
-bash uninstall.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/uninstall.sh)
 ```
 
-The uninstall script removes everything the installer created:
+Add `--yes` to skip the confirmation prompt.
 
-- `~/.gpd/` directory (bin, config, python, venv)
-- PATH entries from `~/.bashrc`, `~/.zshrc`, `~/.profile`
-- `GPD_API_KEY` exports from `~/.profile` / `~/.zprofile`
-- GPD `.deb` package on Ubuntu (if installed)
+### macOS
 
-Pass `--yes` to skip the confirmation prompt.
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/uninstall_macos.sh)
+```
 
-On Windows (manual):
+### Windows
+
 ```powershell
-Remove-Item -Recurse -Force "$HOME\.gpd"
-# Remove from PATH via System > Environment Variables > User PATH
+Set-ExecutionPolicy Bypass -Scope Process -Force
+irm https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/windows_11/uninstall.ps1 -OutFile $env:TEMP\uninstall.ps1
+& $env:TEMP\uninstall.ps1
 ```
+
+Add `-Yes` to skip confirmation.
+
+### What uninstall removes
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| `~/.gpd/` | ✓ | ✓ | ✓ |
+| Desktop app | `.deb` removed | `/Applications/GPD.app` removed | NSIS uninstaller runs |
+| PATH entries in shell rc / user PATH | ✓ | ✓ | ✓ |
+| `GPD_API_KEY` export from login profile | ✓ | ✓ | n/a |
+| `gpd` entry stripped from opencode `auth.json` | ✓ | ✓ | ✓ |
+| GUI app state, WebView data, cache dirs | ✓ | ✓ | ✓ |
+| opencode config/data dirs (when GPD-only) | ✓ | ✓ | ✓ |
+
+**Not removed** (other tools may depend on them):
+- git
+- LaTeX (`texlive-*` / BasicTeX / MiKTeX)
+- Homebrew, Xcode CLT, WinGet
+
+The final message includes copy-pasteable commands if you want to
+remove these manually.
 
 ## File Structure
 
 ```
 install-gpd/
-├── install                       # Unified installer (Ubuntu + macOS + other Linux)
-├── uninstall.sh                  # Uninstaller (Linux + macOS)
-└── windows_11/
-    └── install.ps1               # Windows PowerShell installer
+├── install                      # Unified installer (Ubuntu + macOS + other Linux)
+├── uninstall.sh                 # Linux uninstaller
+├── uninstall_macos.sh           # macOS uninstaller (BasicTeX / .app / Library paths)
+├── windows_11/
+│   ├── install.ps1              # Windows PowerShell installer
+│   └── uninstall.ps1            # Windows uninstaller
+├── README.md                    # This file
+├── TODO.md                      # Known gaps and follow-ups
+└── VM_TESTING.md                # Notes on the test VMs (u3, u4, win11)
 ```
 
-`install` is a self-contained script suitable for piping from curl. It detects
-the platform at runtime, installs the GPD desktop `.deb` on Debian/Ubuntu (or
-the standalone CLI elsewhere), and auto-installs missing system deps via apt
-where available. The Windows installer is standalone PowerShell.
+`install` is a self-contained script suitable for piping from curl. It
+detects the platform at runtime, handles `.deb` install on Debian/Ubuntu,
+and falls back to the standalone CLI on other Linux.
 
 ## Troubleshooting
 
-### "Neither curl nor wget found"
-Install curl: `sudo apt-get install curl` (Ubuntu) or install Xcode Command Line Tools (macOS).
+### "curl: command not found"
+Install curl: `sudo apt install curl` (Ubuntu) or install Xcode Command Line Tools (macOS).
 
 ### "Python extraction failed"
 The python-build-standalone download may have failed. Check your network and retry. The installer uses Python 3.13.3 from [astral-sh/python-build-standalone](https://github.com/astral-sh/python-build-standalone).
 
-### "Could not find GPD binary"
-The installer tries to download from GitHub releases. Check that you have network access to github.com.
-
 ### "gpd: command not found" after install
-Open a new terminal, or run `source ~/.bashrc` (or `source ~/.zshrc` on macOS).
+Open a new terminal. Shell rc updates only apply to new sessions. On Windows, open a new PowerShell (the installer's own process has the right PATH, but your existing shells don't).
 
 ### Re-configuring the PSI key
-Edit `~/.gpd/config/litellm.env` directly (set `GPD_API_KEY=sk-...`), or delete it and re-run the installer.
+Edit `~/.gpd/config/litellm.env` directly (set `GPD_API_KEY=sk-...`), or delete the file and re-run the installer.
 
-## Future: GUI Installers
+### Windows: GPD app can't find git on first launch
+Windows Explorer caches PATH at login, so `GPD.exe` launched from the Start menu inherits a stale PATH that doesn't include newly-installed git. The installer works around this by launching `GPD.exe` directly at the end of install (so it inherits the fresh PATH). If you close that window and re-launch from the Start menu before logging out, restart Explorer:
+```powershell
+Stop-Process -Name explorer -Force; Start-Process explorer
+```
 
-GUI installers (.pkg for macOS, Inno Setup .exe for Windows, .deb for Ubuntu) are planned for a future version. They will wrap the same installation logic in native platform installer wizards.
+### Windows: "You cannot call a method on a null-valued expression" during irm | iex
+Happens when running `irm | iex` without `GPD_API_KEY` preset. The script falls back to `Read-Host` for the key but the iex pipeline has stdin redirected. Use the download-then-run form instead (see Quick Start above).
+
+### macOS: no LaTeX after install
+BasicTeX was installed but `tlmgr install latexmk` needs `/Library/TeX/texbin` on PATH, which happens only in new login shells. Open a new Terminal tab and try again, or run:
+```bash
+export PATH="/Library/TeX/texbin:$PATH"
+```
