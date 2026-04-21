@@ -401,19 +401,38 @@ def os_input():
     return client
 
 
-# --- Marker-driven reset hook -------------------------------------------
+# --- Per-test setup: foreground activation + marker-driven reset --------
 
 
 def pytest_runtest_setup(item):
-    """Honor @pytest.mark.tier(n) / @pytest.mark.fresh_app before each test.
+    """Activate GPD + honor tier/fresh_app resets before each test.
 
-    fresh_app is an alias for tier(2). When a reset is requested we stop GPD,
-    wipe the requested tier's paths, restart (backgrounded), and invalidate
-    the session-scoped driver fixtures so they rebuild against the fresh app.
+    Activation: macOS throttles backgrounded webviews, causing execute_js to
+    time out. Bringing GPD to the foreground before each integration test
+    keeps the JS bridge responsive without requiring manual window management.
+
+    Reset: honors @pytest.mark.tier(n) / @pytest.mark.fresh_app to wipe and
+    restart GPD at the requested tier before destructive tests.
     """
-    # Skip reset entirely for tests that are already being skipped.
     if _is_skipped(item):
         return
+
+    # Activate GPD for any test that uses the MCP bridge.
+    markers = {m.name for m in item.iter_markers()}
+    if not markers.isdisjoint({"smoke", "surfaces", "ipc", "flows",
+                                "regression", "broad", "lifecycle"}):
+        try:
+            import subprocess as _sp
+            from gpd_tests.pages.app_state import _APP_NAME
+            _sp.run(
+                ["osascript", "-e",
+                 f'tell application "{_APP_NAME}" to activate'],
+                capture_output=True, check=False, timeout=3.0,
+            )
+        except Exception:
+            pass  # best-effort; never block a test over an activate failure
+
+    # Tier/fresh_app reset.
 
     tier_marker = item.get_closest_marker("tier")
     fresh = item.get_closest_marker("fresh_app") is not None
