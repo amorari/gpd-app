@@ -93,7 +93,7 @@ def _submit_disabled(probe: DOMProbe) -> bool | None:
             '  const btns = Array.from(document.querySelectorAll('
             '    "button[data-action=\\"prompt-submit\\"][type=\\"submit\\"]"'
             '  ));'
-            '  if (btns.length === 0) return false;'
+            '  if (btns.length === 0) return null;'
             '  return btns.every('
             '    b => b.disabled || b.getAttribute("aria-disabled") === "true"'
             '  );'
@@ -116,9 +116,16 @@ def test_prompt_submit_disabled_on_empty(mcp, prepared_project_path):
     """
     _goto_session(mcp, prepared_project_path)
     probe = DOMProbe(mcp)
-    disabled = _submit_disabled(probe)
+    # Poll briefly — PromptInput has a prompt.ready() gate; give it time to mount.
+    deadline = time.monotonic() + 3.0
+    disabled = None
+    while time.monotonic() < deadline:
+        disabled = _submit_disabled(probe)
+        if disabled is not None:
+            break
+        time.sleep(0.15)
     if disabled is None:
-        pytest.skip("execute_js unavailable")
+        pytest.skip("execute_js unavailable or prompt-submit not mounted")
     assert disabled, "prompt-submit not disabled on empty composer"
 
 

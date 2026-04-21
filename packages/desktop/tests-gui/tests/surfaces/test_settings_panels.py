@@ -94,15 +94,14 @@ LANGUAGE_STORAGE_KEY = "opencode.global.dat:language"
 
 
 def _open_settings_dialog(os_input, ax, dom: DOMProbe) -> None:
-    """Open the settings dialog via Cmd+, and wait for the General tab.
+    """Open the settings dialog and wait for the General tab.
 
-    Mirrors ``test_dialog_settings.py``'s open flow. Raises on failure
-    (no silent return) so shape tests have a reliable precondition.
+    Prefers a DOM-direct click on the settings gear button to avoid macOS
+    focus races. Falls back to Cmd+, via osascript if the button isn't found.
+    Raises on failure (no silent return) so shape tests have a reliable
+    precondition.
     """
-    ax.activate()
-    time.sleep(0.15)
-    # Clear any stale modal before issuing the shortcut — command.tsx
-    # early-returns on Cmd+, if a dialog is already active.
+    # Clear any stale modal first
     try:
         dialog_open = dom.eval_bool(
             '(() => !!document.querySelector('
@@ -114,21 +113,40 @@ def _open_settings_dialog(os_input, ax, dom: DOMProbe) -> None:
     if dialog_open:
         os_input.press_key("escape")
         time.sleep(0.15)
-    subprocess.run(
-        [
-            "osascript",
-            "-e",
-            'tell application "System Events" to keystroke "," using command down',
-        ],
-        check=True,
-    )
+
+    # Prefer DOM-direct click on the settings gear (no focus race)
+    try:
+        clicked = dom.eval_bool(
+            '(() => {'
+            '  const btn = document.querySelector("[aria-label=\\"Settings\\"]");'
+            '  if (!btn) return false;'
+            '  btn.click();'
+            '  return true;'
+            '})()'
+        )
+    except ProbeSkip as e:
+        pytest.skip(f"execute_js unavailable ({e})")
+
+    if not clicked:
+        # Fallback: use osascript keystroke (may be flaky on focus races)
+        ax.activate()
+        time.sleep(0.15)
+        subprocess.run(
+            [
+                "osascript",
+                "-e",
+                'tell application "System Events" to keystroke "," using command down',
+            ],
+            check=True,
+        )
+
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
         try:
             opened = dom.eval_bool(
                 '(() => {'
                 '  const tabs = Array.from(document.querySelectorAll('
-                '    "[role=\\"tab\\"], [data-component=\\"tabs-trigger\\"]"'
+                '    "[role=\\"tab\\"], [data-slot=\\"tabs-trigger\\"]"'
                 '  ));'
                 '  return tabs.some(t => t.textContent.trim() === "General");'
                 '})()'
@@ -163,7 +181,7 @@ def _activate_tab(dom: DOMProbe, value: str) -> bool:
         '(() => {'
         '  const wanted = "' + value.replace('"', '\\"') + '";'
         '  const triggers = Array.from(document.querySelectorAll('
-        '    "[role=\\"tab\\"], [data-component=\\"tabs-trigger\\"]"'
+        '    "[role=\\"tab\\"], [data-slot=\\"tabs-trigger\\"]"'
         '  ));'
         '  let hit = triggers.find(t => (t.getAttribute("data-value") || "").toLowerCase() === wanted.toLowerCase());'
         '  if (!hit) {'
@@ -400,7 +418,7 @@ def test_settings_panel_tab_activates(mcp, ax, os_input, tab_value, expected_tex
         js = (
             '(() => {'
             '  const panels = Array.from(document.querySelectorAll('
-            '    "[role=\\"tabpanel\\"], [data-component=\\"tabs-content\\"]"'
+            '    "[role=\\"tabpanel\\"], [data-slot=\\"tabs-content\\"]"'
             '  ));'
             # Visible panels have clientHeight > 0; filter on that to
             # ignore hidden / unmounted tab content.

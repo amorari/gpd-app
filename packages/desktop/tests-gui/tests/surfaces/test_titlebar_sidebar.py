@@ -122,6 +122,7 @@ def test_sidebar_workspace_list_shape(mcp, seeded_project):
     sidebar has rendered *something* with our data-action convention.
     """
     Navigator(mcp).go(route_project(seeded_project), timeout_s=5.0)
+    time.sleep(0.3)  # let sidebar re-render after project data arrives
     probe = DOMProbe(mcp)
     # Poll briefly — the sidebar re-renders once project data arrives over
     # the global-sync bootstrap; a single eval can race the initial paint.
