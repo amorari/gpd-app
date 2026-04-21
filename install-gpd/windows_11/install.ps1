@@ -880,21 +880,17 @@ LITELLM_API_BASE=$LiteLlmProxyUrl
     }
     $authData | ConvertTo-Json -Depth 5 | Set-Content -Path $authFile -Encoding UTF8
 
-    # User-scope env var so GUI apps launched from Explorer (notably the
-    # GPD desktop app) inherit GPD_API_KEY without needing the CLI
-    # wrapper. Skipped when -NoExportKey is set; the key still lives in
-    # litellm.env and auth.json so the CLI and desktop app both work.
-    if ($NoExportKey) {
-        Write-Log "Skipping user-env export (-NoExportKey). Key remains in $envFile."
-    } else {
-        Write-Warn "Writing GPD_API_KEY into user environment; any tool that reads user env vars (dotfile sync, backup, editor plugins) may see your key. Use -NoExportKey to skip."
-        try {
-            [Environment]::SetEnvironmentVariable("GPD_API_KEY", $key, "User")
-            # Refresh the current session too so subsequent steps see it.
-            $env:GPD_API_KEY = $key
-        } catch {
-            Write-Warn "Could not set user-scope GPD_API_KEY: $_"
-        }
+    # Intentionally NOT writing GPD_API_KEY to the user-scope env var.
+    # - Desktop app: reads the key from auth.json (path-matched to opencode
+    #   in v1.1.7). No env var needed.
+    # - CLI via the `gpd` wrapper: sources litellm.env. No env var needed.
+    # - CLI via raw `opencode.exe`: reads auth.json. No env var needed.
+    # A User env var would broadcast the key to every process the user
+    # ever launches (browser, editors, npm scripts, screen recorders)
+    # for zero functional benefit. The -NoExportKey flag is kept as a
+    # documented no-op for CLI symmetry with the POSIX installer.
+    if (-not $NoExportKey) {
+        Write-Log "Key stored in $envFile and auth.json; not exported to user env."
     }
 
     Write-Success "PSI key saved to $envFile"
