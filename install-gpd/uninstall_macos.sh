@@ -416,6 +416,27 @@ fi
 # opencode config dir. Accept either {"files": [...]} or a top-level
 # array. Relative paths resolve against the manifest's parent dir.
 
+# Guard against manifest path traversal. The manifest is authored by the
+# installer but we treat it as untrusted input — a corrupted/malicious
+# manifest with entries like "../../../.ssh/authorized_keys" or absolute
+# paths outside the allowlist would let us delete arbitrary user files.
+# Resolves both the candidate and its allowed prefix via realpath -m
+# (accepts non-existent targets so we can still reject them) and requires
+# the resolved target to live under the prefix. `..` segments are refused
+# up-front.
+is_safe_manifest_path() {
+    local target="$1"
+    local allow_prefix="$2"
+    case "$target" in
+        *..*) return 1 ;;
+    esac
+    local resolved
+    resolved="$(realpath -m -- "$target" 2>/dev/null || echo "$target")"
+    local allow_resolved
+    allow_resolved="$(realpath -m -- "$allow_prefix" 2>/dev/null || echo "$allow_prefix")"
+    [[ "$resolved" == "$allow_resolved" || "$resolved" == "$allow_resolved"/* ]]
+}
+
 process_gpd_manifest() {
     local manifest="$1"
     [[ -f "$manifest" ]] || return
@@ -472,9 +493,27 @@ PY
         return
     fi
 
+    # Allowlist: every manifest entry must resolve to a path inside one
+    # of these prefixes. Anything outside is treated as a manifest-traversal
+    # attack (or a legitimate but dangerous manifest we won't honor) and
+    # gets skipped with a warning.
+    local -a allow_prefixes=("$base_dir" "$GPD_HOME")
+    [[ -n "${OPENCODE_CONFIG_DIR:-}" ]] && allow_prefixes+=("$OPENCODE_CONFIG_DIR")
+
     local missing_count=0
     while IFS= read -r path; do
         [[ -z "$path" ]] && continue
+        local safe=false
+        for allow in "${allow_prefixes[@]}"; do
+            if is_safe_manifest_path "$path" "$allow"; then
+                safe=true
+                break
+            fi
+        done
+        if [[ "$safe" != true ]]; then
+            warn "Refusing to remove manifest entry outside allowed dirs: $path"
+            continue
+        fi
         if [[ -e "$path" || -L "$path" ]]; then
             if rm -f "$path" 2>/dev/null; then
                 success "Removed manifest file: $path"
@@ -529,13 +568,32 @@ remove_gpd_block() {
     if ! grep -qF '# >>> GPD CLI >>>' "$file" 2>/dev/null; then
         return 1
     fi
+
+    # Protect against a user-edited rc where the CLOSER was deleted: if
+    # open/close counts disagree, awk's skip flag would stay on and the
+    # rest of the file past the opener would be dropped. Count both on
+    # input that has been CR-stripped so CRLF-terminated dotfiles (common
+    # with dotfile sync or Windows editors) don't throw off the regex.
+    local opens closes
+    opens="$(tr -d '\r' < "$file" | grep -cE '^# >>> GPD CLI >>>[[:space:]]*$' || true)"
+    closes="$(tr -d '\r' < "$file" | grep -cE '^# <<< GPD CLI <<<[[:space:]]*$' || true)"
+    if [[ "$opens" != "$closes" ]]; then
+        warn "Unbalanced GPD sentinel markers in $file (open=$opens, close=$closes) — skipping to avoid destroying file contents"
+        return 1
+    fi
+
     local tmp
     tmp="$(mktemp)"
-    awk '
-        /^# >>> GPD CLI >>>$/ { skip=1; next }
-        /^# <<< GPD CLI <<<$/ { skip=0; next }
+    # Pipe through tr -d '\r' so CRLF-terminated dotfiles match. Trailing
+    # whitespace on the sentinel line is tolerated.
+    if ! tr -d '\r' < "$file" | awk '
+        /^# >>> GPD CLI >>>[[:space:]]*$/ { skip=1; next }
+        /^# <<< GPD CLI <<<[[:space:]]*$/ { skip=0; next }
         skip == 0 { print }
-    ' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
+    ' > "$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
     if ! diff -q "$file" "$tmp" &>/dev/null; then
         mv "$tmp" "$file"
         return 0

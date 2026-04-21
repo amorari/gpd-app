@@ -329,6 +329,49 @@ function Remove-AuthJsonGpdEntry {
     }
 }
 
+# Guard against manifest path traversal. We treat manifest entries as
+# untrusted input even though the installer writes them: a corrupted or
+# malicious manifest with entries like "..\..\..\Users\victim\..." or an
+# absolute path outside the allowlist would let us Remove-Item arbitrary
+# user files. Resolves the target via [System.IO.Path]::GetFullPath and
+# requires it to start with one of the allowed prefixes (case-insensitive
+# ordinal, per Windows filesystem rules). `..` segments are refused
+# up-front before any path joining.
+function Test-SafeManifestPath {
+    param(
+        [Parameter(Mandatory=$true)][string]$Target,
+        [Parameter(Mandatory=$true)][string[]]$AllowPrefixes
+    )
+    # Reject entries containing a `..` path segment.
+    $segments = $Target -split '[/\\]'
+    foreach ($seg in $segments) {
+        if ($seg -eq "..") { return $false }
+    }
+    $resolved = $null
+    try {
+        $resolved = [System.IO.Path]::GetFullPath($Target)
+    } catch {
+        return $false
+    }
+    foreach ($prefix in $AllowPrefixes) {
+        if (-not $prefix) { continue }
+        $prefixResolved = $null
+        try {
+            $prefixResolved = [System.IO.Path]::GetFullPath($prefix)
+        } catch {
+            continue
+        }
+        if ($resolved.Equals($prefixResolved, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+        $withSep = $prefixResolved.TrimEnd('\','/') + [System.IO.Path]::DirectorySeparatorChar
+        if ($resolved.StartsWith($withSep, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
 # AC-9: iterate gpd-file-manifest.json and remove each listed file.
 # Accepts either a top-level {"files": [...]} or a bare array of paths.
 # Relative paths resolve against the manifest's parent dir. Unparseable
@@ -374,6 +417,12 @@ function Invoke-GpdManifestRemoval {
         $entries = $data.files
     }
 
+    # Allowlist: every manifest entry must resolve to a path inside one
+    # of these prefixes. Anything outside is treated as a manifest-
+    # traversal attack (or a dangerous manifest we won't honor) and is
+    # skipped with a warning.
+    $allowPrefixes = @($baseDir, $GpdHome, $OpenCodeDir) | Where-Object { $_ }
+
     $missing = 0
     foreach ($entry in $entries) {
         if (-not ($entry -is [string]) -or [string]::IsNullOrWhiteSpace($entry)) {
@@ -383,6 +432,10 @@ function Invoke-GpdManifestRemoval {
             $entry
         } else {
             Join-Path $baseDir $entry
+        }
+        if (-not (Test-SafeManifestPath -Target $target -AllowPrefixes $allowPrefixes)) {
+            Write-Warn "Refusing to remove manifest entry outside allowed dirs: $target"
+            continue
         }
         if (Test-Path $target) {
             try {

@@ -406,13 +406,63 @@ migrate_legacy_rc_block() {
 # Abort if a GPD process is currently running out of $GPD_HOME — rewriting
 # the python/venv dirs under it would corrupt the running interpreter and
 # leave the user with a half-broken install.
+#
+# We cannot rely on `pgrep -f "$GPD_HOME/..."` alone: it matches the
+# kernel-visible cmdline, which for `gpd run` invocations via $PATH often
+# looks like "python -m gpd ..." with no absolute GPD_HOME path. The
+# probe falls through three layers — cmdline match, /proc/<pid>/exe
+# symlink inspection (Linux), and lsof (macOS) — so a PATH-invoked GPD
+# is still caught. All probes are best-effort: if a tool is missing we
+# warn but do not die, since a spurious failure here would block legit
+# re-runs.
 check_no_running_gpd() {
+    local detected=false
+
+    # Fast path: process whose cmdline mentions an absolute $GPD_HOME
+    # path. Catches the venv-wrapper invocation on both platforms.
     if command -v pgrep &>/dev/null; then
-        # Match any process whose executable path lives inside our app
-        # directories. Quote the pattern so shell globbing doesn't eat it.
         if pgrep -f "$GPD_HOME/(venv|python)/bin" >/dev/null 2>&1; then
-            die "Detected a running GPD process. Quit GPD before running the installer again."
+            detected=true
+        elif pgrep -f "$GPD_HOME" >/dev/null 2>&1; then
+            detected=true
         fi
+    fi
+
+    # Linux: walk /proc/<pid>/exe symlinks to catch PATH-launched invocations
+    # whose cmdline no longer reflects GPD_HOME (e.g. `gpd` resolves to the
+    # venv via PATH and execs into `python -m gpd ...`). The exe symlink
+    # always points at the real interpreter binary, so canonicalize both
+    # sides and prefix-match.
+    if [[ "$detected" != true && "$os" == "linux" && -d /proc ]]; then
+        local gpd_resolved
+        gpd_resolved="$(realpath -m -- "$GPD_HOME" 2>/dev/null || echo "$GPD_HOME")"
+        local pid_dir
+        for pid_dir in /proc/[0-9]*; do
+            [[ -r "$pid_dir/exe" ]] || continue
+            local exe_path
+            exe_path="$(readlink -f -- "$pid_dir/exe" 2>/dev/null || true)"
+            [[ -n "$exe_path" ]] || continue
+            if [[ "$exe_path" == "$gpd_resolved"/* ]]; then
+                detected=true
+                break
+            fi
+        done
+    fi
+
+    # macOS: no /proc. Use lsof to find any process holding an fd anywhere
+    # under $GPD_HOME. Quiet on success, non-zero when nothing matches.
+    if [[ "$detected" != true && "$os" == "darwin" ]]; then
+        if command -v lsof &>/dev/null; then
+            if lsof +D "$GPD_HOME" 2>/dev/null | grep -q . ; then
+                detected=true
+            fi
+        else
+            warn "lsof not available — cannot verify no GPD processes hold files in $GPD_HOME"
+        fi
+    fi
+
+    if [[ "$detected" == true ]]; then
+        die "Detected a running GPD process. Quit GPD before running the installer again."
     fi
 }
 
@@ -738,15 +788,25 @@ configure_litellm_key() {
         return 0
     fi
 
+    # Regex for PSI keys — same contract the interactive loop enforces
+    # below. We apply it to the env-var branch too so CI callers that
+    # typo the key or pass a truncated value fail fast instead of writing
+    # a broken key to litellm.env + auth.json + login profile.
+    local key_pattern='^sk-[A-Za-z0-9_-]{10,}$'
+
     # Check for env var (non-interactive mode)
     local key="${GPD_API_KEY:-${GPD_LITELLM_KEY:-}}"
     if [[ -n "$key" ]]; then
         # Env-var preset: normalize the same way we do for interactive
         # input so a stray CR from a pasted file doesn't corrupt the
-        # saved value. Skip the interactive validation loop though —
-        # non-interactive callers can't re-prompt.
+        # saved value, then enforce the shape check. We do NOT re-prompt
+        # in non-interactive mode — the caller (CI, scripted install)
+        # needs to notice the bad input rather than silently skipping.
         key="${key//$'\r'/}"
         key="${key//[[:space:]]/}"
+        if [[ ! "$key" =~ $key_pattern ]]; then
+            die "GPD_API_KEY env var does not match expected format sk-<10+ alphanumeric/underscore/hyphen>. Check for typos."
+        fi
     elif [[ ! -t 0 ]]; then
         warn "Non-interactive mode: set GPD_API_KEY env var or run 'gpd config set-key' after install"
         return 0
@@ -772,7 +832,7 @@ configure_litellm_key() {
             key="${key//[[:space:]]/}"
             if [[ -z "$key" ]]; then
                 warn "Key cannot be empty. Ctrl+C to skip."
-            elif [[ ! "$key" =~ ^sk-[A-Za-z0-9_-]{10,}$ ]]; then
+            elif [[ ! "$key" =~ $key_pattern ]]; then
                 warn "Key format looks wrong. Expected sk-<letters/digits/_-> (min 10 chars after prefix)."
                 key=""
             else
@@ -900,12 +960,6 @@ configure_path() {
         return 0
     fi
 
-    # Already on PATH?
-    if echo "$PATH" | tr ':' '\n' | grep -qxF "$GPD_BIN_DIR"; then
-        success "$GPD_BIN_DIR already on PATH"
-        return 0
-    fi
-
     local entry="export PATH=\"$GPD_BIN_DIR:\$PATH\""
     local current_shell
     current_shell="$(basename "${SHELL:-bash}")"
@@ -941,6 +995,40 @@ configure_path() {
             fi
             ;;
     esac
+
+    # Run the v1.1.6-era legacy block migration on every candidate rc file
+    # BEFORE we decide whether to short-circuit. A v1.1.6 install already
+    # put $GPD_BIN_DIR on $PATH without sentinels, so the env-var check
+    # below would otherwise return early and the legacy block would never
+    # get wrapped in sentinels — leaving the uninstaller unable to find
+    # or strip it on any subsequent run.
+    for rc in "${rc_files[@]}"; do
+        migrate_legacy_rc_block "$rc"
+    done
+    # Also migrate the login profile targeted by configure_litellm_key if
+    # it's not already among rc_files — the legacy "# GPD API key for
+    # desktop app" block could live there on a v1.1.6 install.
+    if [[ -n "${GPD_KEY_EXPORT_FILE:-}" ]]; then
+        local already_in_list=false
+        for rc in "${rc_files[@]}"; do
+            if [[ "$rc" == "$GPD_KEY_EXPORT_FILE" ]]; then
+                already_in_list=true
+                break
+            fi
+        done
+        if [[ "$already_in_list" == false ]]; then
+            migrate_legacy_rc_block "$GPD_KEY_EXPORT_FILE"
+        fi
+    fi
+
+    # Already on PATH? write_rc_block is idempotent so re-running it is
+    # safe, but skipping when we truly have nothing to do keeps output
+    # quiet. NB: we run migrate_legacy_rc_block above no matter what, so
+    # v1.1.6 legacy blocks still get wrapped before we return here.
+    if echo "$PATH" | tr ':' '\n' | grep -qxF "$GPD_BIN_DIR"; then
+        success "$GPD_BIN_DIR already on PATH"
+        return 0
+    fi
 
     # Decide the PATH body once; the key export is optional and only
     # appears in the file configure_litellm_key picked (typically the

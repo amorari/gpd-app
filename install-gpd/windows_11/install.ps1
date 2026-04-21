@@ -551,7 +551,30 @@ function Install-LocalPython {
                     continue
                 }
 
+                # Zip-slip guard: reject any `..` or empty segment in the
+                # archive's stripped entry path BEFORE we Join-Path, then
+                # re-check that the resolved absolute path still lives
+                # inside $newDir. Defense in depth for the case where the
+                # SHA256 pin drifts away from a known-good PBS archive.
+                $entrySegments = $strippedName -split '[/\\]'
+                foreach ($seg in $entrySegments) {
+                    if ($seg -eq ".." -or $seg -eq "") {
+                        Remove-Item -Path $newDir -Recurse -Force -ErrorAction SilentlyContinue
+                        Stop-WithError "Refusing to extract archive entry with traversal segment: $strippedName"
+                    }
+                }
+
                 $outPath = Join-Path $newDir $strippedName.Replace("/", "\")
+                $newDirFull = [System.IO.Path]::GetFullPath($newDir)
+                $outPathFull = [System.IO.Path]::GetFullPath($outPath)
+                $newDirWithSep = $newDirFull.TrimEnd('\','/') + [System.IO.Path]::DirectorySeparatorChar
+                if (-not (
+                    $outPathFull.Equals($newDirFull, [System.StringComparison]::OrdinalIgnoreCase) -or
+                    $outPathFull.StartsWith($newDirWithSep, [System.StringComparison]::OrdinalIgnoreCase)
+                )) {
+                    Remove-Item -Path $newDir -Recurse -Force -ErrorAction SilentlyContinue
+                    Stop-WithError "Refusing to extract archive entry outside target dir: $strippedName"
+                }
 
                 if ($typeFlag -eq "5" -or $name.EndsWith("/")) {
                     # Directory
@@ -742,9 +765,15 @@ function Read-LiteLlmKey {
 
     $key = if ($env:GPD_API_KEY) { $env:GPD_API_KEY } else { "" }
     if (-not [string]::IsNullOrWhiteSpace($key)) {
-        # Env-var preset: normalize but skip interactive re-prompt.
+        # Env-var preset: normalize AND validate. Non-interactive callers
+        # (CI, scripted installs) can't be re-prompted, so fail fast when
+        # the env-provided key doesn't match the shape check rather than
+        # silently writing a broken key into litellm.env + auth.json.
         $key = $key -replace "`r",''
         $key = $key -replace '\s',''
+        if ($key -notmatch $keyPattern) {
+            Stop-WithError "GPD_API_KEY env var does not match expected format sk-<10+ alphanumeric/underscore/hyphen>. Check for typos."
+        }
     }
     if ([string]::IsNullOrWhiteSpace($key)) {
         if (-not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
