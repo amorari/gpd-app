@@ -12,6 +12,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { createContext, getOwner, onCleanup, onMount, type ParentProps, untrack, useContext } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
 import { Persist, persisted } from "@/utils/persist"
 import type { InitError } from "../pages/error"
 import { useGlobalSDK } from "./global-sdk"
@@ -44,6 +45,7 @@ type GlobalStore = {
 function createGlobalSync() {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
+  const platform = usePlatform()
   const owner = getOwner()
   if (!owner) throw new Error("GlobalSync must be created within owner")
 
@@ -248,6 +250,23 @@ function createGlobalSync() {
     if (!directory) return
     const pending = booting.get(directory)
     if (pending) return pending
+
+    // macOS TCC guard: probe the directory from the Tauri main process
+    // BEFORE any sidecar call touches it. If the OS denies access (EPERM),
+    // skip the entire bootstrap rather than firing an error storm. The
+    // sidebar will still show the project, marked as locked — clicking it
+    // goes through `projects.unlock` which pops NSOpenPanel for re-grant.
+    if (platform.os === "macos" && platform.checkProjectAccessible) {
+      const status = await platform.checkProjectAccessible(directory).catch(() => "ok" as const)
+      if (status === "locked") {
+        const child = children.ensureChild(directory)
+        // Park the store at status "partial" so downstream consumers don't
+        // block on "loading" forever. The project still renders in the
+        // sidebar; `projects.unlock` flips it back once the user re-grants.
+        child[1]("status", "partial")
+        return
+      }
+    }
 
     children.pin(directory)
     const promise = (async () => {
