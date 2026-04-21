@@ -10,8 +10,10 @@
 #   - GPD desktop app (runs Tauri NSIS uninstaller silently)
 #   - Tauri GUI state at %APPDATA%\inc.psi.gpd\
 #   - Tauri WebView data (localStorage/cookies/cache) at %LOCALAPPDATA%\inc.psi.gpd\
-#   - "gpd" entry in %APPDATA%\opencode\auth.json (preserves other providers)
-#   - gpd-specific files in %APPDATA%\opencode\
+#   - "gpd" entry in %USERPROFILE%\.local\share\opencode\auth.json
+#     (and the legacy %APPDATA%\opencode\auth.json path, preserving
+#     any other providers present in either file)
+#   - gpd-specific files in %USERPROFILE%\.local\share\opencode\
 #
 # Does NOT remove Git or MiKTeX -- many things depend on them. Instructions
 # for manual removal are printed at the end.
@@ -44,9 +46,18 @@ $TauriStateDir = Join-Path $env:APPDATA "inc.psi.gpd"
 # looks like a bug to users re-testing after an uninstall.
 $TauriWebViewDir = Join-Path $env:LOCALAPPDATA "inc.psi.gpd"
 
-$XdgData    = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { $env:APPDATA }
+# opencode uses xdg-basedir v5 which ignores platform and always
+# resolves xdgData to "$HOME/.local/share" — so on Windows auth.json
+# lives at %USERPROFILE%\.local\share\opencode\auth.json, NOT under
+# %APPDATA%. Match the installer's path exactly.
+$XdgData    = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { Join-Path $HOME ".local\share" }
 $OpenCodeDir = Join-Path $XdgData "opencode"
 $AuthFile    = Join-Path $OpenCodeDir "auth.json"
+
+# Legacy path: previous installer versions wrote auth.json to
+# %APPDATA%\opencode\auth.json. Clean that up too if present.
+$LegacyOpenCodeDir = Join-Path $env:APPDATA "opencode"
+$LegacyAuthFile    = Join-Path $LegacyOpenCodeDir "auth.json"
 
 # opencode also honors XDG_STATE_HOME / XDG_CACHE_HOME on Windows when
 # they're set explicitly. Check the "Linux-style" defaults too in case
@@ -125,16 +136,19 @@ function Get-PathContainsGpd {
 # Inspect auth.json and decide whether the "gpd" entry is present. Returns
 # $true if at least one key needs to be removed, $false otherwise.
 function Test-AuthHasGpd {
-    if (-not (Test-Path $AuthFile)) { return $false }
-    try {
-        $data = Get-Content $AuthFile -Raw | ConvertFrom-Json
-    } catch {
-        return $false
+    foreach ($candidate in @($AuthFile, $LegacyAuthFile)) {
+        if (-not (Test-Path $candidate)) { continue }
+        try {
+            $data = Get-Content $candidate -Raw | ConvertFrom-Json
+        } catch {
+            continue
+        }
+        if ($null -eq $data) { continue }
+        $names = @()
+        $data.PSObject.Properties | ForEach-Object { $names += $_.Name }
+        if ($names -contains "gpd") { return $true }
     }
-    if ($null -eq $data) { return $false }
-    $names = @()
-    $data.PSObject.Properties | ForEach-Object { $names += $_.Name }
-    return ($names -contains "gpd")
+    return $false
 }
 
 # Inspect opencode.json and decide whether it looks gpd-only (so we can
@@ -259,15 +273,17 @@ function Remove-GpdFromPath {
 }
 
 function Remove-AuthJsonGpdEntry {
-    if (-not (Test-Path $AuthFile)) {
-        Write-Skip "No auth.json at $AuthFile"
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        Write-Skip "No auth.json at $Path"
         return
     }
 
     try {
-        $data = Get-Content $AuthFile -Raw | ConvertFrom-Json
+        $data = Get-Content $Path -Raw | ConvertFrom-Json
     } catch {
-        Write-Warn "Could not parse $AuthFile -- leaving alone"
+        Write-Warn "Could not parse $Path -- leaving alone"
         return
     }
 
@@ -300,13 +316,13 @@ function Remove-AuthJsonGpdEntry {
             # If that was the only provider, write an empty object rather
             # than deleting the file -- opencode expects auth.json to exist
             # (or be absent entirely; we err on the side of "no surprise").
-            "{}" | Set-Content -Path $AuthFile -Encoding UTF8
+            "{}" | Set-Content -Path $Path -Encoding UTF8
         } else {
-            $newData | ConvertTo-Json -Depth 5 | Set-Content -Path $AuthFile -Encoding UTF8
+            $newData | ConvertTo-Json -Depth 5 | Set-Content -Path $Path -Encoding UTF8
         }
-        Write-Success "Removed 'gpd' entry from $AuthFile"
+        Write-Success "Removed 'gpd' entry from $Path"
     } catch {
-        Write-Warn "Could not rewrite $AuthFile -- $_"
+        Write-Warn "Could not rewrite $Path -- $_"
     }
 }
 
@@ -468,7 +484,8 @@ function Invoke-GpdUninstall {
     Remove-TauriDesktop
     Remove-TauriState
     Remove-GpdFromPath
-    Remove-AuthJsonGpdEntry
+    Remove-AuthJsonGpdEntry -Path $AuthFile
+    Remove-AuthJsonGpdEntry -Path $LegacyAuthFile
     Remove-OpenCodeGpdFiles
     Remove-OpenCodeXdgDirs
     Remove-GpdHome

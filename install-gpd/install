@@ -530,13 +530,14 @@ EOF
     # again when they open the desktop app (matching fix in
     # packages/app/src/app.tsx:SetupGate).
     #
-    # auth.json path follows XDG: ~/.local/share/opencode/auth.json on
-    # Linux, ~/Library/Application Support/opencode/auth.json on macOS.
+    # auth.json path: opencode uses xdg-basedir (npm), which in v5.x
+    # ignores platform and always resolves xdgData to ~/.local/share on
+    # macOS and Windows too — it does NOT honor ~/Library/Application
+    # Support on darwin. Match that behavior exactly; writing to the
+    # conventional macOS path would leave the file invisible to opencode
+    # and the desktop app would re-prompt for the key on first launch.
     # Format: {"<providerID>": {"type":"api","key":"sk-..."}}
     local xdg_data="${XDG_DATA_HOME:-$HOME/.local/share}"
-    if [[ "$os" == "darwin" ]]; then
-        xdg_data="$HOME/Library/Application Support"
-    fi
     local auth_dir="$xdg_data/opencode"
     local auth_file="$auth_dir/auth.json"
     mkdir -p "$auth_dir"

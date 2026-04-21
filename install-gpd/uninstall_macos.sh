@@ -57,8 +57,13 @@ done
 GPD_HOME="${GPD_HOME:-$HOME/.gpd}"
 GPD_BIN_DIR="$GPD_HOME/bin"
 APP_SUPPORT="$HOME/Library/Application Support"
-OPENCODE_AUTH="$APP_SUPPORT/opencode/auth.json"
-OPENCODE_DIR="$APP_SUPPORT/opencode"
+# opencode uses xdg-basedir v5, which ignores platform and always resolves
+# xdgData to $HOME/.local/share — so on macOS the real auth.json lives
+# there, NOT in Application Support/opencode. The installer writes to
+# $XDG_DATA_HOME or $HOME/.local/share to match.
+XDG_DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+OPENCODE_AUTH="$XDG_DATA/opencode/auth.json"
+OPENCODE_DIR="$XDG_DATA/opencode"
 GPD_APP_SUPPORT="$APP_SUPPORT/GPD"
 GPD_APP_SUPPORT_BUNDLE="$APP_SUPPORT/inc.psi.gpd"
 GPD_APP="/Applications/GPD.app"
@@ -75,10 +80,11 @@ GPD_WEBKIT_BUNDLE="$HOME/Library/WebKit/inc.psi.gpd"
 # paths too so a macOS user with XDG_STATE_HOME set doesn't end up with
 # orphaned session state after uninstall.
 opencode_extra_dirs=()
-[[ -n "${XDG_DATA_HOME:-}" ]]  && opencode_extra_dirs+=("$XDG_DATA_HOME/opencode")
 [[ -n "${XDG_STATE_HOME:-}" ]] && opencode_extra_dirs+=("$XDG_STATE_HOME/opencode")
 [[ -n "${XDG_CACHE_HOME:-}" ]] && opencode_extra_dirs+=("$XDG_CACHE_HOME/opencode")
-opencode_extra_dirs+=("$HOME/.local/share/opencode")
+# Legacy path: previous installer versions wrote auth.json under
+# ~/Library/Application Support/opencode. Clean that up too.
+opencode_extra_dirs+=("$APP_SUPPORT/opencode")
 opencode_extra_dirs+=("$HOME/.local/state/opencode")
 opencode_extra_dirs+=("$HOME/.cache/opencode")
 

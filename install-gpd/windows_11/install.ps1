@@ -639,9 +639,14 @@ LITELLM_API_BASE=$LiteLlmProxyUrl
     # again when they open the desktop app (matching fix in
     # packages/app/src/app.tsx:SetupGate).
     #
-    # auth.json path on Windows: %APPDATA%\opencode\auth.json
-    # (XDG_DATA_HOME fallback on Windows per xdg-basedir).
-    $xdgData = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { $env:APPDATA }
+    # auth.json path: opencode uses the xdg-basedir npm package (v5.x),
+    # which does NOT special-case Windows — it always resolves xdgData
+    # to "$HOME/.local/share", i.e. %USERPROFILE%\.local\share on
+    # Windows. Writing to %APPDATA%\opencode (conventional for Windows)
+    # leaves the file invisible to opencode; the desktop app then re-
+    # prompts for the PSI key on first launch even though the installer
+    # "saved" it. Honor $XDG_DATA_HOME when set, else match xdg-basedir.
+    $xdgData = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { Join-Path $HOME ".local\share" }
     $authDir = Join-Path $xdgData "opencode"
     $authFile = Join-Path $authDir "auth.json"
     New-Item -ItemType Directory -Path $authDir -Force | Out-Null
