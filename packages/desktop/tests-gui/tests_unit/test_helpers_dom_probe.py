@@ -96,9 +96,14 @@ def test_eval_returns_none_when_execute_js_returns_none():
 
 
 @pytest.mark.unit
-def test_eval_bool_returns_false_when_execute_js_returns_none():
-    """eval_bool() converts None to False via bool()."""
+def test_eval_bool_raises_probeskip_when_execute_js_returns_none():
+    """eval_bool() raises ProbeSkip when execute_js returns None.
+
+    A None bridge response means the JS returned no value — callers
+    cannot distinguish True/False from silence, so ProbeSkip is the
+    correct signal (the test should be skipped, not asserted as False).
+    """
     mcp = MagicMock()
     mcp.execute_js.return_value = None
-    result = DOMProbe(mcp).eval_bool("document.querySelector('#x') !== null")
-    assert result is False
+    with pytest.raises(ProbeSkip):
+        DOMProbe(mcp).eval_bool("document.querySelector('#x') !== null")

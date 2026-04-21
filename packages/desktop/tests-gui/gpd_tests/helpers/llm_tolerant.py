@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
+_MAX_REPR = 500
+
 
 def assistant_text(response: dict[str, Any]) -> str:
     """Concatenate all text parts of an assistant response."""
@@ -23,17 +25,33 @@ def assert_assistant_replied(response: dict[str, Any]) -> None:
     A tool-use-only response (no text parts) is considered valid: the model
     may choose to call a tool without emitting any text.
     """
-    assert isinstance(response, dict), (
-        f"assert_assistant_replied expects a dict, got {type(response).__name__}: {response!r}"
-    )
+    if not isinstance(response, dict):
+        raise AssertionError(
+            f"expected dict response, got {type(response)}"
+        )
+
     info = response.get("info") or {}
+
+    # Surface any error key before checking role.
+    error = response.get("error") or info.get("error")
+    if error:
+        raise AssertionError(
+            f"response contains error: {error!r} — full response: "
+            f"{repr(response)[:_MAX_REPR]}"
+        )
+
     role = info.get("role")
-    assert role == "assistant", f"expected assistant role, got {role!r}"
+    assert role == "assistant", (
+        f"expected assistant role, got {role!r} — "
+        f"{repr(response)[:_MAX_REPR]}"
+    )
+
     parts = response.get("parts") or []
-    assert parts, f"assistant response has no parts: {response!r}"
-    # A reply with at least one part is valid — text OR tool-use.
-    # If there are text parts, at least one must be non-empty.
-    text_parts = [p for p in parts if isinstance(p, dict) and p.get("type") == "text"]
-    if text_parts:
-        text = "".join(str(p.get("text", "")) for p in text_parts)
-        assert text.strip(), f"assistant response has empty text: {response!r}"
+    text = assistant_text(response)
+    has_tool_use = any(
+        isinstance(p, dict) and p.get("type") == "tool-use" for p in parts
+    )
+    assert text.strip() or has_tool_use, (
+        f"assistant response has empty text and no tool-use parts: "
+        f"{repr(response)[:_MAX_REPR]}"
+    )

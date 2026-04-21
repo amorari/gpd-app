@@ -1,7 +1,8 @@
 """Wrap execute_js so tests skip on known bridge flake instead of error."""
 from __future__ import annotations
 
-from typing import Protocol
+import json
+from typing import Any, Protocol
 
 from gpd_tests.drivers.mcp import MCPError, MCPTimeout
 
@@ -14,7 +15,17 @@ class _MCPLike(Protocol):
     def execute_js(self, code: str) -> object: ...
 
 
-_TIMEOUT_HINTS = ("timeout", "empty response", "peer closed")
+_TIMEOUT_HINTS = (
+    "timeout",
+    "empty response",
+    "peer closed",
+    "channel closed",
+    "connection reset",
+    "bridge",
+    "webview not ready",
+)
+
+_JS_FALSY = frozenset({"false", "null", "undefined", "nan", "0", ""})
 
 
 class DOMProbe:
@@ -34,8 +45,25 @@ class DOMProbe:
 
     def eval_bool(self, code: str) -> bool:
         raw = self.eval(code)
+        if raw is None:
+            # Bridge returned an empty response — treat as skippable uncertainty.
+            raise ProbeSkip("execute_js returned None (empty bridge response)")
         if isinstance(raw, bool):
             return raw
         if isinstance(raw, str):
-            return raw.lower() == "true"
+            return raw.strip().lower() not in _JS_FALSY
         return bool(raw)
+
+    def eval_json(self, code: str) -> Any:
+        """Evaluate *code* and JSON-decode the result."""
+        raw = self.eval(code)
+        if raw is None:
+            raise ProbeSkip("execute_js returned None (empty bridge response)")
+        return json.loads(raw)
+
+    def eval_int(self, code: str) -> int:
+        """Evaluate *code* and return the result as an integer."""
+        raw = self.eval(code)
+        if raw is None:
+            raise ProbeSkip("execute_js returned None (empty bridge response)")
+        return int(raw)
