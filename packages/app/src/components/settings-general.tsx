@@ -604,8 +604,6 @@ export const SettingsGeneral: Component = () => {
 
         <UpdatesSection />
 
-        <AccountSection />
-
         <Show when={linux()}>
           {(_) => {
             const [valueResource, actions] = createResource(() => platform.getDisplayBackend?.())

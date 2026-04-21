@@ -167,7 +167,7 @@ export const dict: Record<string, string> = {
   "ui.question.custom.placeholder": "Type your answer...",
 
   "error.classified.rateLimit": "The AI service rate limit was hit. Please wait a moment and try again.",
-  "error.classified.auth": "Sign-in failed. Check your access key in Settings.",
+  "error.classified.auth": "Sign-in failed. Check your API key in Settings.",
   "error.classified.context":
     "The conversation is too long for the assistant to keep in memory. Try starting a new conversation or picking a model with larger memory.",
   "error.classified.network": "Couldn't reach the server. Check your internet connection.",
