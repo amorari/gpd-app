@@ -91,6 +91,7 @@ export const DialogSelectMcp: Component = () => {
       title={language.t("dialog.mcp.title")}
       description={language.t("dialog.mcp.description", { enabled: enabledCount(), total: totalCount() })}
     >
+      <div data-component="dialog-select-mcp">
       <List
         search={{ placeholder: language.t("common.search.placeholder"), autofocus: true }}
         emptyMessage={language.t("dialog.mcp.empty")}
@@ -134,6 +135,8 @@ export const DialogSelectMcp: Component = () => {
               </div>
               <div onClick={(e) => e.stopPropagation()}>
                 <Switch
+                  data-action="mcp-toggle"
+                  data-name={i.name}
                   checked={enabled()}
                   disabled={toggle.isPending && toggle.variables === i.name}
                   onChange={() => {
@@ -146,6 +149,7 @@ export const DialogSelectMcp: Component = () => {
           )
         }}
       </List>
+      </div>
     </Dialog>
   )
 }

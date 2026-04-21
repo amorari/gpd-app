@@ -1,0 +1,1 @@
+"""opencode-gpd-test — fixtures."""

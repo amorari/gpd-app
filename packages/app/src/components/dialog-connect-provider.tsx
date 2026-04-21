@@ -584,10 +584,11 @@ export function DialogConnectProvider(props: { provider: string }) {
           variant="ghost"
           onClick={goBack}
           aria-label={language.t("common.goBack")}
+          data-action="connect-provider-back"
         />
       }
     >
-      <div class="flex flex-col gap-6 px-2.5 pb-3">
+      <div class="flex flex-col gap-6 px-2.5 pb-3" data-component="dialog-connect-provider">
         <div class="px-2.5 flex gap-4 items-center">
           <ProviderIcon id={props.provider} class="size-5 shrink-0 icon-strong-base" />
           <div class="text-16-medium text-text-strong">
