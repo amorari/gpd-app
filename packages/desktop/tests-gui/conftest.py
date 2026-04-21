@@ -397,6 +397,44 @@ def pytest_runtest_setup(item):
         _session_app_state.refresh_launched_pid()
 
 
+# --- Hide-GPD-after-each-test hook --------------------------------------
+
+
+def pytest_runtest_teardown(item, nextitem):
+    """Re-hide GPD after every test if GPD_TEST_HIDE_AFTER_LAUNCH is on.
+
+    Individual tests can activate GPD (ax.activate, click_menu_item, etc.)
+    which un-hides it. This hook re-hides after each test so the default
+    posture is 'invisible' and only tests that actively need focus see
+    GPD on screen. Steals_focus tests can un-hide freely during their
+    'call' phase; this teardown runs after and restores the invisible
+    state for the next test.
+    """
+    if os.environ.get("GPD_TEST_HIDE_AFTER_LAUNCH", "1") != "1":
+        return
+    # Skip for pure unit runs (no GPD).
+    if _session_app_state is None:
+        return
+    try:
+        import subprocess as _sp
+        # Derive bundle label the same way app_state does.
+        app_path = os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")
+        app_name = Path(app_path).stem
+        _sp.run(
+            [
+                "osascript",
+                "-e",
+                f'tell application "System Events" to '
+                f'set visible of process "{app_name}" to false',
+            ],
+            capture_output=True,
+            check=False,
+            timeout=2,
+        )
+    except Exception:  # noqa: BLE001
+        pass  # best-effort; hide failure is not a test failure
+
+
 # --- Reporting hooks -----------------------------------------------------
 
 
