@@ -18,6 +18,9 @@ exclude_lines =
 show_missing = True
 skip_covered = False
 precision = 1
+# Raise this floor incrementally as phases land. Starting from 2026-04-20 baseline
+# of 56.6% + buffer for branch coverage.
+fail_under = 55
 
 [html]
 directory = coverage_html
