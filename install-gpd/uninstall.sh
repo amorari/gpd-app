@@ -76,8 +76,20 @@ gui_config_dirs=(
     "$HOME/.cache/inc.psi.gpd"
 )
 
-# opencode's global config dir — PRESERVE, but strip GPD-specific entries.
+# opencode's global config dir — we ORIGINALLY preserved this to be safe
+# for users who had opencode installed for other workflows. In practice,
+# when opencode was bootstrapped by the GPD installer, the dir contains
+# a GPD-specific `get-physics-done/` subdir (templates, commands, agents
+# that `gpd install opencode --global` dropped in). That's a reliable
+# signal that opencode exists only to serve GPD. When we see that, we
+# can safely `rm -rf` both the config dir AND its data dir (logs,
+# opencode.db) so a reinstall is truly clean.
 opencode_config_dir="$HOME/.config/opencode"
+opencode_data_dirs=()
+if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    opencode_data_dirs+=("$XDG_DATA_HOME/opencode")
+fi
+opencode_data_dirs+=("$HOME/.local/share/opencode")
 
 # ── Discovery: show what will be removed ──────────────────────────────────
 
@@ -161,6 +173,31 @@ if [[ -f "$opencode_config_dir/gpd-file-manifest.json" ]]; then
     log "Found GPD file manifest: $opencode_manifest"
     found_anything=true
 fi
+
+# If opencode's config dir contains get-physics-done/ (GPD templates/
+# commands/agents), opencode was bootstrapped by GPD — safe to remove
+# the whole config + data tree. Otherwise keep it (user had opencode
+# before GPD or uses it for other workflows).
+opencode_is_gpd_only=false
+if [[ -d "$opencode_config_dir/get-physics-done" ]]; then
+    opencode_is_gpd_only=true
+    log "Found GPD-only opencode install (has get-physics-done templates)"
+    log "  Will remove opencode config + data dirs entirely"
+    found_anything=true
+fi
+
+# Check for opencode data dirs (logs, opencode.db) — we'll only remove
+# these if opencode_is_gpd_only is true (decided above).
+opencode_data_dirs_found=()
+for d in "${opencode_data_dirs[@]}"; do
+    if [[ -d "$d" ]]; then
+        opencode_data_dirs_found+=("$d")
+        if [[ "$opencode_is_gpd_only" == true ]]; then
+            log "Found opencode data directory: $d"
+            found_anything=true
+        fi
+    fi
+done
 
 if [[ "$found_anything" == false ]]; then
     printf " ${DIM}Nothing to remove — GPD does not appear to be installed.${RESET}\n\n"
@@ -379,15 +416,31 @@ PY
     fi
 }
 
-if [[ "$opencode_json_has_gpd" == true ]]; then
-    clean_opencode_json "$opencode_config_dir/opencode.json"
+# If opencode was bootstrapped only for GPD, the config dir has
+# get-physics-done/ templates that have no meaning without GPD, and the
+# data dir holds session logs + opencode.db that the user can't open
+# without the CLI/GUI. Remove both entirely. Otherwise just surgically
+# strip the GPD entries and preserve the rest.
+if [[ "$opencode_is_gpd_only" == true ]]; then
+    if [[ -d "$opencode_config_dir" ]]; then
+        rm -rf "$opencode_config_dir"
+        success "Removed $opencode_config_dir"
+    fi
+    for d in "${opencode_data_dirs_found[@]}"; do
+        rm -rf "$d"
+        success "Removed $d"
+    done
 else
-    skip "No GPD entries in opencode's global config"
-fi
+    if [[ "$opencode_json_has_gpd" == true ]]; then
+        clean_opencode_json "$opencode_config_dir/opencode.json"
+    else
+        skip "No GPD entries in opencode's global config"
+    fi
 
-if [[ -n "$opencode_manifest" ]]; then
-    rm -f "$opencode_manifest"
-    success "Removed $opencode_manifest"
+    if [[ -n "$opencode_manifest" ]]; then
+        rm -f "$opencode_manifest"
+        success "Removed $opencode_manifest"
+    fi
 fi
 
 # ── Remove GPD directory ─────────────────────────────────────────────────
