@@ -76,6 +76,7 @@ import {
 import {
   collectNewSessionDeepLinks,
   collectOpenProjectDeepLinks,
+  collectSessionDeepLinks,
   deepLinkEvent,
   drainPendingDeepLinks,
 } from "./layout/deep-links"
@@ -1490,6 +1491,16 @@ export default function Layout(props: ParentProps) {
       }
       const href = link.prompt ? `/${slug}/session?prompt=${encodeURIComponent(link.prompt)}` : `/${slug}/session`
       navigateWithSidebarReset(href)
+    }
+
+    for (const sessionID of collectSessionDeepLinks(urls)) {
+      void globalSDK.client.session
+        .get({ sessionID })
+        .then((x) => x.data)
+        .then((session) => {
+          navigateToSession(session)
+        })
+        .catch(() => undefined)
     }
   }
 
