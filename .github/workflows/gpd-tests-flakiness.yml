@@ -1,0 +1,141 @@
+name: GPD tests — flakiness sweep
+
+on:
+  schedule:
+    - cron: '17 7 * * *'   # daily 07:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: gpd-tests-flakiness-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_BUNDLE_VERSION: "0.7.3"
+
+jobs:
+  flakiness:
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        iteration: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          uv-version: "0.7.3"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+          shared-key: aarch64-apple-darwin-debug
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - name: Install cliclick
+        run: brew install cliclick
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build opencode sidecar
+        working-directory: packages/desktop
+        run: bun run predev
+        env:
+          RUST_TARGET: aarch64-apple-darwin
+          TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
+
+      - name: Download and stage uv bundle
+        shell: bash
+        run: |
+          UV_PLATFORM="aarch64-apple-darwin"
+          mkdir -p packages/desktop/src-tauri/uv-bundle
+          curl -fsSL "https://github.com/astral-sh/uv/releases/download/${{ env.UV_BUNDLE_VERSION }}/uv-${UV_PLATFORM}.tar.gz" \
+            | tar xz -C packages/desktop/src-tauri/uv-bundle --strip-components=1
+          chmod +x packages/desktop/src-tauri/uv-bundle/uv
+
+      - name: Build debug app
+        working-directory: packages/desktop
+        run: bun run tauri build --debug
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Launch debug app
+        run: open ./packages/desktop/src-tauri/target/debug/bundle/macos/GPD\ Dev.app
+
+      - name: Wait for sidecar
+        working-directory: packages/desktop/tests-gui
+        run: |
+          for i in $(seq 1 60); do
+            if pgrep -f 'opencode-cli.*serve' > /dev/null; then
+              echo "sidecar up after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          pgrep -f 'opencode-cli.*serve' || { echo "sidecar never appeared"; exit 1; }
+
+      - name: Run smoke ×1 (iteration ${{ matrix.iteration }})
+        working-directory: packages/desktop/tests-gui
+        continue-on-error: true
+        run: |
+          uv sync
+          uv run pytest -m "smoke and not restart" \
+            --junitxml=junit-${{ matrix.iteration }}.xml -v
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-${{ matrix.iteration }}
+          path: packages/desktop/tests-gui/junit-${{ matrix.iteration }}.xml
+          retention-days: 7
+          if-no-files-found: ignore
+
+  aggregate:
+    needs: flakiness
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: junit/
+
+      - name: Run flakiness report
+        working-directory: packages/desktop/tests-gui
+        run: |
+          # Flatten nested artifact dirs into one dir the aggregator can scan.
+          mkdir -p flatten
+          find ../../../junit -name '*.xml' -exec cp {} flatten/ \;
+          # If E2 hasn't landed yet, this will fail cleanly — treat as expected
+          # until the aggregator script is in place.
+          if [ -f scripts/flakiness/report.py ]; then
+            uv sync || true
+            uv run python scripts/flakiness/report.py flatten/ > ../../../flakiness_report.md
+          else
+            echo "# Flakiness report" > ../../../flakiness_report.md
+            echo "" >> ../../../flakiness_report.md
+            echo "_scripts/flakiness/report.py not yet present; aggregator is a no-op until Phase E2._" >> ../../../flakiness_report.md
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flakiness-report
+          path: flakiness_report.md
+          retention-days: 30
