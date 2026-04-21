@@ -404,20 +404,6 @@ async function main() {
     `- **Flagged licenses (copyleft / non-permissive, surfaced for review):** ${npmFlagged.length + cargoFlagged.length} across both stacks.`,
     `- **Dominant licenses:** permissive (MIT, Apache-2.0, ISC, BSD family) on both sides.`,
     "",
-    `### Licenses in use (${combinedRows.length} distinct; ${npm.stats.total + cargo.length} total package entries)`,
-    "",
-    "Deduplicated across npm + Rust. Compound strings like `A OR B` are NOT",
-    "split — they represent a single upstream SPDX expression that the",
-    "consumer picks from. Flagged licenses (MPL, LGPL) are also listed in",
-    "the separate table below.",
-    "",
-    "| License | npm | Rust | Total |",
-    "|---|---:|---:|---:|",
-    ...combinedRows.map(
-      (r) =>
-        `| \`${r.license}\` | ${r.npm || ""} | ${r.cargo || ""} | ${r.total} |`,
-    ),
-    "",
     "### Flagged licenses to review",
     "",
     npmFlagged.length + cargoFlagged.length === 0
@@ -600,6 +586,60 @@ async function main() {
   }
 
   await fs.writeFile(path.join(ROOT, "THIRD_PARTY_NOTICES.md"), out.join("\n"))
+
+  // Emit a separate summary file with just the deduplicated license roll-up.
+  // This is the human-scannable "what licenses do we ship and how many of each"
+  // view; the full per-package manifest stays in THIRD_PARTY_NOTICES.md.
+  const summary: string[] = []
+  summary.push(
+    "# Third-party license summary",
+    "",
+    `Regenerated ${now} from \`bun.lock\` + \`packages/desktop/src-tauri/Cargo.lock\`.`,
+    "Do not hand-edit — run `scripts/licenses/regen.sh` and commit the diff.",
+    "",
+    "Deduplicated roll-up of every license string that appears on a dependency",
+    "shipped inside the GPD Desktop binary. Compound SPDX expressions like",
+    "`A OR B` are NOT split — they represent a single upstream license that the",
+    "consumer picks from. Per-package detail + full license texts live in",
+    "[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).",
+    "",
+    `**Totals:** ${npm.stats.total} npm packages · ${cargo.length} Rust crates · ${combinedRows.length} distinct license strings · ${npm.stats.total + cargo.length} total package entries.`,
+    "",
+    "## Licenses in use",
+    "",
+    "| License | npm | Rust | Total |",
+    "|---|---:|---:|---:|",
+    ...combinedRows.map(
+      (r) => `| \`${r.license}\` | ${r.npm || ""} | ${r.cargo || ""} | ${r.total} |`,
+    ),
+    "",
+    "## Flagged licenses (copyleft / non-permissive, surfaced for review)",
+    "",
+    npmFlagged.length + cargoFlagged.length === 0
+      ? "_None in the shipping dependency set. (LGPL-2 obligation still applies to statically-linked Bun JSC/WebKit — see `THIRD_PARTY_NOTICES.md` § Bun runtime.)_"
+      : [
+          "| Stack | Package | Version | License |",
+          "|---|---|---|---|",
+          ...npmFlagged.map(
+            (p) => `| npm | \`${p.name}\` | ${p.version} | ${p.license} |`,
+          ),
+          ...cargoFlagged.map(
+            (c) => `| cargo | \`${c.name}\` | ${c.version} | ${c.license} |`,
+          ),
+        ].join("\n"),
+    "",
+    "## Runtime LGPL obligations (summary)",
+    "",
+    "- **Bun** statically links JavaScriptCore/WebKit (LGPL-2) into the compiled",
+    "  `opencode-cli` sidecar → relink instructions in",
+    "  `THIRD_PARTY_NOTICES.md` § *Bun runtime + JavaScriptCore/WebKit*.",
+    "- **Linux builds** dynamically link WebKitGTK + GTK3 (LGPL-2.1-or-later)",
+    "  from the user's distro → dynamic-link compliance, library is",
+    "  user-replaceable via the package manager.",
+    "",
+  )
+  await fs.writeFile(path.join(ROOT, "THIRD_PARTY_SUMMARIES.md"), summary.join("\n"))
+
   console.log(
     `wrote THIRD_PARTY_NOTICES.md — ${npm.stats.total} npm + ${cargo.length} cargo + 1 Bun LGPL section`,
   )
