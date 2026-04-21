@@ -25,6 +25,11 @@ Options: `--skip-key`, `--no-modify-path`, `--version 1.0.180`.
 ### Windows 11
 
 ```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://download.gpd.psi.inc/install.ps1 -OutFile $env:TEMP\install.ps1; & $env:TEMP\install.ps1
+```
+
+Or as three separate commands if you prefer:
+```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force
 irm https://download.gpd.psi.inc/install.ps1 -OutFile $env:TEMP\install.ps1
 & $env:TEMP\install.ps1
