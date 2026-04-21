@@ -1460,13 +1460,27 @@ git commit -m "test(triage): Gate-4 hook writes product-code commits to artifact
 
 ---
 
-## Phase A Results (fill in after A4 completes)
+## Phase A Results (baselines — to compare against after B/C/D)
 
-_TBD_
+**Python (Task A1, commit `2858a8b`):**
+- 56.6% coverage (725 statements, 180 branches, 22 partial, 283 missed)
+- Zero-coverage modules: `pages/menu.py`, `pages/onboarding.py`
+- Low coverage: `pages/app_state.py` (20.7%), `drivers/opencode_http.py` (49%), `drivers/os_input.py` (53.4%)
+- Note: these are live-GPD helpers only exercised under `smoke`/`flows` — they should jump once Phase B IPC tests and Phase D lifecycle tests run under coverage in CI.
+
+**Rust (Task A2, commit `8211867`):**
+- 20.58% regions / 18.03% lines / 17.06% functions across 4,426 regions
+- 22 existing unit tests across `cli`, `gpd_setup`, `tectonic`, `tex_compiler`
+- Zero-coverage files (Phase B IPC tests will help): `main.rs`, `server.rs`, `logging.rs`, `windows.rs`, `markdown.rs`, `project_fs.rs`, `constants.rs`, `dependencies.rs`, `window_customizer.rs`
+- Homebrew-Rust environments need `LLVM_COV`/`LLVM_PROFDATA` pointing at `/opt/homebrew/opt/llvm/bin/*` — the script handles this automatically; CI macos-15 (rustup-based) won't hit the fallback.
+
+**Task A4 (first CI run):** blocked on push access — the `amorari` account on this machine lacks write permission on `psi-oss/opencode.git`. Resolve externally before proceeding.
 
 ## Phase B Results
 
-_TBD_
+**Task B1 (commit `e9ae58d`):** 28 Tauri commands enumerated across 9 files → `gpd_tests/fixtures/tauri_commands.json`. Breakdown: lib.rs 8, tex_compiler.rs 7, server.rs 4, dependencies.rs 3, project_fs.rs 2, cli/gpd_setup/markdown/tectonic 1 each. Catalog has an invariant test (`test_catalog_matches_source`) that runs the extractor and diffs against the fixture.
+
+**Task B2 (commit `4913d7e`):** `invoke_via_mcp(mcp, command, args, window_label=...)` helper + `IPCError` class + 6 unit tests. Uses `typing.Protocol(@runtime_checkable)` so no hard dep on the real `MCPClient`.
 
 ## Phase C/D/E Results
 
