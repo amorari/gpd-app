@@ -573,6 +573,18 @@ export default function Layout(props: ParentProps) {
     element.scrollIntoView({ block: "nearest", behavior: "smooth" })
   }
 
+  // Auto-register the project when landing on a /:dir URL directly (e.g. deep
+  // link, test navigation, bookmark). Without this, navigating to a project
+  // URL that was never explicitly opened via the sidebar/dialog leaves the
+  // project list empty and the sidebar blank.
+  createEffect(() => {
+    const dir = currentDir()
+    if (!dir) return
+    if (!layoutReady()) return
+    if (layout.projects.list().some((p) => workspaceKey(p.worktree) === workspaceKey(dir))) return
+    layout.projects.open(dir)
+  })
+
   const currentProject = createMemo(() => {
     const directory = currentDir()
     if (!directory) return
