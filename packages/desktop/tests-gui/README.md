@@ -4,6 +4,16 @@ End-to-end tests that drive the live GPD desktop app. Runs against an installed 
 
 **Status:** Phase 1 (smoke) is complete — 68 unit tests + 11 live-app smoke tests + an opt-in restart test. Phase 2 (surfaces, per-route) is complete — 9 surface test files covering all primary routes and dialogs; run with `-m surfaces`. Phase 3 (flows) is complete with 5 end-to-end flow files: create-session, theme-switch, deep-link, onboarding, and provider-switch; Phase 4 (regression) tracks regressions against known-good baselines; Phase 5 (broad menu coverage) adds AX-only menu sweeps that stay green even when the JS bridge is unavailable.
 
+**New test suites added (2026-04-21) — partial live-run coverage:**
+Session lifecycle edge cases (`tests/flows/test_session_edge_cases.py`), E2E error-recovery stress (`tests/stress/test_e2e_error_recovery.py`), and the sidecar empty-listing check (`test_e2e_high_volume.py::test_empty_session_message_listing_is_stable`) have been verified against the GPD dev build — **19 passed, 2 xfailed**.
+The following tests have been written and reviewed but **not yet run with a real Anthropic key** (`GPD_TEST_ANTHROPIC_KEY`):
+- `tests/stress/test_e2e_high_volume.py::test_20_turn_session_completes_under_budget`
+- `tests/stress/test_e2e_concurrent_stress.py` (both tests)
+- `tests/stress/test_e2e_provider_failover.py` (all three tests)
+- `tests/surfaces/test_surfaces_expansion.py::test_fork_dialog_opens_with_message_list`
+
+Run with `GPD_TEST_ANTHROPIC_KEY=<key> uv run pytest -m "real_backend" -v` to exercise these.
+
 ## Setup
 
 ```bash
