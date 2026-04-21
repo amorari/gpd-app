@@ -96,7 +96,7 @@ jobs:
           uv-version: "0.7.3"
 
       - name: Install test dependencies
-        run: uv sync
+        run: uv sync --extra dev
 
       - name: Run unit tests
         run: uv run pytest -m unit -q

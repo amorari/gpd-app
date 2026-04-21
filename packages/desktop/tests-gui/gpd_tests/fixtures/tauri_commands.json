@@ -72,21 +72,21 @@
   {
     "name": "get_display_backend",
     "file": "lib.rs",
-    "line": 234,
+    "line": 235,
     "signature": "fn get_display_backend() -> Option<LinuxDisplayBackend>",
     "async": false
   },
   {
     "name": "set_display_backend",
     "file": "lib.rs",
-    "line": 251,
+    "line": 252,
     "signature": "fn set_display_backend(_app: AppHandle, _backend: LinuxDisplayBackend) -> Result<(), String>",
     "async": false
   },
   {
     "name": "wsl_path",
     "file": "lib.rs",
-    "line": 269,
+    "line": 270,
     "signature": "fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String>",
     "async": false
   },
