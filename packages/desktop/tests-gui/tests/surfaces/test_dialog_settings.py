@@ -19,6 +19,26 @@ def test_settings_opens_via_cmd_comma_and_closes_on_escape(mcp, ax, os_input):
     # Bring GPD to the foreground using the configured app_name, not a
     # hard-coded application name.
     ax.activate()
+    # Short settle-wait so macOS can process the activation before the
+    # keystroke lands — otherwise Cmd+, can arrive before GPD is frontmost.
+    time.sleep(0.15)
+    # Dismiss any leftover dialog from a prior test (e.g. steals_focus tests).
+    # command.tsx early-returns on Cmd+, when a dialog is already active, so
+    # we must clear the modal stack before issuing the shortcut. Single pass
+    # — no retry cascade; if Escape doesn't clear it the main assertion below
+    # will still fail loudly.
+    probe_pre = DOMProbe(mcp)
+    try:
+        dialog_open = probe_pre.eval_bool(
+            '(() => !!document.querySelector('
+            '"[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+            '))()'
+        )
+    except ProbeSkip as e:
+        pytest.skip(f"execute_js unavailable ({e})")
+    if dialog_open:
+        os_input.press_key("escape")
+        time.sleep(0.15)
     # ⌘, — keystroke with cmd-down.
     subprocess.run(
         [
