@@ -186,8 +186,12 @@ function Install-GpdDesktop {
         return $false
     }
 
-    # Standard Tauri per-user install path
-    $tauriPath = Join-Path $env:LOCALAPPDATA "Programs\GPD\GPD.exe"
+    # Tauri NSIS per-user install path. The default is %LOCALAPPDATA%\GPD\
+    # (confirmed via HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall
+    # on a fresh install — InstallLocation = "C:\Users\<user>\AppData\Local\GPD").
+    # An earlier version of this script checked %LOCALAPPDATA%\Programs\GPD\
+    # which is the Electron convention — Tauri uses the non-Programs path.
+    $tauriPath = Join-Path $env:LOCALAPPDATA "GPD\GPD.exe"
     if (Test-Path $tauriPath) {
         Write-Success "GPD desktop app already installed at $tauriPath"
         return $true

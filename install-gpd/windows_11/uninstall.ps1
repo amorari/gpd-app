@@ -29,7 +29,10 @@ $ErrorActionPreference = "Stop"
 $GpdHome   = if ($env:GPD_HOME) { $env:GPD_HOME } else { Join-Path $HOME ".gpd" }
 $GpdBinDir = Join-Path $GpdHome "bin"
 
-$TauriInstallDir = Join-Path $env:LOCALAPPDATA "Programs\GPD"
+# Tauri NSIS installs to %LOCALAPPDATA%\GPD\ by default (NOT the Electron
+# convention of %LOCALAPPDATA%\Programs\GPD\). Verified via HKCU Uninstall
+# key on a fresh install — InstallLocation reports AppData\Local\GPD.
+$TauriInstallDir = Join-Path $env:LOCALAPPDATA "GPD"
 $TauriUninstaller = Join-Path $TauriInstallDir "uninstall.exe"
 
 $TauriStateDir = Join-Path $env:APPDATA "inc.psi.gpd"
