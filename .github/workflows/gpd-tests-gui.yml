@@ -47,6 +47,8 @@ jobs:
           fetch-depth: 1
 
       - uses: astral-sh/setup-uv@v6
+        with:
+          uv-version: "0.7.3"
 
       - name: Install test dependencies
         run: uv sync
@@ -92,6 +94,8 @@ jobs:
           shared-key: aarch64-apple-darwin-debug
 
       - uses: astral-sh/setup-uv@v6
+        with:
+          uv-version: "0.7.3"
 
       # -----------------------------------------------------------------------
       # Runtime dependency: cliclick (required by OSInputClient)
@@ -103,7 +107,7 @@ jobs:
       # JS dependencies
       # -----------------------------------------------------------------------
       - name: Install JS dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       # -----------------------------------------------------------------------
       # Build opencode sidecar (bundles the opencode-cli binary into the
@@ -280,12 +284,14 @@ jobs:
           shared-key: aarch64-apple-darwin-debug
 
       - uses: astral-sh/setup-uv@v6
+        with:
+          uv-version: "0.7.3"
 
       - name: Install cliclick
         run: brew install cliclick
 
       - name: Install JS dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Build opencode sidecar
         working-directory: packages/desktop
@@ -374,12 +380,14 @@ jobs:
           shared-key: aarch64-apple-darwin-debug
 
       - uses: astral-sh/setup-uv@v6
+        with:
+          uv-version: "0.7.3"
 
       - name: Install cliclick
         run: brew install cliclick
 
       - name: Install JS dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Build opencode sidecar
         working-directory: packages/desktop

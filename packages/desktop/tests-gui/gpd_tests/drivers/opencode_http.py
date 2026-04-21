@@ -15,7 +15,7 @@ class HTTPClient:
         username: str,
         password: str,
         transport: httpx.BaseTransport | None = None,
-        timeout_s: float = 10.0,
+        timeout_s: float = 120.0,
     ) -> None:
         self._client = httpx.Client(
             base_url=base_url,
