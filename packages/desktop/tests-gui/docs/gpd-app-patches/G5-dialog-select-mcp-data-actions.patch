@@ -1,0 +1,42 @@
+Subject: [PATCH] feat(dialog,test): add data-action anchors to dialog-select-mcp (G5.2)
+
+Stable anchors for the MCP enable/disable dialog — currently G1.1 score 2
+with no per-server anchor. Wraps the List in a tagged div so the dialog
+has a unique root anchor, and tags each Switch row so tests-gui can
+target an individual server without relying on brittle text lookups.
+
+Adds:
+  - data-component="dialog-select-mcp" on a root wrapper around the List
+  - data-action="mcp-toggle" + data-name on each row Switch
+
+Companion of test_dialog_select_mcp_has_stable_anchor (G5.2).
+
+diff --git a/packages/app/src/components/dialog-select-mcp.tsx b/packages/app/src/components/dialog-select-mcp.tsx
+--- a/packages/app/src/components/dialog-select-mcp.tsx
++++ b/packages/app/src/components/dialog-select-mcp.tsx
+@@ -90,7 +90,8 @@ export const DialogSelectMcp: Component = () => {
+     <Dialog
+       title={language.t("dialog.mcp.title")}
+       description={language.t("dialog.mcp.description", { enabled: enabledCount(), total: totalCount() })}
+     >
++      <div data-component="dialog-select-mcp">
+       <List
+         search={{ placeholder: language.t("common.search.placeholder"), autofocus: true }}
+         emptyMessage={language.t("dialog.mcp.empty")}
+@@ -134,6 +135,8 @@ export const DialogSelectMcp: Component = () => {
+               </div>
+               <div onClick={(e) => e.stopPropagation()}>
+                 <Switch
++                  data-action="mcp-toggle"
++                  data-name={i.name}
+                   checked={enabled()}
+                   disabled={toggle.isPending && toggle.variables === i.name}
+                   onChange={() => {
+@@ -146,6 +149,7 @@ export const DialogSelectMcp: Component = () => {
+           )
+         }}
+       </List>
++      </div>
+     </Dialog>
+   )
+ }
