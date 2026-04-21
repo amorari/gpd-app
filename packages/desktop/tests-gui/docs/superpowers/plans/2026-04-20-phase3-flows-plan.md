@@ -18,8 +18,8 @@
 
 Observed on GPD 1.1.0 + `origin/gpd@803666a` (2026-04-20):
 
-- **setupPluginListeners is now wired in debug builds.** The branch carries `packages/desktop/src/vendor/tauri-plugin-mcp.ts` + a conditional import in `src/index.tsx`, gated behind `import.meta.env.DEV`. This means `execute_js`, `get-page-map`, and `wait-for` probes respond on debug builds. Tests targeting release builds should still use `DOMProbe` (skip-on-timeout) for safety.
-- **Session create API shape.** `POST /session` takes a body matching `Session.CreateInput` (see `packages/opencode/src/server/instance/session.ts:194` and the inferred schema at `packages/opencode/src/session/index.ts`). Minimal payload is `{ directory: string }` — the sidecar infers project from the directory.
+- **setupPluginListeners is now wired in debug builds.** The branch carries `packages/desktop/src/vendor/tauri-plugin-mcp.ts` + a conditional import in `src/index.tsx`, gated behind `__GPD_TAURI_DEBUG__` (see `vite.config.ts`). `execute_js` works most of the time on debug builds, but can still timeout when the welcome overlay is active. Tests must retain `DOMProbe` skip-on-timeout for release-build safety.
+- **Session create API shape.** `POST /session` takes a body matching `Session.CreateInput` (see `packages/opencode/src/server/instance/session.ts:194` and the inferred schema at `packages/opencode/src/session/index.ts`). Note: `directory` is NOT a field in `CreateInput` — it is passed as a query parameter, not in the body.
 - **Send-message API.** `POST /session/{id}/message` streams the assistant response as one big JSON blob (single `stream.write`). For simple shape assertions we can ignore the streaming nature and `json()`-decode the response body once the request completes.
 - **Onboarding sentinel.** `~/.config/gpd/.gpd-initialized` is the first-run gate. Removing it forces the welcome screen on next launch. The Phase 1 smoke test observes but does not mutate this; the onboarding flow here does.
 - **Deep links.** `gpd://` is registered as a deep-link scheme via `tauri-plugin-deep-link`. `open "gpd://session/<id>"` is the canonical way to trigger routing from outside the app.
@@ -436,7 +436,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
 import uuid
 from pathlib import Path
 
@@ -734,10 +733,12 @@ DESTRUCTIVE = os.environ.get("PYTEST_RUN_DESTRUCTIVE_FLOWS") == "1"
     "opt in via PYTEST_RUN_DESTRUCTIVE_FLOWS=1",
 )
 def test_first_run_paste_key_reach_home(
-    mcp, anthropic_key, clean_auth_json, app_state
+    mcp, anthropic_key, clean_onboarding_state, app_state
 ):
-    # Precondition: fresh_app + clean_auth_json ensure GPD restarted with
-    # sentinel absent and auth.json removed.
+    # Precondition: fresh_app + clean_onboarding_state ensure GPD restarted with
+    # sentinel absent and auth.json removed. The fixture also backs up the
+    # onboarding sentinel (~/.config/gpd/.gpd-initialized) and restores it
+    # on teardown.
     assert not SENTINEL.exists(), (
         "tier-2 reset did not remove the sentinel — "
         "scripts/reset.py may have drifted from the spec"
@@ -754,7 +755,7 @@ def test_first_run_paste_key_reach_home(
 
     # Post-condition: sentinel present, auth.json populated.
     assert SENTINEL.exists(), "sentinel not created after onboarding"
-    assert clean_auth_json.exists(), "auth.json not created after onboarding"
+    assert clean_onboarding_state.auth_json.exists(), "auth.json not created after onboarding"
 ```
 
 - [ ] **Step 2: Run without the opt-in flag — expect skip**
@@ -1068,7 +1069,7 @@ export GPD_APP_PATH="$(cd ../src-tauri/target/debug/bundle/macos && pwd)/GPD.app
 uv run pytest -m "flows and not real_backend" -v
 ```
 
-Expected: 3 passed (provider_switch, theme_switch, deep_link), wall-clock < 30 s.
+Expected: 3 passed, 1 xfailed (provider_switch, theme_switch, deep_link; provider_switch write path xfails when no write endpoint is found), wall-clock < 30 s.
 
 - [ ] **Step 2: Run with LLM-backed tests (key required)**
 
