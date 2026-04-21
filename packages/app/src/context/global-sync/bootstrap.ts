@@ -34,20 +34,12 @@ type GlobalStore = {
 
 function waitForPaint() {
   return new Promise<void>((resolve) => {
-    let done = false
-    const finish = () => {
-      if (done) return
-      done = true
-      resolve()
+    if (typeof requestAnimationFrame !== "function") {
+      // Non-browser environment: yield via micro-task
+      Promise.resolve().then(resolve)
+      return
     }
-    const timer = setTimeout(finish, 50)
-    if (typeof requestAnimationFrame !== "function") return
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        clearTimeout(timer)
-        finish()
-      }, 0)
-    })
+    requestAnimationFrame(() => setTimeout(resolve, 0))
   })
 }
 
@@ -137,7 +129,9 @@ export async function bootstrapGlobal(input: {
   //   translate: input.translate,
   //   formatMoreCount: input.formatMoreCount,
   // })
-  input.setGlobalStore("ready", true)
+  batch(() => {
+    input.setGlobalStore("ready", true)
+  })
 }
 
 function groupBySession<T extends { id: string; sessionID: string }>(input: T[]) {
