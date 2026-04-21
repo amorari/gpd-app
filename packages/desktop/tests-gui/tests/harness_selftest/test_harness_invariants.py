@@ -97,7 +97,7 @@ def test_en_fixture_is_fresh_enough():
 @pytest.mark.harness_selftest
 def test_tauri_commands_fixture_is_fresh():
     """tauri_commands.json must reflect the current source. Regenerate if this fails."""
-    repo = Path(__file__).resolve().parents[4]
+    repo = Path(__file__).resolve().parents[5]
     script = repo / "packages/desktop/tests-gui/scripts/extract_tauri_commands.py"
     fixture = repo / "packages/desktop/tests-gui/gpd_tests/fixtures/tauri_commands.json"
 
