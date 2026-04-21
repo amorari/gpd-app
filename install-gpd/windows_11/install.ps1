@@ -14,7 +14,14 @@ param(
     # Suppress the automatic GPD.exe launch at the end of install.
     # Useful for CI / scripted installs that just want the files in
     # place without a window popping up.
-    [switch]$SkipLaunch
+    [switch]$SkipLaunch,
+
+    # Skip writing GPD_API_KEY into the user environment. The key is
+    # still saved to $env:USERPROFILE\.gpd\config\litellm.env and to
+    # opencode's auth.json so the CLI wrapper and desktop app both
+    # keep working; only the User-scope environment variable is
+    # skipped. Mirrors the Unix --no-export-key flag.
+    [switch]$NoExportKey
 )
 $ErrorActionPreference = "Stop"
 
@@ -43,8 +50,10 @@ $OpenCodeRepo        = "opencode"
 $OpenCodeFallbackOrg = "anomalyco"
 $OpenCodeFallbackRepo = "opencode"
 
-$GpdPackageRepo   = "psi-oss/get-physics-done"
-$GpdPackageBranch = "main"
+$GpdPackageRepo    = "psi-oss/get-physics-done"
+# Pin to a specific tag rather than a moving branch so installs are
+# reproducible: every v1.1.8 installer run fetches the exact same tarball.
+$GpdPackageVersion = "v1.1.0"
 
 $LiteLlmProxyUrl = "https://litellm-production-46bb.up.railway.app"
 
@@ -52,6 +61,27 @@ $LiteLlmProxyUrl = "https://litellm-production-46bb.up.railway.app"
 $PbsTag    = "20250409"
 $PbsPython = "3.13.3"
 $PbsBaseUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/$PbsTag"
+
+# Pinned SHA256 of each PBS tarball we might download. Verified against
+# the file we actually pull over the wire; mismatch aborts the install.
+# Regenerate via install-gpd/scripts/verify-pbs-hashes.sh when bumping
+# $PbsTag or $PbsPython. Values sourced from upstream SHA256SUMS:
+# https://github.com/astral-sh/python-build-standalone/releases/download/20250409/SHA256SUMS
+#
+# NB: upstream does not publish an aarch64-pc-windows-msvc build for the
+# 20250409 tag, so there is no entry for that triple. Install-LocalPython
+# already calls Stop-WithError for unsupported arches earlier.
+$PbsSha256 = @{
+    "x86_64-pc-windows-msvc" = "6012f9b1530d5cb45fd59b116e24b35ad51d7c957d119b60b5fefff4b2a60977"
+}
+
+# Sentinel constants for any user-environment change we make. Phase 2's
+# uninstaller keys off the exact same strings — do not change wording or
+# spacing. (The Windows installer currently only writes to the User PATH
+# environment variable, not to a profile file, so these are reserved for
+# future use when profile-file edits become necessary.)
+$GpdSentinelOpen  = '# >>> GPD CLI >>>'
+$GpdSentinelClose = '# <<< GPD CLI <<<'
 
 $RequiredPythonMajor = 3
 $RequiredPythonMinor = 11
@@ -158,6 +188,37 @@ function Test-UrlExists {
     }
     catch {
         return $false
+    }
+}
+
+function Test-FileSha256 {
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][string]$Expected
+    )
+    # Compare case-insensitively — Get-FileHash returns uppercase hex,
+    # upstream SHA256SUMS are lowercase.
+    $actual = (Get-FileHash -Path $Path -Algorithm SHA256).Hash
+    return ($actual -ieq $Expected)
+}
+
+function Test-GpdRunning {
+    # Pre-flight: abort if GPD is currently running under $GpdHome. Windows
+    # file locking would make in-place overwrites of python.exe / venv
+    # scripts fail with cryptic "access denied" errors mid-install. Better
+    # to bail early with a clear message so the user can quit the app
+    # first.
+    try {
+        $running = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.Path -and $_.Path.StartsWith($GpdHome, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        if ($running) {
+            Stop-WithError "Detected a running GPD process. Quit GPD before running the installer again."
+        }
+    } catch {
+        # Non-fatal: some processes deny access to .Path (e.g. protected
+        # services). We're only trying to catch GPD itself, which we own,
+        # so access denials on unrelated processes are expected.
     }
 }
 
@@ -393,24 +454,41 @@ function Install-LocalPython {
     $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "gpd-python-$(Get-Random)"
     New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 
+    # Atomic extract targets — we stage into .new, verify, then swap.
+    # Never touch the existing $GpdPythonDir until the new tree is
+    # proven runnable. If anything fails, roll back to .old (or leave
+    # the old tree in place if it exists).
+    $newDir = "$GpdPythonDir.new"
+    $oldDir = "$GpdPythonDir.old"
+    if (Test-Path $newDir) { Remove-Item -Path $newDir -Recurse -Force }
+    if (Test-Path $oldDir) { Remove-Item -Path $oldDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $newDir -Force | Out-Null
+
     try {
         $archive = Join-Path $tmpDir $filename
         Invoke-Download -Url $url -Destination $archive
 
-        Write-Log "Extracting Python to $GpdPythonDir..."
-
-        # Remove existing Python directory for clean extraction
-        if (Test-Path $GpdPythonDir) {
-            Remove-Item -Path $GpdPythonDir -Recurse -Force
+        # SHA256 pin check BEFORE we invest any time in extraction.
+        # Mismatch aborts before we touch the live tree.
+        $expected = $PbsSha256[$triple]
+        if (-not $expected) {
+            Remove-Item -Path $newDir -Recurse -Force -ErrorAction SilentlyContinue
+            Stop-WithError "No PBS SHA256 pin for triple '$triple'. Update `$PbsSha256."
         }
-        New-Item -ItemType Directory -Path $GpdPythonDir -Force | Out-Null
+        if (-not (Test-FileSha256 -Path $archive -Expected $expected)) {
+            Remove-Item -Path $newDir -Recurse -Force -ErrorAction SilentlyContinue
+            Stop-WithError "PBS checksum mismatch -- suspected tampering or stale pin. Aborting."
+        }
+
+        Write-Log "Extracting Python to $newDir..."
 
         # Use tar (available on Windows 10+) to extract .tar.gz
         $tarAvailable = Get-Command "tar" -ErrorAction SilentlyContinue
         if ($tarAvailable) {
-            & tar -xzf $archive -C $GpdPythonDir --strip-components=1
+            & tar -xzf $archive -C $newDir --strip-components=1
             if ($LASTEXITCODE -ne 0) {
-                Stop-WithError "Failed to extract Python archive with tar"
+                Remove-Item -Path $newDir -Recurse -Force -ErrorAction SilentlyContinue
+                Stop-WithError "Python extract failed"
             }
         }
         else {
@@ -473,7 +551,7 @@ function Install-LocalPython {
                     continue
                 }
 
-                $outPath = Join-Path $GpdPythonDir $strippedName.Replace("/", "\")
+                $outPath = Join-Path $newDir $strippedName.Replace("/", "\")
 
                 if ($typeFlag -eq "5" -or $name.EndsWith("/")) {
                     # Directory
@@ -508,6 +586,36 @@ function Install-LocalPython {
                 if ($blocks -gt 0) { [void]$stream.Seek($blocks * 512, [System.IO.SeekOrigin]::Current) }
             }
             $stream.Close()
+        }
+
+        # Liveness probe against the staged tree before we swap it into
+        # place. Catches wrong-arch archives, missing CRT DLLs, etc.
+        $newPython = Join-Path $newDir "python.exe"
+        if (-not (Test-Path $newPython)) {
+            Remove-Item -Path $newDir -Recurse -Force -ErrorAction SilentlyContinue
+            Stop-WithError "Python extract failed -- $newPython not found"
+        }
+        & $newPython -c "" 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Remove-Item -Path $newDir -Recurse -Force -ErrorAction SilentlyContinue
+            Stop-WithError "Extracted Python is not runnable"
+        }
+
+        # Swap: move old aside, then new into place. Roll back to the old
+        # tree if the move fails so the user isn't left with no Python.
+        if (Test-Path $GpdPythonDir) {
+            Move-Item -Path $GpdPythonDir -Destination $oldDir -Force
+        }
+        try {
+            Move-Item -Path $newDir -Destination $GpdPythonDir -Force
+        } catch {
+            if (Test-Path $oldDir) {
+                Move-Item -Path $oldDir -Destination $GpdPythonDir -Force -ErrorAction SilentlyContinue
+            }
+            Stop-WithError "Python swap failed: $_"
+        }
+        if (Test-Path $oldDir) {
+            Remove-Item -Path $oldDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     finally {
@@ -574,9 +682,17 @@ function Install-Gpd {
         Write-Warn "pip upgrade returned non-zero exit code, continuing..."
     }
 
-    $sourceUrl = "https://github.com/${GpdPackageRepo}/archive/refs/heads/${GpdPackageBranch}.tar.gz"
+    # Pinned to a tagged release so every installer run fetches the same
+    # tarball. Bump $GpdPackageVersion when cutting a new release.
+    $sourceUrl = "https://github.com/${GpdPackageRepo}/archive/refs/tags/${GpdPackageVersion}.tar.gz"
 
-    Write-Log "Installing get-physics-done from GitHub..."
+    # Pre-flight: fail loudly with a GPD-specific message if the tag was
+    # deleted upstream, rather than letting pip swallow the 404.
+    if (-not (Test-UrlExists $sourceUrl)) {
+        Stop-WithError "GPD package tag $GpdPackageVersion not found -- aborting."
+    }
+
+    Write-Log "Installing get-physics-done $GpdPackageVersion from GitHub..."
     & $venvPip install --upgrade --quiet $sourceUrl
     if ($LASTEXITCODE -ne 0) {
         Stop-WithError "Failed to install GPD package"
@@ -588,6 +704,19 @@ function Install-Gpd {
     }
     else {
         Stop-WithError "GPD package installation failed -- gpd.exe not found in venv"
+    }
+}
+
+function Test-GpdInstall {
+    # Two-step liveness probe, split for actionable error messages.
+    $venvPython = Join-Path $GpdVenvDir "Scripts\python.exe"
+    & $venvPython -c "" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithError "GPD venv is not runnable -- the Python interpreter inside $GpdVenvDir failed to start. Re-run the installer."
+    }
+    & $venvPython -c "import gpd" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithError "GPD package import failed -- 'get-physics-done' was installed but 'import gpd' does not work. Re-run the installer."
     }
 }
 
@@ -607,18 +736,50 @@ function Read-LiteLlmKey {
     Write-Host "  Get your key from your lab administrator." -ForegroundColor DarkGray
     Write-Host ""
 
+    # Key validation regex: matches the Unix installer so the same keys
+    # are accepted on both platforms. sk-<>=10 chars from [A-Za-z0-9_-].
+    $keyPattern = '^sk-[A-Za-z0-9_-]{10,}$'
+
     $key = if ($env:GPD_API_KEY) { $env:GPD_API_KEY } else { "" }
+    if (-not [string]::IsNullOrWhiteSpace($key)) {
+        # Env-var preset: normalize but skip interactive re-prompt.
+        $key = $key -replace "`r",''
+        $key = $key -replace '\s',''
+    }
     if ([string]::IsNullOrWhiteSpace($key)) {
         if (-not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
             Write-Warn "Non-interactive session and GPD_API_KEY not set -- skipping key configuration."
             Write-Warn "Set `$env:GPD_API_KEY and re-run, or run interactively to be prompted."
             return
         }
-        while ([string]::IsNullOrWhiteSpace($key)) {
-            $key = Read-Host "  Enter your PSI key (sk-...)"
-            if ([string]::IsNullOrWhiteSpace($key)) {
-                Write-Warn "Key cannot be empty. Press Ctrl+C to skip and configure later."
+        # Up to 3 attempts with secure (masked) input. Read-Host -AsSecureString
+        # keeps the key off screen + out of transcript logs; convert to plain
+        # text via the standard SecureString marshal pattern.
+        $attempts = 0
+        $maxAttempts = 3
+        while ($attempts -lt $maxAttempts) {
+            $secure = Read-Host "  Enter your PSI key (sk-...)" -AsSecureString
+            $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+            try {
+                $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+            } finally {
+                [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
             }
+            $plain = $plain -replace "`r",''
+            $plain = $plain -replace '\s',''
+            if ([string]::IsNullOrWhiteSpace($plain)) {
+                Write-Warn "Key cannot be empty. Press Ctrl+C to skip and configure later."
+            } elseif ($plain -notmatch $keyPattern) {
+                Write-Warn "Key format looks wrong. Expected sk-<letters/digits/_-> (min 10 chars after prefix)."
+            } else {
+                $key = $plain
+                Write-Host ("  Key received ({0} chars)" -f $key.Length)
+                break
+            }
+            $attempts++
+        }
+        if ([string]::IsNullOrWhiteSpace($key) -or ($key -notmatch $keyPattern)) {
+            Stop-WithError "Failed to enter a valid PSI key after $maxAttempts attempts."
         }
     }
 
@@ -689,6 +850,23 @@ LITELLM_API_BASE=$LiteLlmProxyUrl
         $authData | Add-Member -MemberType NoteProperty -Name "gpd" -Value $gpdEntry -Force
     }
     $authData | ConvertTo-Json -Depth 5 | Set-Content -Path $authFile -Encoding UTF8
+
+    # User-scope env var so GUI apps launched from Explorer (notably the
+    # GPD desktop app) inherit GPD_API_KEY without needing the CLI
+    # wrapper. Skipped when -NoExportKey is set; the key still lives in
+    # litellm.env and auth.json so the CLI and desktop app both work.
+    if ($NoExportKey) {
+        Write-Log "Skipping user-env export (-NoExportKey). Key remains in $envFile."
+    } else {
+        Write-Warn "Writing GPD_API_KEY into user environment; any tool that reads user env vars (dotfile sync, backup, editor plugins) may see your key. Use -NoExportKey to skip."
+        try {
+            [Environment]::SetEnvironmentVariable("GPD_API_KEY", $key, "User")
+            # Refresh the current session too so subsequent steps see it.
+            $env:GPD_API_KEY = $key
+        } catch {
+            Write-Warn "Could not set user-scope GPD_API_KEY: $_"
+        }
+    }
 
     Write-Success "PSI key saved to $envFile"
 }
@@ -846,6 +1024,12 @@ function Invoke-GpdInstall {
     Write-Log "Platform: windows/${arch}"
     Write-Host ""
 
+    # Pre-flight: abort before touching the python/venv dirs if a GPD
+    # process is currently running. Windows file locks on python.exe
+    # would turn a later extract step into a mid-install failure with
+    # no clean way back to the prior state.
+    Test-GpdRunning
+
     # Create directory structure
     foreach ($dir in @($GpdBinDir, $GpdPythonDir, $GpdVenvDir, $GpdConfigDir)) {
         if (-not (Test-Path $dir)) {
@@ -874,6 +1058,9 @@ function Invoke-GpdInstall {
     Write-Log "Step 4/7: Installing GPD package..."
     New-GpdVenv -PythonPath $python
     Install-Gpd
+    # Two-step liveness + import probe. Must pass before we proceed;
+    # also gates the .gpd-initialized marker written later.
+    Test-GpdInstall
     Write-Host ""
 
     # Step 5: PSI key
