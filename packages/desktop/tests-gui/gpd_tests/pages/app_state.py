@@ -24,9 +24,12 @@ def _default_app_path() -> str:
 
 APP_PATH = _default_app_path()
 
-# Derive app name from path: "GPD Dev" or "GPD"
+# Derive app name (bundle label) from the .app path: "GPD Dev" or "GPD".
+# NOTE: the binary inside Tauri's bundle uses `mainBinaryName`, not the product
+# name — debug builds ship `GPD Dev.app/Contents/MacOS/GPD` (no " Dev"). Match
+# on the MacOS/ directory prefix so we don't have to replicate Tauri's naming.
 _APP_NAME = Path(APP_PATH).stem
-_PGREP_PATTERN = f"{_APP_NAME}.app/Contents/MacOS/{_APP_NAME}"
+_PGREP_PATTERN = f"{_APP_NAME}.app/Contents/MacOS/"
 
 
 def _pgrep(pattern: str) -> list[int]:
