@@ -43,7 +43,7 @@ All routes live under `SetupGate` — the app will short-circuit to `WelcomeScre
 
 **Suggested test file name:** `tests/flows/test_journey_first_run_onboarding.py`
 
-**Testability notes:** test exists (gated behind `PYTEST_RUN_DESTRUCTIVE_FLOWS=1`). Phase G8.1 plans the ungate. The welcome screen has no `data-action` anchors — selectors rely on placeholder / aria-label. Suggested patch: add `data-action="welcome-api-key-input"` + `data-action="welcome-submit"`. Stage under `docs/gpd-app-patches/G6-welcome-data-actions.patch`.
+**Testability notes:** test exists. G6.1 (commit `2b4a2aa`) dropped the `PYTEST_RUN_DESTRUCTIVE_FLOWS=1` gate — `real_backend` + `fresh_app` + `clean_onboarding_state` are sufficient opt-ins; the tier-2 reset is idempotent and harness-scoped. The welcome screen has no `data-action` anchors — selectors rely on placeholder / aria-label. Suggested patch: add `data-action="welcome-api-key-input"` + `data-action="welcome-submit"`. Stage under `docs/gpd-app-patches/G6-welcome-data-actions.patch`.
 
 ---
 
