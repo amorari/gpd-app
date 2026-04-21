@@ -25,6 +25,17 @@ Options: `--skip-key`, `--no-modify-path`, `--version 1.0.180`.
 ### Windows 11
 
 ```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force
+irm https://download.gpd.psi.inc/install.ps1 -OutFile $env:TEMP\install.ps1
+& $env:TEMP\install.ps1
+```
+
+Download-then-run (instead of `irm | iex`) keeps stdin connected to your
+terminal so the PSI key prompt works. For non-interactive installs
+(CI / scripted), preset the key and use the pipe form:
+
+```powershell
+$env:GPD_API_KEY = "sk-your-key"
 irm https://download.gpd.psi.inc/install.ps1 | iex
 ```
 
