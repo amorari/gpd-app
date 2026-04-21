@@ -189,14 +189,11 @@ def test_parse_markdown_command_escapes_script_tag_xss_vector(mcp):
 
     The expected failure mode if this assertion breaks is a DOM-level XSS
     sink for any caller that renders parse_markdown_command output with
-    `innerHTML`. We assert both the opening and closing raw tag are
-    absent; comrak's `escape_html` turns them into `&lt;script&gt;`.
+    `innerHTML`. We assert both the opening and closing raw tags are absent.
 
-    NOTE: `markdown.rs::parse_markdown` currently sets `render.r#unsafe =
-    true`, which is exactly the flag that would let raw `<script>` tags
-    through. If this test fails the first time it runs live, that is a
-    **real** security issue, not a test bug — the fix is to either flip
-    `r#unsafe` to `false` or post-process with an HTML sanitizer.
+    comrak with `render.unsafe = false` (the current setting) replaces raw
+    HTML blocks with `<!-- raw html omitted -->` rather than escaping them,
+    so we assert that comment is present to confirm the block was handled.
     """
     fixture = "# Heading\n\nParagraph text.\n\n<script>alert(1)</script>\n"
     html = invoke_via_mcp(mcp, "parse_markdown_command", {"markdown": fixture})
@@ -205,17 +202,15 @@ def test_parse_markdown_command_escapes_script_tag_xss_vector(mcp):
     lowered = html.lower()
     assert "<script" not in lowered, (
         "raw <script> tag survived markdown rendering — this is a DOM "
-        "XSS sink. See markdown.rs::parse_markdown `render.r#unsafe = "
-        "true` and consider disabling or adding a sanitizer pass."
+        "XSS sink. See markdown.rs::parse_markdown and the `render.unsafe` flag."
     )
     assert "</script>" not in lowered, (
         "raw </script> tag survived markdown rendering — same XSS concern."
     )
-    # The payload should survive as inert escaped text so users still see
-    # what they typed; assert the escaped form is present (case-insensitive).
-    assert "&lt;script" in lowered, (
-        "expected escaped form `&lt;script` in rendered HTML when raw "
-        "script tag is sanitized away"
+    # comrak (unsafe=false) omits raw HTML blocks with a placeholder comment.
+    assert "<!-- raw html omitted -->" in lowered, (
+        "expected comrak placeholder comment for omitted raw HTML block; "
+        "the script tag may have passed through or been silently dropped."
     )
 
 
