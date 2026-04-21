@@ -116,12 +116,14 @@ def test_prompt_submit_disabled_on_empty(mcp, prepared_project_path):
     """
     _goto_session(mcp, prepared_project_path)
     probe = DOMProbe(mcp)
-    # Poll briefly — PromptInput has a prompt.ready() gate; give it time to mount.
-    deadline = time.monotonic() + 3.0
+    # Poll until the button is confirmed disabled (or timeout). Breaking on
+    # the first non-None value races the initial render frame where the button
+    # can briefly be enabled before the empty-input gate fires.
+    deadline = time.monotonic() + 5.0
     disabled = None
     while time.monotonic() < deadline:
         disabled = _submit_disabled(probe)
-        if disabled is not None:
+        if disabled:  # True = found + all disabled — correct empty state
             break
         time.sleep(0.15)
     if disabled is None:

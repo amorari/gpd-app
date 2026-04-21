@@ -249,6 +249,37 @@ def seed_onboarding_state(request):
     yield
 
 
+def _dismiss_native_dialogs() -> None:
+    """Activate GPD and press Escape to close any open NSOpenPanel or native dialog.
+
+    GPD can pop NSOpenPanel via the TCC re-grant flow (navigateToProject on
+    a locked path). An open panel blocks GPD's event loop, causing MCP pings
+    to time out. Activating GPD keeps the webview from being throttled by
+    macOS; the Escape keypress closes any open panel without disrupting state.
+    """
+    import subprocess
+    import time as _time
+    from gpd_tests.pages.app_state import _APP_NAME
+
+    # Bring GPD to the foreground so macOS does not throttle the webview.
+    subprocess.run(
+        ["osascript", "-e", f'tell application "{_APP_NAME}" to activate'],
+        capture_output=True,
+        check=False,
+        timeout=5.0,
+    )
+    _time.sleep(0.2)
+    # Press Escape to close any open native dialog.
+    subprocess.run(
+        ["osascript", "-e",
+         'tell application "System Events" to key code 53'],
+        capture_output=True,
+        check=False,
+        timeout=5.0,
+    )
+    _time.sleep(0.3)
+
+
 @pytest.fixture(scope="session")
 def app_state():
     global _session_app_state
@@ -264,6 +295,9 @@ def app_state():
     if not state.is_running():
         state.launch()
     state.wait_launched()
+    # Dismiss any native dialog (NSOpenPanel from TCC unlock path) that can
+    # block GPD's event loop and cause MCP pings to time out.
+    _dismiss_native_dialogs()
     yield state
     if os.environ.get("PYTEST_QUIT_GPD") == "1":
         state.quit()
@@ -271,27 +305,40 @@ def app_state():
 
 @pytest.fixture
 def mcp(app_state):
-    from gpd_tests.drivers.mcp import MCPClient, MCPError
+    from gpd_tests.drivers.mcp import MCPClient, MCPError, MCPTimeout
 
     client = MCPClient()
-    try:
-        client.ping()
-    except MCPError as e:
-        msg = str(e).lower()
-        if not ("auth" in msg or "token" in msg or "unauthoriz" in msg):
-            raise
-        from scripts.discover_mcp_token import discover as discover_token
-
-        token = discover_token()
-        if not token:
+    for _attempt in range(2):
+        try:
+            client.ping()
+            break
+        except MCPTimeout:
+            if _attempt == 0:
+                # NSOpenPanel or another native dialog may be blocking the
+                # event loop. Dismiss it and retry once.
+                _dismiss_native_dialogs()
+                continue
             pytest.fail(
-                f"MCP ping rejected as unauthenticated ({e}) and "
-                "scripts/discover_mcp_token found no token. Set "
-                "GPD_MCP_AUTH_TOKEN or drop a token at "
-                "~/Library/Application Support/inc.psi.gpd/mcp-auth.token."
+                "MCP ping timed out after dialog dismissal — "
+                "GPD event loop is unresponsive. Relaunch GPD Dev."
             )
-        client = MCPClient(auth_token=token)
-        client.ping()
+        except MCPError as e:
+            msg = str(e).lower()
+            if not ("auth" in msg or "token" in msg or "unauthoriz" in msg):
+                raise
+            from scripts.discover_mcp_token import discover as discover_token
+
+            token = discover_token()
+            if not token:
+                pytest.fail(
+                    f"MCP ping rejected as unauthenticated ({e}) and "
+                    "scripts/discover_mcp_token found no token. Set "
+                    "GPD_MCP_AUTH_TOKEN or drop a token at "
+                    "~/Library/Application Support/inc.psi.gpd/mcp-auth.token."
+                )
+            client = MCPClient(auth_token=token)
+            client.ping()
+            break
     return client
 
 

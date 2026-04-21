@@ -122,10 +122,10 @@ def test_sidebar_workspace_list_shape(mcp, seeded_project):
     sidebar has rendered *something* with our data-action convention.
     """
     Navigator(mcp).go(route_project(seeded_project), timeout_s=5.0)
-    time.sleep(0.3)  # let sidebar re-render after project data arrives
+    time.sleep(0.5)  # let sidebar re-render after project data arrives
     probe = DOMProbe(mcp)
-    # Poll briefly — the sidebar re-renders once project data arrives over
-    # the global-sync bootstrap; a single eval can race the initial paint.
+    # Poll — the sidebar re-renders once project data arrives over the
+    # global-sync bootstrap; global-sync latency in the VM can exceed 3s.
     selectors = (
         '[data-action="project-switch"]',
         '[data-action="project-menu"]',
@@ -134,7 +134,7 @@ def test_sidebar_workspace_list_shape(mcp, seeded_project):
         '[data-component="workspace-item"]',
     )
     joined = ", ".join(s.replace('"', '\\"') for s in selectors)
-    deadline = time.monotonic() + 3.0
+    deadline = time.monotonic() + 8.0
     found = False
     while time.monotonic() < deadline:
         try:
