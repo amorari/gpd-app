@@ -161,14 +161,30 @@ check_prerequisites() {
             sudo apt-get install -y -qq "${missing[@]}" || \
                 die "Failed to install system deps: ${missing[*]}"
         fi
+    elif [[ "$os" == "darwin" ]]; then
+        # On macOS we intentionally skip probing for `git` and `python3`.
+        #
+        # Apple ships /usr/bin/git and /usr/bin/python3 as STUBS that pop a
+        # "Install the Xcode Command Line Tools?" GUI dialog the moment they
+        # are invoked on a Mac without the full CLT package installed. The
+        # dialog blocks the process, never returns from SSH, and can kick off
+        # a ~1 GB download if the user clicks the wrong button. Even
+        # `command -v` returns the stub path, so probing either tool is a
+        # trap: detection succeeds but invocation is the footgun.
+        #
+        # Our installer does not actually need git (it pulls get-physics-done
+        # as a tarball via curl, not a git clone) and it does not need the
+        # system python3 (we bootstrap an app-local standalone Python via
+        # python-build-standalone further down in ensure_python). So we just
+        # stop checking. `curl`, `tar`, `unzip` ARE real on macOS and safe.
+        for cmd in tar unzip; do
+            command -v "$cmd" &>/dev/null || die "'$cmd' is required but not installed."
+        done
     else
-        # Non-Debian Linux or macOS: can't auto-install, just check + die
+        # Non-Debian Linux (Fedora, Arch, etc.): can't auto-install, just die.
         for cmd in tar git; do
             command -v "$cmd" &>/dev/null || die "'$cmd' is required but not installed."
         done
-        if [[ "$os" == "darwin" ]]; then
-            command -v unzip &>/dev/null || die "'unzip' is required. Run: xcode-select --install"
-        fi
     fi
 }
 
@@ -382,26 +398,37 @@ pbs_triple() {
 ensure_python() {
     local python_bin="$GPD_PYTHON_DIR/bin/python3"
 
-    # Check app-local Python first
+    # Check app-local Python first (works on all platforms)
     if [[ -x "$python_bin" ]] && python_version_ok "$python_bin"; then
         success "Using app-local Python"
         PYTHON="$python_bin"
         return 0
     fi
 
-    # Check system Python
-    for cmd in python3 python; do
-        if command -v "$cmd" &>/dev/null && python_version_ok "$cmd"; then
-            local ver
-            ver="$("$cmd" --version 2>&1)"
-            success "Found system $ver"
-            PYTHON="$(command -v "$cmd")"
-            return 0
-        fi
-    done
+    # Check system Python -- but NOT on macOS.
+    #
+    # /usr/bin/python3 on macOS is a stub that pops a GUI "Install Xcode
+    # Command Line Tools?" dialog the moment it's invoked on a Mac without
+    # the full CLT package. `command -v` returns the stub path (detection
+    # succeeds), but then `python_version_ok` runs the stub and triggers
+    # the dialog from what the user expects to be a silent installer.
+    # Skip the probe entirely; we always download the app-local standalone
+    # Python on macOS (30MB, offline-friendly, no CLT dependency).
+    if [[ "$os" != "darwin" ]]; then
+        for cmd in python3 python; do
+            if command -v "$cmd" &>/dev/null && python_version_ok "$cmd"; then
+                local ver
+                ver="$("$cmd" --version 2>&1)"
+                success "Found system $ver"
+                PYTHON="$(command -v "$cmd")"
+                return 0
+            fi
+        done
+    fi
 
-    # Download standalone Python
-    log "No Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+ found — installing app-local Python"
+    # Download standalone Python (always on macOS; Linux only if system
+    # python3 is missing or older than 3.11)
+    log "Installing app-local Python ${PBS_PYTHON} (${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+ not found or Mac)"
     local triple
     triple="$(pbs_triple)"
     local filename="cpython-${PBS_PYTHON}+${PBS_TAG}-${triple}-install_only.tar.gz"
