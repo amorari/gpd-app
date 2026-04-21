@@ -31,14 +31,17 @@ class OSInputClient:
             raise RuntimeError("osascript not on PATH — required for keyboard input")
 
     def click(self, x: int, y: int) -> None:
+        cmd = ["cliclick", f"c:{x},{y}"]
         try:
             subprocess.run(
-                ["cliclick", f"c:{x},{y}"],
+                cmd,
                 capture_output=True,
                 text=True,
                 check=True,
                 timeout=10,
             )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"{cmd!r} timed out after 10s") from None
         except subprocess.CalledProcessError as e:
             raise subprocess.CalledProcessError(
                 e.returncode, e.cmd, e.output,
@@ -46,14 +49,17 @@ class OSInputClient:
             ) from e
 
     def move(self, x: int, y: int) -> None:
+        cmd = ["cliclick", f"m:{x},{y}"]
         try:
             subprocess.run(
-                ["cliclick", f"m:{x},{y}"],
+                cmd,
                 capture_output=True,
                 text=True,
                 check=True,
                 timeout=10,
             )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"{cmd!r} timed out after 10s") from None
         except subprocess.CalledProcessError as e:
             raise subprocess.CalledProcessError(
                 e.returncode, e.cmd, e.output,
@@ -68,14 +74,17 @@ class OSInputClient:
             )
         escaped = text.replace("\\", "\\\\").replace('"', '\\"')
         script = f'tell application "System Events" to keystroke "{escaped}"'
+        cmd = ["osascript", "-e", script]
         try:
             subprocess.run(
-                ["osascript", "-e", script],
+                cmd,
                 capture_output=True,
                 text=True,
                 check=True,
                 timeout=10,
             )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"{cmd!r} timed out after 10s") from None
         except subprocess.CalledProcessError as e:
             raise subprocess.CalledProcessError(
                 e.returncode, e.cmd, e.output,
@@ -87,14 +96,17 @@ class OSInputClient:
             raise ValueError(f"unknown key: {key}")
         code = _KEY_CODES[key]
         script = f'tell application "System Events" to key code {code}'
+        cmd = ["osascript", "-e", script]
         try:
             subprocess.run(
-                ["osascript", "-e", script],
+                cmd,
                 capture_output=True,
                 text=True,
                 check=True,
                 timeout=10,
             )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"{cmd!r} timed out after 10s") from None
         except subprocess.CalledProcessError as e:
             raise subprocess.CalledProcessError(
                 e.returncode, e.cmd, e.output,
