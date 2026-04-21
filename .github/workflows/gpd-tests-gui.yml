@@ -218,6 +218,11 @@ jobs:
           uv run pytest \
             -m "(smoke and not restart) or (flows and not real_backend)" \
             -v \
+            --cov=gpd_tests \
+            --cov-branch \
+            --cov-report=html \
+            --cov-report=term-missing \
+            --cov-report=xml \
             --html=artifacts/report.html \
             --self-contained-html
 
@@ -235,6 +240,12 @@ jobs:
             -v \
             --reruns 2 \
             --reruns-delay 5 \
+            --cov=gpd_tests \
+            --cov-branch \
+            --cov-append \
+            --cov-report=html \
+            --cov-report=term-missing \
+            --cov-report=xml \
             --html=artifacts/report-real-backend.html \
             --self-contained-html
         continue-on-error: true
@@ -250,6 +261,24 @@ jobs:
           path: packages/desktop/tests-gui/artifacts/
           retention-days: 7
           if-no-files-found: warn
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-smoke-and-flows
+          path: packages/desktop/tests-gui/coverage_html/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-smoke-and-flows
+          path: packages/desktop/tests-gui/coverage.xml
+          retention-days: 14
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # Job 3: surfaces — surface-coverage tests (informational, expect skips)
@@ -336,6 +365,11 @@ jobs:
           uv run pytest \
             -m "surfaces and not steals_focus" \
             -v \
+            --cov=gpd_tests \
+            --cov-branch \
+            --cov-report=html \
+            --cov-report=term-missing \
+            --cov-report=xml \
             --html=artifacts/report-surfaces.html \
             --self-contained-html
 
@@ -347,6 +381,24 @@ jobs:
           path: packages/desktop/tests-gui/artifacts/
           retention-days: 7
           if-no-files-found: warn
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-surfaces
+          path: packages/desktop/tests-gui/coverage_html/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-surfaces
+          path: packages/desktop/tests-gui/coverage.xml
+          retention-days: 14
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # Job 4: regression — regression marker tests
@@ -432,6 +484,11 @@ jobs:
           uv run pytest \
             -m regression \
             -v \
+            --cov=gpd_tests \
+            --cov-branch \
+            --cov-report=html \
+            --cov-report=term-missing \
+            --cov-report=xml \
             --html=artifacts/report-regression.html \
             --self-contained-html
 
@@ -443,3 +500,21 @@ jobs:
           path: packages/desktop/tests-gui/artifacts/
           retention-days: 7
           if-no-files-found: warn
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-regression
+          path: packages/desktop/tests-gui/coverage_html/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-regression
+          path: packages/desktop/tests-gui/coverage.xml
+          retention-days: 14
+          if-no-files-found: ignore
