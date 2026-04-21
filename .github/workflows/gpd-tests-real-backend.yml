@@ -1,0 +1,180 @@
+name: GPD tests — real-backend nightly
+
+# Runs the `real_backend`-marked flows against a live Anthropic backend.
+# Requires the `GPD_TEST_ANTHROPIC_KEY` repository secret. If the secret is
+# not set, the job exits 78 (treated as neutral/skipped) so the run does
+# not appear as a regression.
+#
+# Scheduled nightly at 06:42 UTC to avoid colliding with upstream nightly
+# jobs and to ensure results are ready for the morning review window.
+
+on:
+  schedule:
+    - cron: '42 6 * * *'  # 06:42 UTC nightly
+  workflow_dispatch:
+
+concurrency:
+  group: gpd-tests-real-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_BUNDLE_VERSION: "0.7.3"
+
+jobs:
+  real-backend:
+    name: Real-backend flows (nightly)
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      PYTEST_CI: "1"
+      PYTEST_COLD_START: "1"
+      PYTEST_QUIT_GPD: "1"
+    steps:
+      # -----------------------------------------------------------------------
+      # Checkout + toolchain (mirrors gpd-tests-gui.yml smoke-and-flows job)
+      # -----------------------------------------------------------------------
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+          shared-key: aarch64-apple-darwin-debug
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          uv-version: "0.7.3"
+
+      - name: Install cliclick
+        run: brew install cliclick
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build opencode sidecar
+        working-directory: packages/desktop
+        run: bun run predev
+        env:
+          RUST_TARGET: aarch64-apple-darwin
+          TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
+
+      - name: Download and stage uv bundle
+        shell: bash
+        run: |
+          UV_PLATFORM="aarch64-apple-darwin"
+          mkdir -p packages/desktop/src-tauri/uv-bundle
+          curl -fsSL "https://github.com/astral-sh/uv/releases/download/${{ env.UV_BUNDLE_VERSION }}/uv-${UV_PLATFORM}.tar.gz" \
+            | tar xz -C packages/desktop/src-tauri/uv-bundle --strip-components=1
+          chmod +x packages/desktop/src-tauri/uv-bundle/uv
+
+      - name: Build debug Tauri bundle
+        working-directory: packages/desktop
+        run: bun run tauri build --debug
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Resolve debug bundle path
+        shell: bash
+        run: |
+          BUNDLE_ROOT="packages/desktop/src-tauri/target"
+          BUNDLE=""
+          for candidate in \
+            "$BUNDLE_ROOT/aarch64-apple-darwin/debug/bundle/macos/GPD Dev.app" \
+            "$BUNDLE_ROOT/debug/bundle/macos/GPD Dev.app"; do
+            if [ -e "$candidate/Contents/MacOS" ]; then
+              BUNDLE="$candidate"
+              break
+            fi
+          done
+          if [ -z "$BUNDLE" ]; then
+            echo "No debug bundle found under $BUNDLE_ROOT/{aarch64-apple-darwin/,}debug/bundle/macos/"
+            find "$BUNDLE_ROOT" -maxdepth 4 -name "*.app" -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Using bundle: $BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+
+      - name: Install test dependencies
+        working-directory: packages/desktop/tests-gui
+        run: uv sync
+
+      # -----------------------------------------------------------------------
+      # Require the real-backend secret. If absent, exit 78 (neutral — treated
+      # as skipped), not failure. Fork PRs will never have this secret.
+      # -----------------------------------------------------------------------
+      - name: Configure real-backend secret
+        env:
+          ANTHROPIC_KEY: ${{ secrets.GPD_TEST_ANTHROPIC_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_KEY" ]; then
+            echo "GPD_TEST_ANTHROPIC_KEY=$ANTHROPIC_KEY" >> "$GITHUB_ENV"
+            echo "GPD_TEST_SEED_ONBOARDING=1" >> "$GITHUB_ENV"
+          else
+            echo "::error::GPD_TEST_ANTHROPIC_KEY repo secret not set; cannot run real-backend job"
+            exit 78  # neutral exit — treat as "skipped"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Launch GPD Dev and wait for sidecar to appear
+      # -----------------------------------------------------------------------
+      - name: Launch GPD Dev
+        run: |
+          APP_PATH="${GITHUB_WORKSPACE}/${BUNDLE}"
+          echo "GPD_APP_PATH=${APP_PATH}" >> "$GITHUB_ENV"
+          open "${APP_PATH}"
+          echo "Waiting for sidecar (opencode-cli serve) to appear..."
+          for i in $(seq 1 30); do
+            if pgrep -f "opencode-cli.*serve" >/dev/null; then break; fi
+            sleep 0.5
+          done
+          pgrep -f "opencode-cli.*serve" || { echo "sidecar never appeared"; exit 1; }
+
+      # -----------------------------------------------------------------------
+      # Run real-backend flows. Junit XML feeds the cost-estimate step.
+      # -----------------------------------------------------------------------
+      - name: Run real_backend flows
+        working-directory: packages/desktop/tests-gui
+        run: |
+          uv run pytest -m real_backend -v \
+            --junitxml=junit-real-backend.xml \
+            -p no:cacheprovider
+
+      # -----------------------------------------------------------------------
+      # Heuristic cost estimate. Rough — ~$0.04 per completed test assumed
+      # (Claude Opus pricing at ~1K in / 500 out per turn, a few turns per test).
+      # Posted to the step summary; does not affect job outcome.
+      # -----------------------------------------------------------------------
+      - name: Cost estimate
+        if: always()
+        run: |
+          python3 -c "
+          import sys
+          import xml.etree.ElementTree as ET
+          try:
+              t = ET.parse('packages/desktop/tests-gui/junit-real-backend.xml')
+              n = sum(1 for tc in t.iter('testcase') if tc.find('failure') is None and tc.find('skipped') is None)
+              est_usd = n * 0.04  # rough
+              print('## Real-backend cost estimate')
+              print(f'  ~{n} completed tests, est ~\${est_usd:.2f} total.')
+          except Exception as e:
+              print(f'cost estimate unavailable: {e}', file=sys.stderr)
+          " >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+
+      - name: Upload real-backend junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-real-backend
+          path: packages/desktop/tests-gui/junit-real-backend.xml
+          retention-days: 30
+          if-no-files-found: ignore

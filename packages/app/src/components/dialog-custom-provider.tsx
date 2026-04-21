@@ -170,11 +170,12 @@ export function DialogCustomProvider(props: Props) {
           variant="ghost"
           onClick={goBack}
           aria-label={language.t("common.goBack")}
+          data-action="custom-provider-back"
         />
       }
       transition
     >
-      <div class="flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]">
+      <div class="flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]" data-component="dialog-custom-provider">
         <div class="px-2.5 flex gap-4 items-center">
           <ProviderIcon id="synthetic" class="size-5 shrink-0 icon-strong-base" />
           <div class="text-16-medium text-text-strong">{language.t("provider.custom.title")}</div>
@@ -319,6 +320,7 @@ export function DialogCustomProvider(props: Props) {
             size="large"
             variant="primary"
             disabled={saveMutation.isPending}
+            data-action="custom-provider-submit"
           >
             {saveMutation.isPending ? language.t("common.saving") : language.t("common.submit")}
           </Button>
