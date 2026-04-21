@@ -47,3 +47,58 @@ def test_probe_eval_bool_parses_truthy_strings():
     for v in ("false", False, "False", "null", ""):
         mcp.execute_js.return_value = v
         assert probe.eval_bool("x") is False
+
+
+@pytest.mark.unit
+def test_eval_bool_handles_js_falsy_strings():
+    """JS falsy string representations must all evaluate to False."""
+    mcp = MagicMock()
+    probe = DOMProbe(mcp)
+    # All of these are falsy in JavaScript — eval_bool must return False.
+    for falsy_val in ("false", "0", "null", "undefined", "NaN", ""):
+        mcp.execute_js.return_value = falsy_val
+        result = probe.eval_bool("someExpr")
+        assert result is False, (
+            f"eval_bool({falsy_val!r}) returned {result!r}; expected False"
+        )
+
+
+@pytest.mark.unit
+def test_eval_bool_handles_js_truthy_strings():
+    """'true' and True must evaluate to True; 'false' must remain False."""
+    mcp = MagicMock()
+    probe = DOMProbe(mcp)
+    # Canonical truthy values.
+    for truthy_val in ("true", True):
+        mcp.execute_js.return_value = truthy_val
+        result = probe.eval_bool("someExpr")
+        assert result is True, (
+            f"eval_bool({truthy_val!r}) returned {result!r}; expected True"
+        )
+    # Boolean False must round-trip correctly.
+    mcp.execute_js.return_value = False
+    assert probe.eval_bool("x") is False
+
+
+@pytest.mark.unit
+def test_eval_returns_none_when_execute_js_returns_none():
+    """eval() passes through None from execute_js without raising ProbeSkip.
+
+    If the server returns empty data (None), eval() returns None. Callers
+    that need to handle None as a skip condition should use eval_bool() or
+    check the return value explicitly.
+    """
+    mcp = MagicMock()
+    mcp.execute_js.return_value = None
+    result = DOMProbe(mcp).eval("document.title")
+    # None is passed through — no exception raised.
+    assert result is None
+
+
+@pytest.mark.unit
+def test_eval_bool_returns_false_when_execute_js_returns_none():
+    """eval_bool() converts None to False via bool()."""
+    mcp = MagicMock()
+    mcp.execute_js.return_value = None
+    result = DOMProbe(mcp).eval_bool("document.querySelector('#x') !== null")
+    assert result is False
