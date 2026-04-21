@@ -6,6 +6,7 @@ import { LSP } from "@/lsp"
 import { FileWatcher } from "@/file/watcher"
 import { Format } from "@/format"
 import { ShareNext } from "@/share/share-next"
+import { GpdLogger } from "@/sink/gpd-logger"
 import { File } from "@/file"
 import { Vcs } from "@/project/vcs"
 import { Snapshot } from "@/snapshot"
@@ -15,6 +16,7 @@ import { Observability } from "./observability"
 export const BootstrapLayer = Layer.mergeAll(
   Plugin.defaultLayer,
   ShareNext.defaultLayer,
+  GpdLogger.defaultLayer,
   Format.defaultLayer,
   LSP.defaultLayer,
   File.defaultLayer,

@@ -11,6 +11,7 @@ import { Instance } from "./instance"
 import { Log } from "@/util/log"
 import { FileWatcher } from "@/file/watcher"
 import { ShareNext } from "@/share/share-next"
+import { GpdLogger } from "@/sink/gpd-logger"
 import * as Effect from "effect/Effect"
 
 export const InstanceBootstrap = Effect.gen(function* () {
@@ -20,6 +21,7 @@ export const InstanceBootstrap = Effect.gen(function* () {
     [
       LSP.Service,
       ShareNext.Service,
+      GpdLogger.Service,
       Format.Service,
       File.Service,
       FileWatcher.Service,
