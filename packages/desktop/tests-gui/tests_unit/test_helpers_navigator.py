@@ -13,8 +13,8 @@ from gpd_tests.helpers.navigator import (
 
 @pytest.mark.unit
 def test_encode_dir_token_matches_base64url_no_padding():
-    assert encode_dir_token("/Users/amorari/workspace/gpd-tests") == (
-        "L1VzZXJzL2Ftb3Jhcmkvd29ya3NwYWNlL2dwZC10ZXN0cw"
+    assert encode_dir_token("/home/testuser/proj") == (
+        "L2hvbWUvdGVzdHVzZXIvcHJvag"
     )
 
 

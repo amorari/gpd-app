@@ -22,6 +22,7 @@ def _candidate_log_dirs() -> list[Path]:
     return [
         home / "Library/Logs/inc.psi.gpd.dev",
         home / "Library/Logs/inc.psi.gpd",
+        home / "Library/Logs/inc.psi.gpd.beta",
     ]
 
 
