@@ -13,6 +13,28 @@ brew install cliclick
 # Grant Accessibility permission to your terminal in System Settings → Privacy & Security → Accessibility
 ```
 
+## Markers
+
+Registered in `pytest.ini`. Use `-m <name>` to include, `-m "not <name>"` to exclude. The default `addopts` in `pytest.ini` already excludes `steals_focus` and `restart`.
+
+| Marker | Scope | Notes |
+|---|---|---|
+| `unit` | Fast unit tests, no GPD required | Default CI job |
+| `smoke` | Phase 1 smoke (live app) | Requires debug build + sidecar |
+| `restart` | Destructive — restarts GPD | Briefly steals focus; opt-in only |
+| `surfaces` | Phase 2 route/dialog coverage | Many DOM probes skip gracefully |
+| `flows` | Phase 3 end-to-end flows | Some require `real_backend` |
+| `regression` | Phase 4 regressions vs. known baselines | Gated to prevent drift |
+| `broad` | Phase 5 AX-only menu sweeps | Works without JS bridge |
+| `real_backend` | Requires live LLM API key | `GPD_TEST_ANTHROPIC_KEY` |
+| `fresh_app` / `tier(n)` | Reset tier overrides | 0–3 |
+| `steals_focus` | Brings GPD to foreground | Opt-in only |
+| `harness_selftest` | Harness invariants | Must be green for other results to be trusted |
+| `ipc` | Tauri command contract (`invoke` boundary) | Requires debug build + MCP socket |
+| `security` | IPC boundary / security-focused (path traversal, injection, XSS) | Often paired with `ipc` |
+| `lifecycle` | Session lifecycle (quit + relaunch) | Destructive; opt-in only |
+| `visual` | Screenshot-diff assertion | Requires visual extras |
+
 ## Running
 
 ```bash
@@ -124,6 +146,39 @@ curl -sfL https://raw.githubusercontent.com/psi-oss/tauri-plugin-mcp/main/guest-
 
 Only functional against a debug build (`cargo tauri build --debug`), since the Rust-side plugin is gated. A release build has neither the socket nor the JS listeners.
 
+## Coverage & maintenance recipes
+
+> All paths below are repo-relative (run from the repo root).
+
+```bash
+# Local coverage report (HTML + XML under packages/desktop/tests-gui/)
+bash packages/desktop/tests-gui/scripts/run_coverage.sh
+
+# Rust per-command coverage (filtered to a single Tauri command)
+bash packages/desktop/src-tauri/scripts/rust_coverage_filter.sh <cmd_name> [--json]
+
+# Coverage delta between two XML reports (before/after)
+uv run python packages/desktop/tests-gui/scripts/coverage_delta.py <before> <after>
+
+# Flakiness aggregator over a directory of junit XML files
+uv run python packages/desktop/tests-gui/scripts/flakiness/report.py <junit_dir>
+
+# Mutation testing on a single module
+bash packages/desktop/tests-gui/scripts/run_mutation_test.sh <module>
+```
+
+**Build-skew detector:** auto-runs at session start via the harness fixtures — no explicit invocation needed. If the active `GPD_APP_PATH` bundle diverges from the source tree (stale build), tests will emit a warning up front so you don't chase ghost failures.
+
+## Product-side changes: `docs/gpd-app-patches/`
+
+This branch follows a strict **harness-only** rule: no edits to product source (`packages/desktop/src/**`, `packages/desktop/src-tauri/**`) land here. When a test needs a product-side affordance (e.g., a `data-action=*` selector, a new test hook, a security hardening), the change is **staged as a `.patch` file** under:
+
+```
+packages/desktop/tests-gui/docs/gpd-app-patches/
+```
+
+Each patch corresponds to a standalone PR filed against the product repo (psi-oss/gpd-app). Filenames use a `<gate>-<slug>.patch` convention — e.g., `G5-dialog-select-mcp-data-actions.patch`, `SECURITY-markdown-unsafe-html.patch`. Tests authored against those patches use defensive skips (or the MCP-based selector-fallback) until the upstream change lands.
+
 ## Troubleshooting
 
 - **MCP socket missing** (`FileNotFoundError: /var/folders/.../tauri-mcp.sock`) — GPD isn't running, or you're running a release build (the plugin is gated behind `#[cfg(debug_assertions)]`). Launch a debug build.
@@ -141,12 +196,27 @@ The workflow is defined at `.github/workflows/gpd-tests-gui.yml`.
 - `pull_request` targeting the `gpd` branch.
 - Manual `workflow_dispatch`.
 
-**Jobs:**
+**Jobs (`gpd-tests-gui.yml`):**
 
 | Job | Runner | What runs |
 |-----|--------|-----------|
-| `unit` | `macos-latest` | `pytest -m unit -q` — fast, no GPD needed |
-| `smoke-and-flows` | `macos-latest` | Builds debug GPD, launches it, then runs smoke (marker: `smoke and not restart`) + non-real-backend flows |
+| `harness-selftest` | `macos-15` | `pytest -m harness_selftest` — invariants that must hold before other results are trusted. Runs in parallel with `unit`; all GPD-dependent jobs `needs:` it. |
+| `unit` | `macos-15` | `pytest -m unit -q` + coverage gate (`--cov-fail-under=55` today, target floor **85%**) |
+| `smoke-and-flows` | `macos-15` | Builds debug GPD, launches it, runs smoke (marker: `smoke and not restart`) + non-real-backend flows. When `GPD_TEST_ANTHROPIC_KEY` is set, also runs `flows and real_backend`. |
+| `surfaces` | `macos-15` | `pytest -m "surfaces and not steals_focus"` (informational; `continue-on-error: true`) |
+| `regression` | `macos-15` | `pytest -m regression` — regression baselines |
+| `ipc-and-broad` | `macos-15` | `pytest tests/ipc tests/broad -m "ipc or broad"` — IPC contract + AX-only menu sweeps |
+| `lifecycle-opt-in` | `macos-15` | `pytest tests/lifecycle -m lifecycle` — destructive (quits + relaunches GPD). Only runs on manual `workflow_dispatch` with `run_lifecycle=true`; expected to fail on GitHub-hosted runners (no AX grant). |
+
+**Scheduled workflows:**
+
+| Workflow | Schedule | Purpose |
+|-----|-----|-----|
+| `gpd-tests-real-backend.yml` | Nightly (`42 6 * * *`) | Runs `flows and real_backend` against live Anthropic backend. Exits 78 (neutral) if `GPD_TEST_ANTHROPIC_KEY` is missing. |
+| `gpd-tests-flakiness.yml` | Daily (`17 7 * * *`) | 10× parallel smoke matrix + flakiness aggregator. |
+| `gpd-tests-release.yml` | Weekly (planned) | Release-mode build + security assertions (`tests/smoke/test_release_no_mcp.py`). |
+
+**Coverage floor:** target **85%** branch coverage for `gpd_tests/` across the unit + smoke + flows matrix. The current `--cov-fail-under=55` on the `unit` job is a lower bar kept during ramp-up; raise toward 85% as coverage expansion phases land.
 
 **Real-backend flows (`GPD_TEST_ANTHROPIC_KEY` secret):**
 
