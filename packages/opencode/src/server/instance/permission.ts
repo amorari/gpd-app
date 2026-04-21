@@ -6,6 +6,7 @@ import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { NotFoundError } from "../../storage/db"
 
 export const PermissionRoutes = lazy(() =>
   new Hono()
@@ -37,6 +38,11 @@ export const PermissionRoutes = lazy(() =>
       async (c) => {
         const params = c.req.valid("param")
         const json = c.req.valid("json")
+        const pending = await AppRuntime.runPromise(Permission.Service.use((svc) => svc.list()))
+        const exists = pending.some((req) => req.id === params.requestID)
+        if (!exists) {
+          throw new NotFoundError({ message: `Permission request not found: ${params.requestID}` })
+        }
         await AppRuntime.runPromise(
           Permission.Service.use((svc) =>
             svc.reply({

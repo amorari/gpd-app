@@ -7,6 +7,7 @@ import { AppRuntime } from "@/effect/app-runtime"
 import z from "zod"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { NotFoundError } from "../../storage/db"
 
 const Reply = z.object({
   answers: Question.Answer.zod
@@ -66,6 +67,11 @@ export const QuestionRoutes = lazy(() =>
       async (c) => {
         const params = c.req.valid("param")
         const json = c.req.valid("json")
+        const pending = await AppRuntime.runPromise(Question.Service.use((svc) => svc.list()))
+        const exists = pending.some((req) => req.id === params.requestID)
+        if (!exists) {
+          throw new NotFoundError({ message: `Question request not found: ${params.requestID}` })
+        }
         await AppRuntime.runPromise(
           Question.Service.use((svc) =>
             svc.reply({
@@ -103,6 +109,11 @@ export const QuestionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        const pending = await AppRuntime.runPromise(Question.Service.use((svc) => svc.list()))
+        const exists = pending.some((req) => req.id === params.requestID)
+        if (!exists) {
+          throw new NotFoundError({ message: `Question request not found: ${params.requestID}` })
+        }
         await AppRuntime.runPromise(Question.Service.use((svc) => svc.reject(params.requestID)))
         return c.json(true)
       },
