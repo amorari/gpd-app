@@ -1,12 +1,13 @@
 -- Insert new rows from the external table into the native sessions table.
--- Scheduled query runs hourly; re-running it is safe because we filter by
--- ingest_date and only insert rows whose (ingest_date, source_object) pair
--- isn't already present. Ingest_date = the Hive `date=` path segment.
+-- Scheduled query runs every 6h; re-running is safe because we filter on
+-- (ingest_date, source_object) against what's already landed today.
 --
 -- Scheduled query parameterization:
 --   @run_date: filled automatically by BigQuery Data Transfer (today UTC).
---   We process yesterday + today on every run so that late-arriving flushes
---   (session spans midnight UTC) get picked up.
+--   We scan today only. Midnight-spanning sessions whose "yesterday"
+--   flushes land after 00:00 UTC would be missed — widen the window
+--   here + in the anti-dedupe filter below if that ever matters (it
+--   doesn't until we have real users).
 INSERT INTO `gpd-desktop.gpd_logs.sessions` (
   ingest_date,
   user_hash,
@@ -49,14 +50,11 @@ WITH
       _FILE_NAME                           AS source_object,
       CURRENT_TIMESTAMP()                  AS ingested_at
     FROM `gpd-desktop.gpd_logs.sessions_external` AS e
-    WHERE e.date IN (
-      CAST(DATE_SUB(@run_date, INTERVAL 1 DAY) AS DATE),
-      CAST(@run_date AS DATE)
-    )
+    WHERE e.date = CAST(@run_date AS DATE)
   )
 SELECT * FROM src
 WHERE source_object NOT IN (
   SELECT source_object
   FROM `gpd-desktop.gpd_logs.sessions`
-  WHERE ingest_date BETWEEN DATE_SUB(@run_date, INTERVAL 2 DAY) AND @run_date
+  WHERE ingest_date = @run_date
 );

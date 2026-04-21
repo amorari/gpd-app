@@ -8,7 +8,9 @@ Two-layer pipeline:
 2. **Materialized table** `gpd_logs.sessions` — partitioned by `ingest_date`,
    clustered by `(user_hash, session_id)`. Sub-second per-session fetches,
    SEARCH index on string columns for fast pattern queries. Refreshed
-   hourly from the external table.
+   every 6h from the external table, today only (widen to yesterday+today
+   in `03-materialize.sql` once we have real users whose sessions span
+   midnight UTC).
 
 ## Setup — one-time
 
@@ -26,10 +28,10 @@ bq query --use_legacy_sql=false --project_id=gpd-desktop \
   "CREATE SEARCH INDEX IF NOT EXISTS sessions_text_index ON \`gpd-desktop.gpd_logs.sessions\`(kind, session_id, root_session_id, reason) OPTIONS(analyzer='LOG_ANALYZER')"
 ```
 
-## Scheduled hourly materialize (requires one-time OAuth consent)
+## Scheduled 6-hourly materialize (requires one-time OAuth consent)
 
 The `03-materialize.sql` template inserts new rows from the external table
-into the native table. To run it hourly:
+into the native table. To run it every 6 hours:
 
 ```bash
 QUERY=$(cat infra/bigquery/03-materialize.sql)
@@ -43,8 +45,8 @@ bq mk --transfer_config \
   --target_dataset=gpd_logs \
   --project_id=gpd-desktop \
   --location=US \
-  --display_name="gpd_logs hourly materialize" \
-  --schedule="every 1 hours" \
+  --display_name="gpd_logs 6h materialize (today only)" \
+  --schedule="every 6 hours" \
   --params="$(jq -n --arg q "$QUERY" '{query: $q}')"
 ```
 
