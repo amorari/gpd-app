@@ -597,3 +597,317 @@ jobs:
           path: packages/desktop/tests-gui/coverage.xml
           retention-days: 14
           if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Job 5: ipc-and-broad — Tauri IPC contract + broad menu/UI tests
+  #
+  # Modeled on the surfaces job. Rebuilds the Tauri debug bundle from scratch
+  # (same pattern as surfaces + regression). Build-artifact sharing across
+  # jobs would cut ~10 min per job but adds complexity (uploading / unpacking
+  # the .app bundle + preserving exec bits / codesign) — tracked as follow-up.
+  # ---------------------------------------------------------------------------
+  ipc-and-broad:
+    name: IPC + broad tests
+    needs: smoke-and-flows
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      PYTEST_CI: "1"
+      PYTEST_COLD_START: "1"
+      PYTEST_QUIT_GPD: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+          shared-key: aarch64-apple-darwin-debug
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          uv-version: "0.7.3"
+
+      - name: Install cliclick
+        run: brew install cliclick
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build opencode sidecar
+        working-directory: packages/desktop
+        run: bun run predev
+        env:
+          RUST_TARGET: aarch64-apple-darwin
+          TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
+
+      - name: Download and stage uv bundle
+        shell: bash
+        run: |
+          UV_PLATFORM="aarch64-apple-darwin"
+          mkdir -p packages/desktop/src-tauri/uv-bundle
+          curl -fsSL "https://github.com/astral-sh/uv/releases/download/${{ env.UV_BUNDLE_VERSION }}/uv-${UV_PLATFORM}.tar.gz" \
+            | tar xz -C packages/desktop/src-tauri/uv-bundle --strip-components=1
+          chmod +x packages/desktop/src-tauri/uv-bundle/uv
+
+      - name: Build debug Tauri bundle
+        working-directory: packages/desktop
+        run: bun run tauri build --debug
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Resolve debug bundle path
+        shell: bash
+        run: |
+          BUNDLE_ROOT="packages/desktop/src-tauri/target"
+          BUNDLE=""
+          for candidate in \
+            "$BUNDLE_ROOT/aarch64-apple-darwin/debug/bundle/macos/GPD Dev.app" \
+            "$BUNDLE_ROOT/debug/bundle/macos/GPD Dev.app"; do
+            if [ -e "$candidate/Contents/MacOS" ]; then
+              BUNDLE="$candidate"
+              break
+            fi
+          done
+          if [ -z "$BUNDLE" ]; then
+            echo "No debug bundle found under $BUNDLE_ROOT/{aarch64-apple-darwin/,}debug/bundle/macos/"
+            find "$BUNDLE_ROOT" -maxdepth 4 -name "*.app" -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Using bundle: $BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+
+      - name: Install test dependencies
+        working-directory: packages/desktop/tests-gui
+        run: uv sync
+
+      - name: Launch GPD Dev
+        run: |
+          APP_PATH="${GITHUB_WORKSPACE}/${BUNDLE}"
+          echo "GPD_APP_PATH=${APP_PATH}" >> "$GITHUB_ENV"
+          open "${APP_PATH}"
+          for i in $(seq 1 30); do
+            if pgrep -f "opencode-cli.*serve" >/dev/null; then break; fi
+            sleep 0.5
+          done
+          pgrep -f "opencode-cli.*serve" || { echo "sidecar never appeared"; exit 1; }
+
+      - name: Run IPC + broad tests
+        working-directory: packages/desktop/tests-gui
+        run: |
+          uv run pytest tests/ipc tests/broad \
+            -m "ipc or broad" \
+            -v \
+            --junitxml=junit-ipc-broad.xml \
+            --cov=gpd_tests \
+            --cov-branch \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-append \
+            --html=artifacts/report-ipc-broad.html \
+            --self-contained-html
+
+      - name: Upload IPC + broad test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpd-ipc-broad-artifacts-${{ github.run_id }}
+          path: packages/desktop/tests-gui/artifacts/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload IPC + broad junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-ipc-broad
+          path: packages/desktop/tests-gui/junit-ipc-broad.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-ipc-broad
+          path: packages/desktop/tests-gui/coverage_html/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-ipc-broad
+          path: packages/desktop/tests-gui/coverage.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Job 6: lifecycle-opt-in — destructive session lifecycle tests.
+  #
+  # NOT run on push/PR. Only fires when the workflow is manually dispatched
+  # with `run_lifecycle == 'true'`. These tests physically quit + relaunch
+  # GPD, which requires a reliable AX grant on the runner. GitHub-hosted
+  # macos-15 runners cannot grant AX, so this job is expected to fail there
+  # and is intended for provisioned self-hosted runners. `continue-on-error`
+  # is set so a known-flaky run does not mask other CI failures.
+  # ---------------------------------------------------------------------------
+  lifecycle-opt-in:
+    name: Lifecycle tests (manual opt-in)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_lifecycle == 'true' }}
+    needs: smoke-and-flows
+    runs-on: macos-15
+    timeout-minutes: 60
+    continue-on-error: true
+    env:
+      PYTEST_CI: "1"
+      PYTEST_COLD_START: "1"
+      PYTEST_QUIT_GPD: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+          shared-key: aarch64-apple-darwin-debug
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          uv-version: "0.7.3"
+
+      - name: Install cliclick
+        run: brew install cliclick
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build opencode sidecar
+        working-directory: packages/desktop
+        run: bun run predev
+        env:
+          RUST_TARGET: aarch64-apple-darwin
+          TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
+
+      - name: Download and stage uv bundle
+        shell: bash
+        run: |
+          UV_PLATFORM="aarch64-apple-darwin"
+          mkdir -p packages/desktop/src-tauri/uv-bundle
+          curl -fsSL "https://github.com/astral-sh/uv/releases/download/${{ env.UV_BUNDLE_VERSION }}/uv-${UV_PLATFORM}.tar.gz" \
+            | tar xz -C packages/desktop/src-tauri/uv-bundle --strip-components=1
+          chmod +x packages/desktop/src-tauri/uv-bundle/uv
+
+      - name: Build debug Tauri bundle
+        working-directory: packages/desktop
+        run: bun run tauri build --debug
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Resolve debug bundle path
+        shell: bash
+        run: |
+          BUNDLE_ROOT="packages/desktop/src-tauri/target"
+          BUNDLE=""
+          for candidate in \
+            "$BUNDLE_ROOT/aarch64-apple-darwin/debug/bundle/macos/GPD Dev.app" \
+            "$BUNDLE_ROOT/debug/bundle/macos/GPD Dev.app"; do
+            if [ -e "$candidate/Contents/MacOS" ]; then
+              BUNDLE="$candidate"
+              break
+            fi
+          done
+          if [ -z "$BUNDLE" ]; then
+            echo "No debug bundle found under $BUNDLE_ROOT/{aarch64-apple-darwin/,}debug/bundle/macos/"
+            find "$BUNDLE_ROOT" -maxdepth 4 -name "*.app" -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Using bundle: $BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+
+      - name: Install test dependencies
+        working-directory: packages/desktop/tests-gui
+        run: uv sync
+
+      - name: Launch GPD Dev
+        run: |
+          APP_PATH="${GITHUB_WORKSPACE}/${BUNDLE}"
+          echo "GPD_APP_PATH=${APP_PATH}" >> "$GITHUB_ENV"
+          open "${APP_PATH}"
+          for i in $(seq 1 30); do
+            if pgrep -f "opencode-cli.*serve" >/dev/null; then break; fi
+            sleep 0.5
+          done
+          pgrep -f "opencode-cli.*serve" || { echo "sidecar never appeared"; exit 1; }
+
+      - name: Run lifecycle tests
+        working-directory: packages/desktop/tests-gui
+        run: |
+          uv run pytest tests/lifecycle \
+            -m lifecycle \
+            -v \
+            --junitxml=junit-lifecycle.xml \
+            --cov=gpd_tests \
+            --cov-branch \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-append \
+            --html=artifacts/report-lifecycle.html \
+            --self-contained-html
+
+      - name: Upload lifecycle test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpd-lifecycle-artifacts-${{ github.run_id }}
+          path: packages/desktop/tests-gui/artifacts/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload lifecycle junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-lifecycle
+          path: packages/desktop/tests-gui/junit-lifecycle.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-lifecycle
+          path: packages/desktop/tests-gui/coverage_html/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-lifecycle
+          path: packages/desktop/tests-gui/coverage.xml
+          retention-days: 14
+          if-no-files-found: ignore
