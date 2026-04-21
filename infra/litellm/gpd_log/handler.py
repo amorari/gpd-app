@@ -13,7 +13,13 @@ Invariants enforced here:
   3. User path prefix is derived from user_api_key_dict, never from the
      request body/query — protects against one user writing under another
      user's prefix.
-  4. Content-Length ≤ 64MB (enforced by GpdLogMiddleware before we run).
+  4. Content-Length required and ≤ 64MB — rejected before GCS call.
+     (Cannot be enforced in middleware because FastAPI freezes the
+     middleware stack before our worker-startup hook fires. With
+     credentialed clients only, the residual risk is a caller using a
+     valid key to force a ~64MB in-memory buffer per request. Acceptable
+     at our scale; will harden to true streaming via parsed_body pre-seed
+     if that becomes load-bearing.)
   5. LiteLLM's existing RPM/TPM limiter fires via pre_call_hook.
 """
 from __future__ import annotations
@@ -29,6 +35,8 @@ from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from .gcs_writer import stream_to_gcs
 from .quota import check_daily_bytes
 
+MAX_BYTES = 64 * 1024 * 1024
+
 # Crockford base32 alphabet, as used by ULIDs.
 _ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 # OpenCode session IDs are `ses_<ulid>`-shape; accept alphanumeric + `_-`.
@@ -39,6 +47,17 @@ async def gpd_log(
     request: Request,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ) -> dict:
+    # Content-Length gate. Required + ≤64 MB.
+    cl_raw = request.headers.get("content-length")
+    if cl_raw is None:
+        raise HTTPException(411, detail="Content-Length header required")
+    try:
+        cl = int(cl_raw)
+    except ValueError as e:
+        raise HTTPException(400, detail="invalid Content-Length") from e
+    if cl <= 0 or cl > MAX_BYTES:
+        raise HTTPException(413, detail=f"Content-Length must be 1..{MAX_BYTES}")
+
     # Rate limit (reuses LiteLLM's existing RPM/TPM descriptors — keyed by
     # api_key/user/team/org, shared with /v1/chat/completions quotas).
     from litellm.proxy.proxy_server import proxy_logging_obj
@@ -49,8 +68,6 @@ async def gpd_log(
         call_type="pass_through_endpoint",
     )
 
-    # Content-Length was validated by middleware — re-read for the quota counter.
-    cl = int(request.headers.get("content-length", "0"))
     await check_daily_bytes(user_api_key_dict.api_key, cl)
 
     # Validate query params.
