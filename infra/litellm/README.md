@@ -1,6 +1,6 @@
 # GPD's LiteLLM image
 
-Ships stock `ghcr.io/berriai/litellm-database:main-stable` + one custom
+Ships stock `ghcr.io/berriai/litellm:main-stable` + one custom
 route, `POST /gpd/log`, for session-log ingest. The SA key that writes
 to `gs://gpd-desktop-logs` lives only on Railway — desktop clients
 authenticate with their existing LiteLLM virtual key.

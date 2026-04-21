@@ -4,7 +4,7 @@
 # ghcr.io/berriai/litellm-database:main-stable. That's how LiteLLM
 # upgrades flow through — you don't have to touch anything locally,
 # just click "Redeploy" in Railway.
-FROM ghcr.io/berriai/litellm-database:main-stable
+FROM ghcr.io/berriai/litellm:main-stable
 
 # Our hook module — see infra/litellm/gpd_log/README.md for architecture.
 COPY gpd_log /app/gpd_log
