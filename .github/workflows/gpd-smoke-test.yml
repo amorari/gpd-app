@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p opencode-desktop --lib
         working-directory: packages/desktop/src-tauri
@@ -22,6 +26,7 @@ jobs:
     name: Fresh install (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - { os: macos-latest, name: mac-arm, target: aarch64-apple-darwin }
@@ -30,6 +35,14 @@ jobs:
           - { os: windows-latest, name: windows, target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
 
       # --- Verify config JSON is valid ---
       - name: Build sidecar config and validate
