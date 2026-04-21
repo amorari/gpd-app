@@ -876,6 +876,19 @@ function Invoke-GpdInstall {
         }
     }
 
+    # Write the .gpd-initialized marker so the GPD desktop app's first-run
+    # setup short-circuits via is_venv_valid() -- no uv/python/pip cascade
+    # of console windows, no ~3 minutes of re-downloading what we just
+    # installed. The app looks for this file at $GpdHome\.gpd-initialized
+    # (matches the unified path in packages/desktop/src-tauri/src/gpd_setup.rs).
+    if ((Test-Path $gpdExe) -or (Test-Path (Join-Path $GpdVenvDir "Scripts\python.exe"))) {
+        $marker = Join-Path $GpdHome ".gpd-initialized"
+        if (-not (Test-Path $marker)) {
+            Set-Content -Path $marker -Value "initialized" -Encoding ASCII
+            Write-Success "GPD desktop app will skip first-run setup"
+        }
+    }
+
     Write-SuccessBanner
 
     # ── Auto-launch GPD.exe to work around Windows PATH caching ───────────

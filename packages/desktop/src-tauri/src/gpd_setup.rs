@@ -60,17 +60,29 @@ pub fn build_config_json() -> String {
     )
 }
 
-/// Returns the GPD config directory path (~/.config/gpd/)
+/// Returns the GPD home directory (~/.gpd, or $GPD_HOME if set).
+///
+/// This is the single base directory that BOTH the CLI installer
+/// (install-gpd/install and install-gpd/windows_11/install.ps1) AND
+/// the desktop app use for their bootstrap state: Python venv,
+/// get-physics-done package, LiteLLM config, and the
+/// `.gpd-initialized` marker.
+///
+/// When the CLI installer runs first, it pre-populates everything
+/// under this path so the desktop app's `run_first_setup` short-
+/// circuits via `is_venv_valid()` on first launch — no uv reinstall,
+/// no pip reinstall, no cascade of console windows.
+///
+/// Before this unification (tracked as product bug 2026-04-21), the
+/// desktop app used `~/.config/gpd/` while the installer used
+/// `~/.gpd/`, so each re-did the other's work.
 pub fn config_dir() -> PathBuf {
-    let config_home = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .expect("cannot determine home directory")
-                .join(".config")
-        });
-    config_home.join(GPD_CONFIG_DIR_NAME)
+    if let Some(home) = std::env::var_os("GPD_HOME").filter(|v| !v.is_empty()) {
+        return PathBuf::from(home);
+    }
+    dirs::home_dir()
+        .expect("cannot determine home directory")
+        .join(".gpd")
 }
 
 /// Returns true if GPD has already been initialized
@@ -197,9 +209,17 @@ fn uv_path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("GPD's Python helper (uv) couldn't be located. Try reinstalling the app. ({e})"))
 }
 
-/// GPD venv location: ~/.config/gpd/.venv/
+/// GPD venv location.
+///
+/// Matches the CLI installer layout:
+///   Linux / macOS: ~/.gpd/venv/
+///   Windows:       %USERPROFILE%\.gpd\venv\
+///
+/// Previously this was `config_dir().join(".venv")` which pointed at
+/// ~/.config/gpd/.venv/ — a different directory from what the
+/// installer built. Unified in the 2026-04-21 refactor.
 fn gpd_venv_dir() -> PathBuf {
-    config_dir().join(".venv")
+    config_dir().join("venv")
 }
 
 /// The Python interpreter inside the GPD venv

@@ -623,6 +623,19 @@ configure_gpd_runtime() {
             warn "  cd ~ && ~/.gpd/venv/bin/gpd install opencode --global"
         fi
     fi
+
+    # Write the .gpd-initialized marker so the GPD desktop app's first-run
+    # setup short-circuits via is_venv_valid() -- no uv/python/pip cascade
+    # of console windows, no ~3 minutes of re-downloading what we just
+    # installed. The app looks for this file at $GPD_HOME/.gpd-initialized
+    # (matches the unified path in packages/desktop/src-tauri/src/gpd_setup.rs).
+    if [[ -f "$GPD_VENV_DIR/bin/gpd" ]] || [[ -f "$GPD_VENV_DIR/bin/python" ]]; then
+        local marker="$GPD_HOME/.gpd-initialized"
+        if [[ ! -f "$marker" ]]; then
+            printf 'initialized\n' > "$marker"
+            success "GPD desktop app will skip first-run setup"
+        fi
+    fi
 }
 
 # ── Success ──────────────────────────────────────────────────────────────
