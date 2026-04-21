@@ -1627,10 +1627,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           throw error
         }
 
-        const templateParts = yield* resolvePromptParts(template)
+        const templateParts = (yield* resolvePromptParts(template)).map((p) =>
+          p.type === "text" ? { ...p, synthetic: true as const } : p,
+        )
+        const invocationLabel = input.arguments.trim()
+          ? `/${input.command} ${input.arguments.trim()}`
+          : `/${input.command}`
+        const visiblePart = { type: "text" as const, text: invocationLabel }
         const isSubtask = (agent.mode === "subagent" && cmd.subtask !== false) || cmd.subtask === true
         const parts = isSubtask
           ? [
+              visiblePart,
               {
                 type: "subtask" as const,
                 agent: agent.name,
@@ -1640,7 +1647,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 prompt: templateParts.find((y) => y.type === "text")?.text ?? "",
               },
             ]
-          : [...templateParts, ...(input.parts ?? [])]
+          : [visiblePart, ...templateParts, ...(input.parts ?? [])]
 
         const userAgent = isSubtask ? (input.agent ?? (yield* agents.defaultAgent())) : agentName
         const userModel = isSubtask

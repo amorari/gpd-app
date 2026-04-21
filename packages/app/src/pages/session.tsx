@@ -652,6 +652,13 @@ export default function Page() {
 
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
   const nogit = createMemo(() => !!sync.project && sync.project.vcs !== "git")
+  const homedir = createMemo(() => globalSync.data.path.home)
+  const shortProjectDir = createMemo(() => {
+    const dir = sdk.directory
+    if (!dir) return dir
+    const home = homedir()
+    return home ? dir.replace(home, "~") : dir
+  })
   const changesOptions = createMemo<ChangeMode[]>(() => {
     const list: ChangeMode[] = []
     if (sync.project?.vcs === "git") list.push("git")
@@ -1173,7 +1180,7 @@ export default function Page() {
       <div class="flex flex-col gap-3">
         <div class="text-14-medium text-text-strong">{language.t("session.review.noVcs.createGit.title")}</div>
         <div class="text-14-regular text-text-base max-w-md" style={{ "line-height": "var(--line-height-normal)" }}>
-          {language.t("session.review.noVcs.createGit.description")}
+          {language.t("session.review.noVcs.createGit.description", { path: shortProjectDir() })}
         </div>
       </div>
       <Button size="large" disabled={gitMutation.isPending} onClick={initGit}>

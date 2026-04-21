@@ -15,6 +15,7 @@ import {
   type Component,
   createMemo,
   createResource,
+  createEffect,
   createSignal,
   ErrorBoundary,
   For,
@@ -29,8 +30,11 @@ import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
-import { GlobalSDKProvider } from "@/context/global-sdk"
-import { GlobalSyncProvider } from "@/context/global-sync"
+import { GlobalSDKProvider, useGlobalSDK } from "@/context/global-sdk"
+import { GlobalSyncProvider, useGlobalSync } from "@/context/global-sync"
+// Needed so SetupGate can detect whether GPD auth already exists before
+// showing the welcome screen — see comments in SetupGate for rationale.
+import { useProviders } from "@/hooks/use-providers"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
 import { LayoutProvider } from "@/context/layout"
@@ -44,6 +48,7 @@ import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
+import { WelcomeScreen } from "./components/welcome-screen"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
@@ -274,6 +279,97 @@ function ServerKey(props: ParentProps) {
   )
 }
 
+function SetupGate(props: ParentProps) {
+  const globalSDK = useGlobalSDK()
+  // WHY these extra hooks: we need to know (a) whether the global sync has
+  // finished loading (otherwise providers.connected() is empty and looks
+  // unauthed) and (b) whether the "gpd" provider already has an auth entry
+  // in opencode's auth.json. See the createEffect below for the full story.
+  const globalSync = useGlobalSync()
+  const providers = useProviders()
+
+  // ─── API key detection ────────────────────────────────────────────────
+  //
+  // Previously we decided "does the user have a key?" by checking ONE
+  // source: a localStorage flag set the last time the user entered a key
+  // in the GUI welcome screen. That flag is *only* set by this component
+  // on a successful `handleApiKeySaved`. It's NOT set if the key was
+  // already provisioned out-of-band, e.g. by the CLI installer writing
+  // directly to opencode's auth.json (`gpd auth login gpd`).
+  //
+  // Result: users who ran the install script and entered their PSI key
+  // there would still be greeted with the welcome screen on first launch,
+  // asking for the same key they just entered — a confusing UX that
+  // triggered this fix (see user report on 2026-04-20).
+  //
+  // New behavior:
+  //  1. Seed hasKey() from localStorage for the fast path (no flash of
+  //     welcome on subsequent launches by a user who already onboarded
+  //     via the GUI).
+  //  2. Once globalSync reports ready AND the provider list is populated,
+  //     check if "gpd" is in providers.connected() (which is derived
+  //     from the auth.json file on disk via the server's
+  //     `provider.list` endpoint). If so, promote hasKey() to true and
+  //     persist the localStorage flag so subsequent launches skip step 2.
+  //
+  // The brief period between "app mount" and "globalSync.ready === true"
+  // is handled by keeping the old localStorage-based seed: on the very
+  // first launch after a CLI install the welcome WILL flash briefly until
+  // the sync completes, but once it does we skip past it. An alternative
+  // would be to show a loading spinner instead of the welcome during this
+  // window, but that complicates the render and the flash is <1s in
+  // practice. Revisit if it becomes a UX issue.
+  //
+  // OLD code (kept commented for reference — single-source key detection):
+  // const [hasKey, setHasKey] = createSignal(
+  //   localStorage.getItem("gpd.key.saved") === "true"
+  // )
+  const [hasKey, setHasKey] = createSignal(
+    localStorage.getItem("gpd.key.saved") === "true"
+  )
+
+  // When globalSync finishes bootstrapping and providers load, check if
+  // "gpd" is already authed. This is the "installer set the key"
+  // out-of-band path.
+  createEffect(() => {
+    // Wait until provider data is actually populated. providers.connected()
+    // returns [] before the first sync even if auth.json has entries.
+    if (!globalSync.ready) return
+    if (providers.all().length === 0) return
+
+    const gpdAuthed = providers.connected().some((p) => p.id === "gpd")
+    if (gpdAuthed && !hasKey()) {
+      setHasKey(true)
+      // Persist so the next launch takes the localStorage fast path and
+      // skips the sync-wait on cold start.
+      localStorage.setItem("gpd.key.saved", "true")
+    }
+  })
+
+  async function handleApiKeySaved(apiKey: string) {
+    await globalSDK.client.auth.set({
+      providerID: "gpd",
+      auth: { type: "api", key: apiKey },
+    })
+    localStorage.setItem("gpd.key.saved", "true")
+    setHasKey(true)
+    await globalSDK.client.global.dispose()
+  }
+
+  // Expose reset function globally so users can change their key
+  // Usage: type `gpd-reset-key` in the command palette or run in console
+  ;(window as any).__GPD_RESET_KEY__ = () => {
+    localStorage.removeItem("gpd.key.saved")
+    setHasKey(false)
+  }
+
+  return (
+    <Show when={hasKey()} fallback={<WelcomeScreen onComplete={handleApiKeySaved} />}>
+      {props.children}
+    </Show>
+  )
+}
+
 export function AppInterface(props: {
   children?: JSX.Element
   defaultServer: ServerConnection.Key
@@ -291,16 +387,18 @@ export function AppInterface(props: {
         <ServerKey>
           <GlobalSDKProvider>
             <GlobalSyncProvider>
-              <Dynamic
-                component={props.router ?? Router}
-                root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
-              >
-                <Route path="/" component={HomeRoute} />
-                <Route path="/:dir" component={DirectoryLayout}>
-                  <Route path="/" component={SessionIndexRoute} />
-                  <Route path="/session/:id?" component={SessionRoute} />
-                </Route>
-              </Dynamic>
+              <SetupGate>
+                <Dynamic
+                  component={props.router ?? Router}
+                  root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
+                >
+                  <Route path="/" component={HomeRoute} />
+                  <Route path="/:dir" component={DirectoryLayout}>
+                    <Route path="/" component={SessionIndexRoute} />
+                    <Route path="/session/:id?" component={SessionRoute} />
+                  </Route>
+                </Dynamic>
+              </SetupGate>
             </GlobalSyncProvider>
           </GlobalSDKProvider>
         </ServerKey>

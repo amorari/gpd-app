@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../../../node_modules/.bun/marked-shiki@1.2.1+3ec8384d7116adf9/node_modules/marked-shiki/dist/index.js"],
+  "sourcesContent": ["function p(i = {}) {\n  const { highlight: e, container: n } = i;\n  return {\n    async: !0,\n    async walkTokens(t) {\n      var s;\n      if (t.type !== \"code\" || typeof e != \"function\") return;\n      const [a = \"text\", ...l] = ((s = t.lang) == null ? void 0 : s.split(\" \")) ?? [], { text: c } = t, r = await e(c, a, l), o = n ? n.replace(\"%l\", String(a).toUpperCase()).replace(\"%s\", r).replace(\"%t\", c) : r;\n      Object.assign(t, {\n        type: \"html\",\n        block: !0,\n        text: `${o}\n`\n      });\n    }\n  };\n}\nexport {\n  p as default\n};\n"],
+  "mappings": ";;;AAAA,SAAS,EAAE,IAAI,CAAC,GAAG;AACjB,QAAM,EAAE,WAAW,GAAG,WAAW,EAAE,IAAI;AACvC,SAAO;AAAA,IACL,OAAO;AAAA,IACP,MAAM,WAAW,GAAG;AAClB,UAAI;AACJ,UAAI,EAAE,SAAS,UAAU,OAAO,KAAK,WAAY;AACjD,YAAM,CAAC,IAAI,QAAQ,GAAG,CAAC,MAAM,IAAI,EAAE,SAAS,OAAO,SAAS,EAAE,MAAM,GAAG,MAAM,CAAC,GAAG,EAAE,MAAM,EAAE,IAAI,GAAG,IAAI,MAAM,EAAE,GAAG,GAAG,CAAC,GAAG,IAAI,IAAI,EAAE,QAAQ,MAAM,OAAO,CAAC,EAAE,YAAY,CAAC,EAAE,QAAQ,MAAM,CAAC,EAAE,QAAQ,MAAM,CAAC,IAAI;AAC7M,aAAO,OAAO,GAAG;AAAA,QACf,MAAM;AAAA,QACN,OAAO;AAAA,QACP,MAAM,GAAG,CAAC;AAAA;AAAA,MAEZ,CAAC;AAAA,IACH;AAAA,EACF;AACF;",
+  "names": []
+}

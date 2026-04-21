@@ -16,7 +16,7 @@ import {
 } from "@opencode-ai/app"
 import type { AsyncStorage } from "@solid-primitives/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { readImage } from "@tauri-apps/plugin-clipboard-manager"
+import { readImage, writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http"
@@ -34,8 +34,9 @@ import { UPDATER_ENABLED } from "./updater"
 import { webviewZoom } from "./webview-zoom"
 import "./styles.css"
 import { Channel } from "@tauri-apps/api/core"
-import { commands, type InitStep } from "./bindings"
+import { commands, events, type InitStep } from "./bindings"
 import { createMenu } from "./menu"
+import { showToast } from "@opencode-ai/ui/toast"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -88,12 +89,12 @@ const createPlatform = (): Platform => {
     version: pkg.version,
 
     async openDirectoryPickerDialog(opts) {
-      const defaultPath = await wslHome()
+      const fallback = await wslHome()
       const result = await open({
         directory: true,
         multiple: opts?.multiple ?? false,
         title: opts?.title ?? t("desktop.dialog.chooseFolder"),
-        defaultPath,
+        defaultPath: opts?.defaultPath ?? fallback,
       })
       return await handleWslPicker(result)
     },
@@ -380,6 +381,37 @@ const createPlatform = (): Platform => {
       return commands.checkAppExists(appName)
     },
 
+    installGitMacos: () => commands.installGitMacos(),
+    installGitWindows: () => commands.installGitWindows(),
+    linuxInstallHint: (tool: string) => commands.linuxInstallHint(tool),
+    repairGpdVenv: () => commands.repairGpdVenv().then(() => undefined),
+    installTectonic: () => commands.installTectonic(),
+    createProjectDirectory: (parent: string, name: string) => commands.createProjectDirectory(parent, name),
+    checkProjectAccessible: async (path: string) => {
+      const result = await commands.checkProjectAccessible(path)
+      return result as "ok" | "locked" | "missing"
+    },
+    onTectonicDownloadProgress: async (cb) => {
+      return events.tectonicDownloadProgress.listen((event) => {
+        cb(event.payload)
+      })
+    },
+    tex: {
+      detectCompiler: () => commands.detectTexCompiler(),
+      detectRoot: (startFile) => commands.detectTexRoot(startFile),
+      compile: ({ projectId, texFile, rootFile }) => commands.compileTex(projectId, texFile, rootFile),
+      synctexForward: ({ synctexPath, page, x, y }) => commands.synctexForward(synctexPath, page, x, y),
+      synctexReverse: ({ synctexPath, sourceFile, line }) => commands.synctexReverse(synctexPath, sourceFile, line),
+      parseLog: (logPath) => commands.parseTexLog(logPath),
+      readArtifactBase64: (path) => commands.readTexArtifactBase64(path),
+      onProgress: async (cb) => {
+        return events.texCompileProgress.listen((event) => {
+          cb(event.payload)
+        })
+      },
+    },
+    writeClipboard: (text: string) => writeText(text),
+
     async readClipboardImage() {
       const image = await readImage().catch(() => null)
       if (!image) return null
@@ -475,6 +507,18 @@ render(() => {
     document.addEventListener("click", handleClick)
     onCleanup(() => {
       document.removeEventListener("click", handleClick)
+    })
+
+    // Show a one-time informational toast after GPD first-run setup completes,
+    // so users know where GPD installed its files.
+    const unlisten = events.gpdFirstRunComplete.once(() => {
+      showToast({
+        title: t("gpd.firstRun.toast.title"),
+        description: t("gpd.firstRun.toast.description"),
+      })
+    })
+    onCleanup(() => {
+      void unlisten.then((fn) => fn())
     })
   })
 

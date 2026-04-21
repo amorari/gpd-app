@@ -25,11 +25,15 @@ export const SidebarContent = (props: {
   openProjectKeybind: Accessor<string | undefined>
   onOpenProject: () => void
   renderProjectOverlay: () => JSX.Element
+  homeLabel: Accessor<string>
+  onGoHome: () => void
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
   onOpenSettings: () => void
   helpLabel: Accessor<string>
   onOpenHelp: () => void
+  onResetKey?: () => void
+  resetKeyLabel?: Accessor<string>
   renderPanel: () => JSX.Element
 }): JSX.Element => {
   const expanded = createMemo(() => !!props.mobile || props.opened())
@@ -63,6 +67,15 @@ export const SidebarContent = (props: {
             <DragDropSensors />
             <ConstrainDragXAxis />
             <div class="h-full w-full flex flex-col items-center gap-3 px-3 py-3 overflow-y-auto no-scrollbar">
+              <Tooltip placement={placement()} value={props.homeLabel()}>
+                <IconButton
+                  icon="home"
+                  variant="ghost"
+                  size="large"
+                  onClick={props.onGoHome}
+                  aria-label={props.homeLabel()}
+                />
+              </Tooltip>
               <SortableProvider ids={props.projects().map((p) => p.worktree)}>
                 <For each={props.projects()}>{(project) => props.renderProject(project)}</For>
               </SortableProvider>
@@ -99,6 +112,17 @@ export const SidebarContent = (props: {
               aria-label={props.settingsLabel()}
             />
           </TooltipKeybind>
+          <Show when={props.onResetKey}>
+            <Tooltip placement={placement()} value={props.resetKeyLabel?.() ?? ""}>
+              <IconButton
+                icon="edit-small-2"
+                variant="ghost"
+                size="large"
+                onClick={() => props.onResetKey?.()}
+                aria-label={props.resetKeyLabel?.()}
+              />
+            </Tooltip>
+          </Show>
           <Tooltip placement={placement()} value={props.helpLabel()}>
             <IconButton
               icon="help"

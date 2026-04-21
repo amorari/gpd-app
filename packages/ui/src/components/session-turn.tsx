@@ -10,6 +10,7 @@ import { useFileComponent } from "../context/file"
 
 import { Binary } from "@opencode-ai/util/binary"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
+import { classifyError } from "@opencode-ai/util/classify-error"
 import { createEffect, createMemo, createSignal, For, on, ParentProps, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
@@ -23,7 +24,7 @@ import { TextShimmer } from "./text-shimmer"
 import { SessionRetry } from "./session-retry"
 import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
-import { useI18n } from "../context/i18n"
+import { useI18n, type UiI18nKey } from "../context/i18n"
 import { normalize } from "./session-diff"
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -310,10 +311,15 @@ export function SessionTurn(
     return undefined
   })
   const errorText = createMemo(() => {
-    const msg = error()?.data?.message
-    if (typeof msg === "string") return unwrap(msg)
-    if (msg === undefined || msg === null) return ""
-    return unwrap(String(msg))
+    const err = error()
+    if (!err) return ""
+    const key = classifyError(err) as UiI18nKey
+    if (key !== "error.classified.unknown") return i18n.t(key)
+    // For unknown errors, try to extract a human-readable message from the raw error
+    const msg = err.data?.message
+    const raw = typeof msg === "string" ? unwrap(msg) : msg !== undefined && msg !== null ? unwrap(String(msg)) : ""
+    if (raw && raw !== JSON.stringify(err)) return raw
+    return i18n.t(key)
   })
 
   const status = createMemo(() => {

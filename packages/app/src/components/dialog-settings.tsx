@@ -2,8 +2,11 @@ import { Component } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconButton } from "@opencode-ai/ui/icon-button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
+import { SettingsDependencies } from "./settings-dependencies"
 import { SettingsGeneral } from "./settings-general"
 import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
@@ -12,10 +15,19 @@ import { SettingsModels } from "./settings-models"
 export const DialogSettings: Component = () => {
   const language = useLanguage()
   const platform = usePlatform()
+  const dialog = useDialog()
 
   return (
     <Dialog size="x-large" transition>
-      <Tabs orientation="vertical" variant="settings" defaultValue="general" class="h-full settings-dialog">
+      <Tabs orientation="vertical" variant="settings" defaultValue="general" class="h-full settings-dialog" style={{ position: "relative" }}>
+        <IconButton
+          icon="close"
+          variant="ghost"
+          size="small"
+          aria-label={language.t("ui.common.close")}
+          onClick={() => dialog.close()}
+          style={{ position: "absolute", top: "8px", right: "8px", "z-index": 1 }}
+        />
         <Tabs.List>
           <div class="flex flex-col justify-between h-full w-full">
             <div class="flex flex-col gap-3 w-full pt-3">
@@ -47,6 +59,16 @@ export const DialogSettings: Component = () => {
                     </Tabs.Trigger>
                   </div>
                 </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <Tabs.SectionTitle>{language.t("settings.section.runtime")}</Tabs.SectionTitle>
+                  <div class="flex flex-col gap-1.5 w-full">
+                    <Tabs.Trigger value="dependencies">
+                      <Icon name="shield" />
+                      {language.t("settings.dependencies.title")}
+                    </Tabs.Trigger>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="flex flex-col gap-1 pl-1 py-1 text-12-medium text-text-weak">
@@ -66,6 +88,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
           <SettingsModels />
+        </Tabs.Content>
+        <Tabs.Content value="dependencies" class="no-scrollbar">
+          <SettingsDependencies />
         </Tabs.Content>
       </Tabs>
     </Dialog>

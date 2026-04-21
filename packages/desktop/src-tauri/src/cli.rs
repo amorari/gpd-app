@@ -323,17 +323,20 @@ fn load_shell_env(shell: &str) -> Option<HashMap<String, String>> {
         return None;
     }
 
-    match probe_shell_env(shell, "-il") {
+    // Use -l (login) instead of -il (interactive login) to avoid sourcing
+    // .zshrc/.bashrc which can scan protected directories and trigger
+    // macOS TCC permission prompts on first launch.
+    match probe_shell_env(shell, "-l") {
         ShellEnvProbe::Loaded(env) => {
             tracing::info!(
                 shell,
                 env_count = env.len(),
-                "Loaded shell environment with -il"
+                "Loaded shell environment with -l"
             );
             return Some(env);
         }
         ShellEnvProbe::Timeout => {
-            tracing::warn!(shell, "Interactive shell env probe timed out");
+            tracing::warn!(shell, "Login shell env probe timed out");
             return None;
         }
         ShellEnvProbe::Unavailable => {}
@@ -555,15 +558,19 @@ pub fn serve(
     hostname: &str,
     port: u32,
     password: &str,
+    extra_serve_env: &[(&str, String)],
 ) -> (CommandChild, oneshot::Receiver<TerminatedPayload>) {
     let (exit_tx, exit_rx) = oneshot::channel::<TerminatedPayload>();
 
     tracing::info!(port, "Spawning sidecar");
 
-    let envs = [
+    let mut envs = vec![
         ("OPENCODE_SERVER_USERNAME", "opencode".to_string()),
         ("OPENCODE_SERVER_PASSWORD", password.to_string()),
     ];
+    for (k, v) in extra_serve_env {
+        envs.push((k, v.clone()));
+    }
 
     let (events, child) = spawn_command(
         app,

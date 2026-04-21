@@ -1,5 +1,10 @@
 mod cli;
 mod constants;
+mod dependencies;
+mod gpd_setup;
+mod project_fs;
+mod tectonic;
+mod tex_compiler;
 #[cfg(target_os = "linux")]
 pub mod linux_display;
 #[cfg(target_os = "linux")]
@@ -47,6 +52,7 @@ struct ServerReadyData {
 enum InitStep {
     ServerWaiting,
     SqliteWaiting,
+    GpdSetup,
     Done,
 }
 
@@ -184,12 +190,12 @@ fn open_path(_app: AppHandle, path: String, app_name: Option<String>) -> Result<
         }
 
         return tauri_plugin_opener::open_path(path, app_name.as_deref())
-            .map_err(|e| format!("Failed to open path: {e}"));
+            .map_err(|e| format!("Couldn't open that file or folder. Check permissions and that it exists. ({e})"));
     }
 
     #[cfg(not(target_os = "windows"))]
     tauri_plugin_opener::open_path(path, app_name.as_deref())
-        .map_err(|e| format!("Failed to open path: {e}"))
+        .map_err(|e| format!("Couldn't open that file or folder. Check permissions and that it exists. ({e})"))
 }
 
 #[cfg(target_os = "macos")]
@@ -279,18 +285,18 @@ fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String> {
         Command::new("wsl")
             .args(["-e", "sh", "-lc", &cmd])
             .output()
-            .map_err(|e| format!("Failed to run wslpath: {e}"))?
+            .map_err(|e| format!("Couldn't translate the file path for WSL. Try a simpler path. ({e})"))?
     } else {
         Command::new("wsl")
             .args(["-e", "wslpath", flag, &path])
             .output()
-            .map_err(|e| format!("Failed to run wslpath: {e}"))?
+            .map_err(|e| format!("Couldn't translate the file path for WSL. Try a simpler path. ({e})"))?
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if stderr.is_empty() {
-            return Err("wslpath failed".to_string());
+            return Err("Couldn't translate the file path for WSL. Try a simpler path.".to_string());
         }
         return Err(stderr);
     }
@@ -300,17 +306,17 @@ fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = make_specta_builder();
+    let specta_builder = make_specta_builder();
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds
-    export_types(&builder);
+    export_types(&specta_builder);
 
     #[cfg(all(target_os = "macos", not(debug_assertions)))]
     let _ = std::process::Command::new("killall")
         .arg("opencode-cli")
         .output();
 
-    let mut builder = tauri::Builder::default()
+    let tauri_builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Focus existing window when another instance is launched
             if let Some(window) = app.get_webview_window(MainWindow::LABEL) {
@@ -335,8 +341,20 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(crate::window_customizer::PinchZoomDisablePlugin)
-        .plugin(tauri_plugin_decorum::init())
-        .invoke_handler(builder.invoke_handler())
+        .plugin(tauri_plugin_decorum::init());
+
+    // tauri-plugin-mcp opens an unauthenticated local socket and exposes
+    // `execute_js` as an arbitrary-JS escape hatch. Per the plugin's own
+    // README it MUST be gated behind `debug_assertions`; shipping it in
+    // release builds would expose every user to a persistent unauthenticated
+    // local RCE surface.
+    #[cfg(debug_assertions)]
+    let tauri_builder = tauri_builder.plugin(tauri_plugin_mcp::init_with_config(
+        tauri_plugin_mcp::PluginConfig::new("GPD".to_string()).start_socket_server(true),
+    ));
+
+    let mut builder = tauri_builder
+        .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -347,8 +365,11 @@ pub fn run() {
             // Hold the guard in managed state so it lives for the app's lifetime,
             // ensuring all buffered logs are flushed on shutdown.
             handle.manage(logging::init(&log_dir));
+            // Shared cancel-aware TeX compile state so a second Compile
+            // click aborts an in-flight compile instead of racing it.
+            handle.manage(tex_compiler::TexCompileState::new());
 
-            builder.mount_events(&handle);
+            specta_builder.mount_events(&handle);
             tauri::async_runtime::spawn(initialize(handle));
 
             Ok(())
@@ -387,11 +408,28 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             check_app_exists,
             wsl_path,
             resolve_app_path,
-            open_path
+            open_path,
+            dependencies::install_git_macos,
+            dependencies::install_git_windows,
+            dependencies::linux_install_hint,
+            gpd_setup::repair_gpd_venv,
+            tectonic::install_tectonic,
+            tex_compiler::detect_tex_compiler,
+            tex_compiler::detect_tex_root,
+            tex_compiler::compile_tex,
+            tex_compiler::synctex_forward,
+            tex_compiler::synctex_reverse,
+            tex_compiler::parse_tex_log,
+            tex_compiler::read_tex_artifact_base64,
+            project_fs::create_project_directory,
+            project_fs::check_project_accessible
         ])
         .events(tauri_specta::collect_events![
             LoadingWindowComplete,
-            SqliteMigrationProgress
+            SqliteMigrationProgress,
+            GpdFirstRunComplete,
+            tectonic::TectonicDownloadProgress,
+            tex_compiler::TexCompileProgress
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
 }
@@ -415,6 +453,11 @@ fn test_export_types() {
 #[derive(tauri_specta::Event, serde::Deserialize, specta::Type)]
 struct LoadingWindowComplete;
 
+/// Emitted once, after a successful GPD first-run setup, so the frontend can
+/// show an informational toast about where files were installed.
+#[derive(Clone, tauri_specta::Event, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct GpdFirstRunComplete;
+
 async fn initialize(app: AppHandle) {
     tracing::info!("Initializing app");
 
@@ -429,9 +472,56 @@ async fn initialize(app: AppHandle) {
     let url = format!("http://{hostname}:{port}");
     let password = uuid::Uuid::new_v4().to_string();
 
+    // Use GPD-specific config directory to avoid colliding with personal OpenCode installs
+    let gpd_config = gpd_setup::config_dir();
+
+    // Decide whether first-run setup is needed:
+    //   • Marker missing                → fresh install, run setup.
+    //   • Marker present + venv invalid → venv broken after upgrade or partial
+    //                                     delete; re-run setup (idempotent).
+    //   • Marker present + venv valid   → skip setup entirely.
+    let venv_valid = gpd_setup::is_venv_valid().await;
+    let marker_exists = gpd_setup::is_initialized();
+    let needs_gpd_setup = if marker_exists && !venv_valid {
+        tracing::warn!("GPD venv appears broken; re-running setup");
+        true
+    } else if !marker_exists {
+        tracing::info!("GPD first-run detected — will run setup after health check");
+        true
+    } else {
+        false
+    };
+
     tracing::info!("Spawning sidecar on {url}");
-    let (child, health_check) =
-        server::spawn_local_server(app.clone(), hostname.to_string(), port, password.clone());
+    let gpd_config_str = gpd_config.to_string_lossy().to_string();
+
+    // Prepend GPD bin and venv bin to PATH so the agent can find `uv` (for
+    // per-project venv management) and the GPD venv Python.
+    let gpd_bin = gpd_config.join("bin");
+    let gpd_venv_bin = gpd_config.join(".venv").join("bin");
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let augmented_path = format!(
+        "{}:{}:{}",
+        gpd_bin.to_string_lossy(),
+        gpd_venv_bin.to_string_lossy(),
+        current_path,
+    );
+
+    let (child, health_check) = server::spawn_local_server(
+        app.clone(),
+        hostname.to_string(),
+        port,
+        password.clone(),
+        &[
+            ("OPENCODE_CONFIG_DIR", gpd_config_str),
+            ("OPENCODE_CONFIG_CONTENT", gpd_setup::build_config_json()),
+            ("PATH", augmented_path),
+            // GPD uses a fully self-contained provider definition via OPENCODE_CONFIG_CONTENT
+            // with enabled_providers: ["gpd"], so the models.dev network fetch is wasted work.
+            // Skipping it eliminates several seconds of startup latency on cold cache.
+            ("OPENCODE_DISABLE_MODELS_FETCH", "1".to_string()),
+        ],
+    );
 
     // Make sidecar credentials available immediately (before health check completes)
     let (ready_tx, ready_rx) = oneshot::channel();
@@ -480,6 +570,8 @@ async fn initialize(app: AppHandle) {
     // The loading task waits for SQLite migration (if needed) then for the sidecar health check.
     // This is only used to drive the loading window progress - the main window is shown immediately.
     let loading_task = tokio::spawn({
+        let app_clone = app.clone();
+        let init_tx_clone = init_tx.clone();
         async move {
             if let Some(sqlite_done_rx) = sqlite_done {
                 let _ = sqlite_done_rx.await;
@@ -492,6 +584,21 @@ async fn initialize(app: AppHandle) {
                 Ok(Ok(Err(e))) => tracing::error!("Sidecar health check failed: {e}"),
                 Ok(Err(e)) => tracing::error!("Sidecar health check task failed: {e}"),
                 Err(_) => tracing::error!("Sidecar health check timed out"),
+            }
+
+            // GPD first-run setup (after server is healthy)
+            if needs_gpd_setup {
+                let _ = init_tx_clone.send(InitStep::GpdSetup);
+                match gpd_setup::run_first_setup(app_clone.clone()).await {
+                    Ok(()) => {
+                        tracing::info!("GPD first-run setup completed");
+                        // Notify the frontend so it can show an informational toast
+                        // about where GPD installed its files.
+                        let _ = GpdFirstRunComplete.emit(&app_clone);
+                    }
+                    Err(e) => tracing::error!("GPD first-run setup failed: {e}"),
+                    // Non-fatal: marker not written on failure, retries next launch
+                }
             }
 
             tracing::info!("Loading task finished");

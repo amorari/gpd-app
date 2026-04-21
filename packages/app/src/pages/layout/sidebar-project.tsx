@@ -27,6 +27,7 @@ export type ProjectSidebarContext = {
   openSidebar: () => void
   closeProject: (directory: string) => void
   showEditProjectDialog: (project: LocalProject) => void
+  showDeleteProjectDialog: (project: LocalProject) => void
   toggleProjectWorkspaces: (project: LocalProject) => void
   workspacesEnabled: (project: LocalProject) => boolean
   workspaceIds: (project: LocalProject) => string[]
@@ -64,6 +65,7 @@ const ProjectTile = (props: {
   onProjectFocus: (worktree: string) => void
   navigateToProject: (directory: string) => void
   showEditProjectDialog: (project: LocalProject) => void
+  showDeleteProjectDialog: (project: LocalProject) => void
   toggleProjectWorkspaces: (project: LocalProject) => void
   workspacesEnabled: (project: LocalProject) => boolean
   closeProject: (directory: string) => void
@@ -74,6 +76,7 @@ const ProjectTile = (props: {
 }): JSX.Element => {
   const notification = useNotification()
   const layout = useLayout()
+  const isLocked = createMemo(() => layout.projects.isLocked(props.project.worktree))
   const unseenCount = createMemo(() =>
     props.dirs().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
   )
@@ -99,12 +102,14 @@ const ProjectTile = (props: {
         aria-label={displayName(props.project)}
         data-action="project-switch"
         data-project={base64Encode(props.project.worktree)}
+        title={isLocked() ? props.language.t("sidebar.project.locked.tooltip") : undefined}
         classList={{
           "flex items-center justify-center size-10 p-1 rounded-lg overflow-hidden transition-colors cursor-default": true,
           "bg-transparent border-2 border-icon-strong-base hover:bg-surface-base-hover": props.selected(),
           "bg-transparent border border-transparent hover:bg-surface-base-hover hover:border-border-weak-base":
             !props.selected() && !props.active(),
           "bg-surface-base-hover border border-border-weak-base": !props.selected() && props.active(),
+          "opacity-60 border-dashed": isLocked(),
         }}
         onPointerDown={(event) => {
           if (event.button === 0 && !event.ctrlKey) {
@@ -135,6 +140,12 @@ const ProjectTile = (props: {
         }}
         onClick={() => {
           props.setOpen(false)
+          if (isLocked()) {
+            void layout.projects.unlock(props.project.worktree).then((unlocked) => {
+              if (unlocked) props.navigateToProject(unlocked)
+            })
+            return
+          }
           if (props.selected()) {
             layout.sidebar.toggle()
             return
@@ -178,6 +189,13 @@ const ProjectTile = (props: {
           >
             <ContextMenu.ItemLabel>{props.language.t("common.close")}</ContextMenu.ItemLabel>
           </ContextMenu.Item>
+          <ContextMenu.Item
+            data-action="project-delete-menu"
+            data-project={base64Encode(props.project.worktree)}
+            onSelect={() => props.showDeleteProjectDialog(props.project)}
+          >
+            <ContextMenu.ItemLabel>{props.language.t("sidebar.project.delete")}</ContextMenu.ItemLabel>
+          </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu>
@@ -195,11 +213,13 @@ const ProjectPreviewPanel = (props: {
   workspaceSessions: (directory: string) => ReturnType<typeof sortedRootSessions>
   ctx: ProjectSidebarContext
   language: ReturnType<typeof useLanguage>
+  shortWorktree: () => string
 }): JSX.Element => (
   <div class="-m-3 p-2 flex flex-col w-72">
-    <div class="px-4 pt-2 pb-1 flex items-center gap-2">
+    <div class="px-4 pt-2 pb-0.5 flex items-center gap-2">
       <div class="text-14-medium text-text-strong truncate grow">{displayName(props.project)}</div>
     </div>
+    <div class="px-4 pb-1 text-11-regular text-text-weaker truncate">{props.shortWorktree()}</div>
     <div class="px-4 pb-2 text-12-medium text-text-weak">{props.language.t("sidebar.project.recentSessions")}</div>
     <div class="px-2 pb-2 flex flex-col gap-2">
       <Show
@@ -306,6 +326,11 @@ export const SortableProject = (props: {
     const [data] = globalSync.child(directory, { bootstrap: false })
     return sortedRootSessions(data, props.sortNow())
   }
+  const shortWorktree = createMemo(() => {
+    const worktree = props.project.worktree
+    const home = globalSync.data.path.home
+    return home ? worktree.replace(home, "~") : worktree
+  })
   const tile = () => (
     <ProjectTile
       project={props.project}
@@ -321,6 +346,7 @@ export const SortableProject = (props: {
       onProjectFocus={props.ctx.onProjectFocus}
       navigateToProject={props.ctx.navigateToProject}
       showEditProjectDialog={props.ctx.showEditProjectDialog}
+      showDeleteProjectDialog={props.ctx.showDeleteProjectDialog}
       toggleProjectWorkspaces={props.ctx.toggleProjectWorkspaces}
       workspacesEnabled={props.ctx.workspacesEnabled}
       closeProject={props.ctx.closeProject}
@@ -359,6 +385,7 @@ export const SortableProject = (props: {
             workspaceSessions={workspaceSessions}
             ctx={props.ctx}
             language={language}
+            shortWorktree={shortWorktree}
           />
         </HoverCard>
       </Show>

@@ -1,0 +1,320 @@
+import { Match, Show, Switch, createMemo } from "solid-js"
+import { Button } from "@opencode-ai/ui/button"
+import { showToast } from "@opencode-ai/ui/toast"
+import { useLanguage } from "@/context/language"
+import { useSDK } from "@/context/sdk"
+import { useFile } from "@/context/file"
+import { usePlatform } from "@/context/platform"
+import { TexPdfViewer } from "./tex-pdf-viewer"
+import { TexErrorList } from "./tex-error-list"
+import { createTexCompiler, type TexCompilerHandle } from "./use-tex-compiler"
+import type { TexCompileResult, TexDiagnostic } from "@/context/platform"
+
+/**
+ * The Build pane, shown in the side panel when the active file is a
+ * `.tex` source. Orchestrates:
+ *
+ *   - Compile / Recompile buttons
+ *   - Compiler detection + "no compiler" CTA
+ *   - PDF preview (iframe)
+ *   - Error / warning list with clickable line numbers
+ *   - "Open log externally" action
+ *
+ * The hook state is owned here so recompiles on the same tab are cheap
+ * (no remount). We deliberately do NOT auto-compile — Plan B requires
+ * explicit user action to avoid TikZ compile storms on every keystroke.
+ */
+export function TexBuildPane(props: {
+  /**
+   * Absolute path to the currently-active `.tex` source file. The pane
+   * tracks state keyed by this path.
+   */
+  texFile: string
+  /** Focus a line in the editor in response to a clicked diagnostic. */
+  onNavigateSource?: (file: string, line: number) => void
+  /** When `true`, the parent has hidden the source editor and the Build pane
+   * fills the entire tab.  The toggle button flips between states. */
+  maximized?: boolean
+  onToggleMaximized?: () => void
+}) {
+  const language = useLanguage()
+  const sdk = useSDK()
+  const file = useFile()
+  const platform = usePlatform()
+
+  const tex = createTexCompiler({
+    projectId: () => sdk.directory,
+  })
+
+  const absTexFile = createMemo(() => toAbsolute(props.texFile, sdk.directory))
+  const entry = createMemo(() => tex.current(absTexFile()))
+  const compiler = createMemo(() => tex.state.compiler)
+  const running = createMemo(() => tex.state.running)
+  const progress = createMemo(() => tex.state.progress)
+
+  const statusKey = createMemo(() => {
+    if (running()) return "tex.build.status.compiling"
+    const e = entry()
+    if (!e) return "tex.build.status.ready"
+    switch (e.result.status) {
+      case "success":
+      case "success_with_warnings":
+        return "tex.build.status.ready"
+      case "error":
+        return "tex.build.status.error"
+      case "no_compiler":
+        return "tex.error.noCompiler"
+      default:
+        return "tex.build.status.ready"
+    }
+  })
+
+  const doCompile = async () => {
+    try {
+      const result = await tex.compile({
+        texFile: absTexFile(),
+      })
+      handleResult(result)
+    } catch (e) {
+      showToast({
+        variant: "error",
+        title: language.t("tex.error.compileFailed"),
+        description: e instanceof Error ? e.message : String(e),
+      })
+    }
+  }
+
+  const handleResult = (result: TexCompileResult) => {
+    if (result.status === "no_compiler") {
+      showToast({
+        variant: "error",
+        title: language.t("tex.error.noCompiler"),
+        description: language.t("tex.error.noCompiler.description"),
+      })
+      return
+    }
+    if (result.status === "error") {
+      showToast({
+        variant: "error",
+        title: language.t("tex.error.compileFailed"),
+        description: result.errors[0]?.message ?? "",
+      })
+    }
+  }
+
+  const onDiagnosticClick = (diag: TexDiagnostic) => {
+    if (diag.line === null) return
+    const target = diag.file ?? props.texFile
+    props.onNavigateSource?.(target, diag.line)
+  }
+
+  const openLog = async () => {
+    const e = entry()
+    if (!e?.result.logPath) return
+    try {
+      await platform.openPath?.(e.result.logPath)
+    } catch (err) {
+      showToast({
+        variant: "error",
+        title: language.t("toast.file.openFailed.title"),
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  const installTectonic = async () => {
+    if (!platform.installTectonic) return
+    try {
+      await platform.installTectonic()
+      await tex.refreshCompiler()
+      showToast({
+        variant: "success",
+        title: language.t("settings.dependencies.tectonic.installed"),
+      })
+    } catch (err) {
+      showToast({
+        variant: "error",
+        title: language.t("settings.dependencies.tectonic.failed", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      })
+    }
+  }
+
+  const recompileDisabled = () => running()
+  const hasPdf = () => !!entry()?.result.pdfPath
+
+  return (
+    <div class="flex flex-col h-full overflow-hidden" data-component="tex-build-pane">
+      <div class="flex items-center justify-between shrink-0 px-3 py-2 border-b border-border-weaker-base">
+        <div class="flex items-center gap-2 text-12-regular">
+          <div class="text-text-weak">{language.t("tex.build.title")}</div>
+          <StatusIndicator statusKey={statusKey()} running={running()} />
+          <Show when={running() ? progress() : null}>
+            {(p) => (
+              <span class="text-text-weaker">{Math.max(0, Math.floor(p().percent))}%</span>
+            )}
+          </Show>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <Button
+            size="small"
+            variant="primary"
+            disabled={recompileDisabled()}
+            onClick={() => void doCompile()}
+          >
+            {entry()
+              ? language.t("tex.build.recompile")
+              : language.t("tex.build.compile")}
+          </Button>
+          <Show when={entry()?.result.logPath}>
+            <Button size="small" variant="secondary" onClick={() => void openLog()}>
+              {language.t("tex.build.showLog")}
+            </Button>
+          </Show>
+          <Show when={props.onToggleMaximized}>
+            <Button
+              size="small"
+              variant="secondary"
+              onClick={() => props.onToggleMaximized?.()}
+              title={props.maximized ? language.t("tex.build.restoreSource") : language.t("tex.build.maximize")}
+            >
+              {props.maximized ? language.t("tex.build.restoreSource") : language.t("tex.build.maximize")}
+            </Button>
+          </Show>
+        </div>
+      </div>
+
+      <Switch>
+        <Match when={compiler() === null && tex.compilerLoaded() === false}>
+          <div class="flex-1 flex items-center justify-center text-12-regular text-text-weak">
+            {language.t("common.loading")}
+            {language.t("common.loading.ellipsis")}
+          </div>
+        </Match>
+
+        <Match when={compiler()?.kind === "none"}>
+          <NoCompilerCta
+            onInstall={installTectonic}
+            canInstall={!!platform.installTectonic}
+          />
+        </Match>
+
+        <Match when={!entry()}>
+          <IdleState onCompile={() => void doCompile()} />
+        </Match>
+
+        <Match when={entry()}>
+          {(e) => (
+            <div class="flex-1 min-h-0 flex flex-col">
+              <Show when={hasPdf()}>
+                <div class="flex-1 min-h-0">
+                  <TexPdfViewer pdfPath={e().result.pdfPath!} />
+                </div>
+              </Show>
+              <div
+                class="shrink-0 border-t border-border-weaker-base overflow-auto"
+                style={{ "max-height": hasPdf() ? "33%" : "100%" }}
+              >
+                <TexErrorList
+                  errors={e().result.errors}
+                  warnings={e().result.warnings}
+                  onNavigate={(diag) => {
+                    onDiagnosticClick(diag)
+                    // Also ensure the file is opened in the tab bar.
+                    if (diag.file) file.load(diag.file).catch(() => {})
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </Match>
+      </Switch>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function StatusIndicator(props: { statusKey: string; running: boolean }) {
+  const language = useLanguage()
+  const colorClass = () => {
+    if (props.running) return "bg-background-accent"
+    if (props.statusKey === "tex.build.status.error") return "bg-text-error"
+    if (props.statusKey === "tex.error.noCompiler") return "bg-text-error"
+    return "bg-text-weak"
+  }
+  return (
+    <span class="flex items-center gap-1.5">
+      <span class={"inline-block w-1.5 h-1.5 rounded-full " + colorClass()} aria-hidden />
+      <span>{language.t(props.statusKey as never)}</span>
+    </span>
+  )
+}
+
+function NoCompilerCta(props: { onInstall: () => Promise<void>; canInstall: boolean }) {
+  const language = useLanguage()
+  return (
+    <div class="flex-1 flex items-center justify-center p-6 text-center">
+      <div class="flex flex-col items-center gap-3 max-w-80">
+        <div class="text-13-medium">{language.t("tex.error.noCompiler")}</div>
+        <div class="text-12-regular text-text-weak whitespace-pre-line">
+          {language.t("tex.error.noCompiler.description")}
+        </div>
+        <Show when={props.canInstall}>
+          <Button size="small" variant="primary" onClick={() => void props.onInstall()}>
+            {language.t("tex.error.installTectonic")}
+          </Button>
+        </Show>
+      </div>
+    </div>
+  )
+}
+
+function IdleState(props: { onCompile: () => void }) {
+  const language = useLanguage()
+  return (
+    <div class="flex-1 flex items-center justify-center p-6 text-center">
+      <div class="flex flex-col items-center gap-3">
+        <div class="text-13-medium">{language.t("tex.build.title")}</div>
+        <div class="text-12-regular text-text-weak">
+          {language.t("tex.build.history.empty")}
+        </div>
+        <Button size="small" variant="primary" onClick={props.onCompile}>
+          {language.t("tex.build.compile")}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * The Rust compile command needs an absolute filesystem path. The file
+ * context stores paths relative to the project root, so we must re-join
+ * them here. `directory` is always an absolute path on desktop.
+ */
+function toAbsolute(path: string, directory: string): string {
+  if (!directory) return path
+  if (isAbsolute(path)) return path
+  const dir = directory.replace(/[\\/]+$/, "")
+  const rel = path.replace(/^[\\/]+/, "")
+  const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/"
+  return `${dir}${sep}${rel}`
+}
+
+function isAbsolute(p: string): boolean {
+  if (!p) return false
+  if (p.startsWith("/")) return true
+  // Windows: `C:\foo` or `C:/foo`
+  if (/^[A-Za-z]:[\\/]/.test(p)) return true
+  if (p.startsWith("\\\\")) return true
+  return false
+}
+
+export type { TexCompilerHandle }

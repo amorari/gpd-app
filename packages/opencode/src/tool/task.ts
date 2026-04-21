@@ -145,6 +145,24 @@ export const TaskTool = Tool.define(
               parts,
             })
 
+            const lastText = result.parts.findLast((item) => item.type === "text")?.text
+            const taskResult = (() => {
+              if (lastText) return lastText
+              // Fallback: summarize recent tool activity when the subagent finished
+              // its last step with a tool call and produced no trailing text part.
+              const recentTools = result.parts
+                .filter((p): p is Extract<typeof p, { type: "tool" }> => p.type === "tool")
+                .slice(-3)
+                .map((p) => {
+                  if (p.state.status === "completed") return `${p.tool}(${p.state.title})`
+                  if (p.state.status === "error") return `${p.tool}(error: ${p.state.error})`
+                  return p.tool
+                })
+              return recentTools.length
+                ? `Subagent completed ${recentTools.length} tool action(s) without a final text summary. Last actions: ${recentTools.join(", ")}`
+                : "Subagent completed without producing output."
+            })()
+
             return {
               title: params.description,
               metadata: {
@@ -155,7 +173,7 @@ export const TaskTool = Tool.define(
                 `task_id: ${nextSession.id} (for resuming to continue this task if needed)`,
                 "",
                 "<task_result>",
-                result.parts.findLast((item) => item.type === "text")?.text ?? "",
+                taskResult,
                 "</task_result>",
               ].join("\n"),
             }

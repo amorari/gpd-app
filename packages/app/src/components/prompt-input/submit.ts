@@ -3,7 +3,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { Binary } from "@opencode-ai/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
-import type { Accessor } from "solid-js"
+import { batch, type Accessor } from "solid-js"
 import type { FileSelection } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -18,6 +18,7 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
+import { classifyError } from "@opencode-ai/util/classify-error"
 
 type PendingPrompt = {
   abort: AbortController
@@ -138,13 +139,17 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
     })
 
-  setBusy()
-  add()
+  batch(() => {
+    setBusy()
+    add()
+  })
 
   try {
     if (!(await wait())) {
-      setIdle()
-      remove()
+      batch(() => {
+        setIdle()
+        remove()
+      })
       return false
     }
 
@@ -158,8 +163,10 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     })
     return true
   } catch (err) {
-    setIdle()
-    remove()
+    batch(() => {
+      setIdle()
+      remove()
+    })
     throw err
   }
 }
@@ -208,12 +215,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const params = useParams()
 
   const errorMessage = (err: unknown) => {
-    if (err && typeof err === "object" && "data" in err) {
-      const data = (err as { data?: { message?: string } }).data
-      if (data?.message) return data.message
-    }
-    if (err instanceof Error) return err.message
-    return language.t("common.requestFailed")
+    // First try structured server error types (ConfigInvalid, ProviderModelNotFound, etc.)
+    const structured = formatServerError(err, language.t)
+    if (structured && structured !== language.t("error.chain.unknown")) return structured
+    // Then classify raw API errors into professor-friendly messages
+    const key = classifyError(err)
+    if (key !== "error.classified.unknown") return language.t(key)
+    // Final fallback
+    return formatServerError(err, language.t, language.t("common.requestFailed"))
   }
 
   const abort = async () => {

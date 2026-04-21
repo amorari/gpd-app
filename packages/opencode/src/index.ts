@@ -37,6 +37,7 @@ import { errorMessage } from "./util/error"
 import { PluginCommand } from "./cli/cmd/plug"
 import { Heap } from "./cli/heap"
 import { drizzle } from "drizzle-orm/bun-sqlite"
+import { SlackCommand } from "./cli/cmd/slack"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -171,6 +172,7 @@ const cli = yargs(args)
   .command(SessionCommand)
   .command(PluginCommand)
   .command(DbCommand)
+  .command(SlackCommand)
   .fail((msg, err) => {
     if (
       msg?.startsWith("Unknown argument") ||

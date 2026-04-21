@@ -16,6 +16,13 @@ export type ProviderModelNotFoundError = {
   }
 }
 
+export type UnknownError = {
+  name: "UnknownError"
+  data: {
+    message: string
+  }
+}
+
 type Translator = (key: string, vars?: Record<string, string | number>) => string
 
 function tr(translator: Translator | undefined, key: string, text: string, vars?: Record<string, string | number>) {
@@ -28,10 +35,63 @@ function tr(translator: Translator | undefined, key: string, text: string, vars?
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === "string" && error) return error
+  if (isUnknownErrorLike(error)) return parseReadableUnknownError(error)
+  if (isPermissionError(error))
+    return tr(
+      translate,
+      "error.chain.permissionDenied",
+      "GPD needs permission to access this folder. Open System Settings → Privacy & Security → Files and Folders to grant access.",
+    )
+  if (error instanceof Error && error.message) return friendly(error.message)
+  if (typeof error === "string" && error) return friendly(error)
   if (fallback) return fallback
-  return tr(translate, "error.chain.unknown", "Unknown error")
+  return tr(translate, "error.chain.unknown", "Something went wrong")
+}
+
+/**
+ * Rewrite common low-level error codes into user-friendly copy. Keeps the
+ * original text if no match. This catches errors that bypass our typed
+ * error shapes (raw Node errors, fetch failures, etc.).
+ */
+function friendly(msg: string): string {
+  const lower = msg.toLowerCase()
+  if (lower.includes("enoent") || lower.includes("no such file")) {
+    return "That file or folder couldn't be found. It may have been moved or deleted."
+  }
+  if (lower.includes("eacces") || lower.includes("permission denied")) {
+    return "GPD doesn't have permission to access that file or folder."
+  }
+  if (lower.includes("econnrefused")) {
+    return "Couldn't connect — the service isn't reachable. Check your internet or try restarting GPD."
+  }
+  if (lower.includes("enotfound") || lower.includes("getaddrinfo")) {
+    return "Couldn't reach that server. Check your internet connection."
+  }
+  if (lower.includes("etimedout") || lower.includes("timeout")) {
+    return "The request took too long. Try again or check your internet connection."
+  }
+  if (lower.includes("econnreset")) {
+    return "The connection was interrupted. Try again in a moment."
+  }
+  return msg
+}
+
+function isPermissionError(error: unknown): boolean {
+  if (error instanceof Error) return error.message.includes("EPERM") || error.message.includes("operation not permitted")
+  if (typeof error === "object" && error !== null) {
+    const o = error as Record<string, unknown>
+    // Check top-level message field
+    const msg = String(o.message ?? "")
+    if (msg.includes("EPERM") || msg.includes("operation not permitted")) return true
+    // Check nested data.message field (UnknownError shape from ErrorMiddleware)
+    if (typeof o.data === "object" && o.data !== null) {
+      const dataMsg = String((o.data as Record<string, unknown>).message ?? "")
+      if (dataMsg.includes("EPERM") || dataMsg.includes("operation not permitted")) return true
+    }
+    return false
+  }
+  if (typeof error === "string") return error.includes("EPERM") || error.includes("operation not permitted")
+  return false
 }
 
 function isConfigInvalidErrorLike(error: unknown): error is ConfigInvalidError {
@@ -46,6 +106,20 @@ function isProviderModelNotFoundErrorLike(error: unknown): error is ProviderMode
   return o.name === "ProviderModelNotFoundError" && typeof o.data === "object" && o.data !== null
 }
 
+function isUnknownErrorLike(error: unknown): error is UnknownError {
+  if (typeof error !== "object" || error === null) return false
+  const o = error as Record<string, unknown>
+  if (o.name !== "UnknownError") return false
+  if (typeof o.data !== "object" || o.data === null) return false
+  return typeof (o.data as Record<string, unknown>).message === "string"
+}
+
+function parseReadableUnknownError(error: UnknownError): string {
+  // Strip stack trace: take only the first line of the message
+  const firstLine = error.data.message.split("\n")[0].trim()
+  return friendly(firstLine)
+}
+
 export function parseReadableConfigInvalidError(errorInput: ConfigInvalidError, translator?: Translator) {
   const file = errorInput.data.path && errorInput.data.path !== "config" ? errorInput.data.path : "config"
   const detail = errorInput.data.message?.trim() ?? ""
@@ -57,8 +131,8 @@ export function parseReadableConfigInvalidError(errorInput: ConfigInvalidError, 
     })
     .filter(Boolean)
   const msg = issues.length ? issues.join("\n") : detail
-  if (!msg) return tr(translator, "error.chain.configInvalid", `Config file at ${file} is invalid`, { path: file })
-  return tr(translator, "error.chain.configInvalidWithMessage", `Config file at ${file} is invalid: ${msg}`, {
+  if (!msg) return tr(translator, "error.chain.configInvalid", `Settings file at ${file} is invalid`, { path: file })
+  return tr(translator, "error.chain.configInvalidWithMessage", `Settings file at ${file} is invalid: ${msg}`, {
     path: file,
     message: msg,
   })
@@ -69,7 +143,7 @@ function parseReadableProviderModelNotFoundError(errorInput: ProviderModelNotFou
   const m = errorInput.data.modelID.trim()
   const list = (errorInput.data.suggestions ?? []).map((v) => v.trim()).filter(Boolean)
   const body = tr(translator, "error.chain.modelNotFound", `Model not found: ${p}/${m}`, { provider: p, model: m })
-  const tail = tr(translator, "error.chain.checkConfig", "Check your config (opencode.json) provider/model names")
+  const tail = tr(translator, "error.chain.checkConfig", "Check your GPD settings for correct AI service and model names")
   if (list.length) {
     const suggestions = list.slice(0, 5).join(", ")
     return [body, tr(translator, "error.chain.didYouMean", `Did you mean: ${suggestions}`, { suggestions }), tail].join(

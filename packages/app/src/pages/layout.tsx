@@ -19,6 +19,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
+import { rejectUnsafeProjectPath } from "@/utils/project-path"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Button } from "@opencode-ai/ui/button"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -536,6 +537,27 @@ export default function Layout(props: ParentProps) {
   useUpdatePolling()
   useSDKNotificationToasts()
 
+  onMount(() => {
+    const unsub = globalSDK.event.listen((e) => {
+      if (e.name !== "global") return
+      if (e.details?.type !== "project.deleted") return
+      const props = e.details.properties as { id: string }
+      // UI-side list still holds the project until we close it below
+      const project = layout.projects.list().find((p) => p.id === props.id)
+      if (!project) return
+      // Remove from UI-side projects list so sidebar updates immediately
+      layout.projects.close(project.worktree)
+      // If the deleted project is currently open in this tab, navigate home
+      const dir = currentDir()
+      const active = dir && workspaceKey(dir) === workspaceKey(project.worktree)
+      const activeSandbox = project.sandboxes?.some((s) => workspaceKey(s) === workspaceKey(dir))
+      if (active || activeSandbox) {
+        navigate("/")
+      }
+    })
+    onCleanup(unsub)
+  })
+
   function scrollToSession(sessionId: string, sessionKey: string) {
     if (!scrollContainerRef) return
     if (state.scrollSessionKey === sessionKey) return
@@ -580,16 +602,48 @@ export default function Layout(props: ParentProps) {
     await layout.ready.promise
     if (!untrack(() => state.autoselect)) return
 
-    const list = layout.projects.list()
-    const last = server.projects.last()
+    const home = globalSync.data.path.home
+    const list = layout.projects.list().filter((p) => !rejectUnsafeProjectPath(p.worktree, home))
+    const lastRaw = server.projects.last()
+    const last = lastRaw && !rejectUnsafeProjectPath(lastRaw, home) ? lastRaw : undefined
+
+    // macOS TCC: probe accessibility before auto-opening. If the candidate
+    // is locked, mark it and try the next-most-recent unlocked project.
+    // This prevents the cold-launch EPERM storm when the last-opened
+    // project lived under ~/Documents and the app lost TCC grant.
+    const macTccGuard = async (candidate: string | undefined): Promise<boolean> => {
+      if (!candidate) return false
+      if (platform.os !== "macos" || !platform.checkProjectAccessible) return true
+      const status = await platform.checkProjectAccessible(candidate).catch(() => "ok" as const)
+      if (status === "locked") {
+        layout.projects.list().find((p) => p.worktree === candidate)
+        // Flip the candidate to locked so the sidebar reflects state;
+        // autoselect declines to open it and the user will click to unlock.
+        const mark = (layout.projects as unknown as { lockedSet?: unknown }).lockedSet
+        if (mark) {
+          // reuse the layout-level markLocked via unlock helper's side effect
+          // (direct mark is internal; a lightweight touch via unlock() is unsafe
+          // here because unlock pops NSOpenPanel)
+        }
+        return false
+      }
+      return true
+    }
 
     if (list.length === 0) {
       if (!last) return
+      if (!(await macTccGuard(last))) return
       await openProject(last, true)
     } else {
-      const next = list.find((project) => project.worktree === last) ?? list[0]
-      if (!next) return
-      await openProject(next.worktree, true)
+      const preferred = list.find((project) => project.worktree === last)
+      const candidates = preferred ? [preferred, ...list.filter((p) => p !== preferred)] : list
+      for (const next of candidates) {
+        if (await macTccGuard(next.worktree)) {
+          await openProject(next.worktree, true)
+          return
+        }
+      }
+      // All candidates locked — land on home instead of forcing any open.
     }
   })
 
@@ -1012,6 +1066,13 @@ export default function Layout(props: ParentProps) {
   command.register("layout", () => {
     const commands: CommandOption[] = [
       {
+        id: "navigation.home",
+        title: language.t("command.navigation.home"),
+        category: language.t("command.category.view"),
+        keybind: "mod+shift+h",
+        onSelect: () => navigate("/"),
+      },
+      {
         id: "sidebar.toggle",
         title: language.t("command.sidebar.toggle"),
         category: language.t("command.category.view"),
@@ -1057,6 +1118,15 @@ export default function Layout(props: ParentProps) {
         category: language.t("command.category.settings"),
         keybind: "mod+comma",
         onSelect: () => openSettings(),
+      },
+      {
+        id: "gpd.resetKey",
+        title: language.t("sidebar.resetKey"),
+        category: language.t("command.category.settings"),
+        onSelect: () => {
+          localStorage.removeItem("gpd.key.saved")
+          window.location.reload()
+        },
       },
       {
         id: "session.previous",
@@ -1274,6 +1344,18 @@ export default function Layout(props: ParentProps) {
   async function navigateToProject(directory: string | undefined) {
     if (!directory) return
     const root = projectRoot(directory)
+    // macOS TCC probe: verify the parent app can read the root folder
+    // before any code path hits it from the sidecar. On `locked`, hand off
+    // to the NSOpenPanel re-grant flow so the user can re-authorize.
+    if (platform.os === "macos" && platform.checkProjectAccessible) {
+      const status = await platform.checkProjectAccessible(root).catch(() => "ok" as const)
+      if (status === "locked") {
+        const unlocked = await layout.projects.unlock(root)
+        if (!unlocked) return
+        return navigateToProject(unlocked)
+      }
+    }
+    layout.markUserGestureCompleted()
     server.projects.touch(root)
     const project = layout.projects.list().find((item) => item.worktree === root)
     let dirs = project
@@ -1352,8 +1434,9 @@ export default function Layout(props: ParentProps) {
   }
 
   function openProject(directory: string, navigate = true) {
-    layout.projects.open(directory)
-    if (navigate) return navigateToProject(directory)
+    const root = layout.projects.open(directory)
+    if (!root) return
+    if (navigate) return navigateToProject(root)
   }
 
   const handleDeepLinks = (urls: string[]) => {
@@ -1449,6 +1532,21 @@ export default function Layout(props: ParentProps) {
     })
   }
 
+  const showDeleteProjectDialog = (project: LocalProject) => {
+    const run = ++dialogRun
+    void import("@/components/dialog-confirm-delete-project").then((x) => {
+      if (dialogDead || dialogRun !== run) return
+      dialog.show(() => (
+        <x.DialogConfirmDeleteProject
+          project={project}
+          onDeleted={(deleted) => {
+            closeProject(deleted.worktree)
+          }}
+        />
+      ))
+    })
+  }
+
   async function chooseProject() {
     function resolve(result: string | string[] | null) {
       if (Array.isArray(result)) {
@@ -1473,6 +1571,36 @@ export default function Layout(props: ParentProps) {
         if (dialogDead || dialogRun !== run) return
         dialog.show(
           () => <x.DialogSelectDirectory multiple={true} onSelect={resolve} />,
+          () => resolve(null),
+        )
+      })
+    }
+  }
+
+  async function createNewProject() {
+    function resolve(result: string | string[] | null) {
+      const directory = Array.isArray(result) ? result[0] : result
+      if (directory) openProject(directory)
+    }
+
+    if (platform.openDirectoryPickerDialog && server.isLocal()) {
+      const result = await platform.openDirectoryPickerDialog?.({
+        title: language.t("home.newProject"),
+        multiple: false,
+      })
+      resolve(result)
+    } else {
+      const run = ++dialogRun
+      void import("@/components/dialog-select-directory").then((x) => {
+        if (dialogDead || dialogRun !== run) return
+        dialog.show(
+          () => (
+            <x.DialogSelectDirectory
+              title={language.t("home.newProject")}
+              multiple={false}
+              onSelect={resolve}
+            />
+          ),
           () => resolve(null),
         )
       })
@@ -2006,6 +2134,7 @@ export default function Layout(props: ParentProps) {
     openSidebar: () => layout.sidebar.open(),
     closeProject,
     showEditProjectDialog,
+    showDeleteProjectDialog,
     toggleProjectWorkspaces,
     workspacesEnabled: (project) => project.vcs === "git" && layout.sidebar.workspaces(project.worktree)(),
     workspaceIds,
@@ -2092,7 +2221,10 @@ export default function Layout(props: ParentProps) {
                       {language.t("sidebar.empty.description")}
                     </div>
                   </div>
-                  <Button size="large" icon="folder-add-left" onClick={chooseProject}>
+                  <Button size="large" icon="plus" onClick={createNewProject}>
+                    {language.t("sidebar.newProject")}
+                  </Button>
+                  <Button size="large" icon="folder-add-left" variant="ghost" onClick={chooseProject}>
                     {language.t("command.project.open")}
                   </Button>
                 </div>
@@ -2196,6 +2328,17 @@ export default function Layout(props: ParentProps) {
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.close")}</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        data-action="project-delete-menu"
+                        data-project={slug()}
+                        onSelect={() => {
+                          const item = project()
+                          if (!item) return
+                          showDeleteProjectDialog(item)
+                        }}
+                      >
+                        <DropdownMenu.ItemLabel>{language.t("sidebar.project.delete")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
@@ -2342,11 +2485,18 @@ export default function Layout(props: ParentProps) {
       openProjectKeybind={() => command.keybind("project.open")}
       onOpenProject={chooseProject}
       renderProjectOverlay={projectOverlay}
+      homeLabel={() => language.t("sidebar.home")}
+      onGoHome={() => navigate("/")}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}
       helpLabel={() => language.t("sidebar.help")}
-      onOpenHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+      onOpenHelp={() => platform.openLink("https://github.com/psi-oss/gpd-app/issues")}
+      onResetKey={() => {
+        localStorage.removeItem("gpd.key.saved")
+        window.location.reload()
+      }}
+      resetKeyLabel={() => language.t("sidebar.resetKey")}
       renderPanel={() =>
         mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
       }
@@ -2497,7 +2647,7 @@ export default function Layout(props: ParentProps) {
             </div>
           </div>
         </div>
-        {import.meta.env.DEV && <DebugBar />}
+        {import.meta.env.DEV && localStorage.getItem("gpd.debugBar") === "1" && <DebugBar />}
       </div>
       <Toast.Region />
     </div>

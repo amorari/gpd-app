@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, Match, on, onCleanup, Switch } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -7,11 +7,13 @@ import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { cloneSelectedLineRange, previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { createLineCommentController } from "@opencode-ai/ui/line-comment-annotations"
 import { sampledChecksum } from "@opencode-ai/util/encode"
+import { Button } from "@opencode-ai/ui/button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { showToast } from "@opencode-ai/ui/toast"
+import { TexBuildPane } from "@/pages/session/tex-build-pane"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useLanguage } from "@/context/language"
@@ -19,6 +21,10 @@ import { usePrompt } from "@/context/prompt"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { fileEligibility } from "@/components/file-edit/eligibility"
+import { createFileEditState } from "@/components/file-edit/use-file-edit"
+import { FileEditHotspotLayer } from "@/components/file-edit/hotspot-layer"
+import { setFileDirty } from "@/components/file-edit/dirty-tracker"
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -400,8 +406,34 @@ export function FileTabContent(props: { tab: string }) {
     scrollSync.queueRestore()
   })
 
+  // Inline single-line edit state (pencil hotspots + CodeMirror editor).
+  const editState = createFileEditState()
+  const eligibility = createMemo(() => fileEligibility(state()?.content))
+  const [hotspotHost, setHotspotHost] = createSignal<HTMLDivElement | undefined>()
+
+  // Keep the dirty-path tracker in sync with whichever file is mid-edit in this tab.
+  createEffect(() => {
+    const target = editState.target()
+    if (target) {
+      setFileDirty(target.file, true)
+      onCleanup(() => setFileDirty(target.file, false))
+    }
+  })
+
+  // If the underlying path changes, abandon any in-progress edit.
+  createEffect(
+    on(
+      path,
+      () => {
+        editState.close()
+        editState.setConflict(null)
+      },
+      { defer: true },
+    ),
+  )
+
   const renderFile = (source: string) => (
-    <div class="relative overflow-hidden pb-40">
+    <div class="relative overflow-hidden pb-40" ref={setHotspotHost}>
       <Dynamic
         component={fileComponent}
         mode="text"
@@ -443,20 +475,105 @@ export function FileTabContent(props: { tab: string }) {
           },
         }}
       />
+      <Show when={(() => {
+        const p = path()
+        const e = eligibility()
+        if (!p || !e.editable) return null
+        return { path: p, tier: e.tier }
+      })()}>
+        {(ctx) => (
+          <FileEditHotspotLayer
+            container={hotspotHost()}
+            filePath={ctx().path}
+            content={source}
+            editState={editState}
+            tier={ctx().tier}
+          />
+        )}
+      </Show>
     </div>
   )
 
+  const isTex = createMemo(() => {
+    const p = path()
+    return !!p && p.toLowerCase().endsWith(".tex")
+  })
+  const [buildPaneOpen, setBuildPaneOpen] = createSignal(false)
+  const [buildPaneMaximized, setBuildPaneMaximized] = createSignal(false)
+
+  const toggleBuildPane = () => setBuildPaneOpen((v) => !v)
+  const toggleBuildMaximized = () => setBuildPaneMaximized((v) => !v)
+
+  const scrollToLine = (targetFile: string, line: number) => {
+    // Only handle navigation within the currently active tab's file.
+    // Cross-file navigation requires loading the other file into a tab,
+    // which the build pane does independently via file.load().
+    const current = path()
+    if (!current || current !== targetFile) return
+    const range = { start: line, end: line }
+    file.setSelectedLines(current, range)
+  }
+
   return (
     <Tabs.Content value={props.tab} class="mt-3 relative h-full">
-      <ScrollView class="h-full" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
-        <Switch>
-          <Match when={state()?.loaded}>{renderFile(contents())}</Match>
-          <Match when={state()?.loading}>
-            <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
-          </Match>
-          <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
-        </Switch>
-      </ScrollView>
+      <Show
+        when={isTex() && buildPaneOpen() && path()}
+        fallback={
+          <ScrollView class="h-full" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
+            <Show when={isTex()}>
+              <div class="px-3 py-1 flex items-center justify-end border-b border-border-weaker-base">
+                <Button size="small" variant="secondary" onClick={toggleBuildPane}>
+                  {language.t("tex.build.compile")}
+                </Button>
+              </div>
+            </Show>
+            <Switch>
+              <Match when={state()?.loaded}>{renderFile(contents())}</Match>
+              <Match when={state()?.loading}>
+                <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+              </Match>
+              <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+            </Switch>
+          </ScrollView>
+        }
+      >
+        {(absPath) => (
+          <div
+            class="grid h-full"
+            style={{
+              "grid-template-rows": buildPaneMaximized() ? "minmax(0,1fr)" : "minmax(0,1fr) minmax(0,1fr)",
+            }}
+          >
+            <Show when={!buildPaneMaximized()}>
+              <ScrollView class="min-h-0" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
+                <div class="px-3 py-1 flex items-center justify-end border-b border-border-weaker-base">
+                  <Button size="small" variant="secondary" onClick={toggleBuildPane}>
+                    {language.t("common.close")}
+                  </Button>
+                </div>
+                <Switch>
+                  <Match when={state()?.loaded}>{renderFile(contents())}</Match>
+                  <Match when={state()?.loading}>
+                    <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+                  </Match>
+                  <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+                </Switch>
+              </ScrollView>
+            </Show>
+            <div
+              class="min-h-0"
+              classList={{ "border-t border-border-weaker-base": !buildPaneMaximized() }}
+            >
+              <TexBuildPane
+                texFile={absPath()}
+                onNavigateSource={scrollToLine}
+                maximized={buildPaneMaximized()}
+                onToggleMaximized={toggleBuildMaximized}
+              />
+            </div>
+          </div>
+        )}
+      </Show>
     </Tabs.Content>
   )
 }

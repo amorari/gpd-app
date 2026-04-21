@@ -1056,6 +1056,30 @@ export namespace ProviderTransform {
           delete result.required
         }
 
+        // Strip anyOf where all branches only contain "required" (Gemini rejects
+        // anyOf branches that reference properties defined on the parent object).
+        if (Array.isArray(result.anyOf)) {
+          const allRequiredOnly = result.anyOf.every(
+            (branch: any) =>
+              isPlainObject(branch) &&
+              Object.keys(branch).length === 1 &&
+              Array.isArray(branch.required),
+          )
+          if (allRequiredOnly) {
+            delete result.anyOf
+          }
+        }
+
+        // Strip allOf containing if/then/else conditionals (Gemini doesn't support these)
+        if (Array.isArray(result.allOf)) {
+          const hasConditional = result.allOf.some(
+            (branch: any) => isPlainObject(branch) && ("if" in branch || "then" in branch || "else" in branch),
+          )
+          if (hasConditional) {
+            delete result.allOf
+          }
+        }
+
         return result
       }
 

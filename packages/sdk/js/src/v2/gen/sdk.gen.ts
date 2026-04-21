@@ -36,6 +36,8 @@ import type {
   ExperimentalWorkspaceRemoveErrors,
   ExperimentalWorkspaceRemoveResponses,
   ExperimentalWorkspaceStatusResponses,
+  FileEditLineErrors,
+  FileEditLineResponses,
   FileListResponses,
   FilePartInput,
   FilePartSource,
@@ -84,6 +86,8 @@ import type {
   PermissionRespondResponses,
   PermissionRuleset,
   ProjectCurrentResponses,
+  ProjectDeleteErrors,
+  ProjectDeleteResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
   ProjectUpdateErrors,
@@ -644,6 +648,38 @@ export class Project extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Delete project
+   *
+   * Remove a project from GPD. Cascades to sessions, workspaces, and permissions. Does not touch files on disk.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      projectID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "projectID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<ProjectDeleteResponses, ProjectDeleteErrors, ThrowOnError>({
+      url: "/project/{projectID}",
+      ...options,
+      ...params,
     })
   }
 }
@@ -3157,6 +3193,49 @@ export class File extends HeyApiClient {
       url: "/file/status",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Edit a single line in a file
+   *
+   * Replace one line of a file with new content, using optimistic concurrency against the prior line value.
+   */
+  public editLine<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+      line: number
+      oldContent: string
+      newContent: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "line" },
+            { in: "body", key: "oldContent" },
+            { in: "body", key: "newContent" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileEditLineResponses, FileEditLineErrors, ThrowOnError>({
+      url: "/file/edit-line",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }

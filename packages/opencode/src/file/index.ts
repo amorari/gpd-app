@@ -83,6 +83,28 @@ export namespace File {
     ),
   }
 
+  export const EditLineResult = z
+    .object({
+      ok: z.literal(true),
+      content: z.string(),
+    })
+    .meta({
+      ref: "FileEditLineResult",
+    })
+  export type EditLineResult = z.infer<typeof EditLineResult>
+
+  export const EditLineConflict = z
+    .object({
+      ok: z.literal(false),
+      reason: z.literal("conflict"),
+      currentContent: z.string(),
+      currentLineContent: z.string().optional(),
+    })
+    .meta({
+      ref: "FileEditLineConflict",
+    })
+  export type EditLineConflict = z.infer<typeof EditLineConflict>
+
   const log = Log.create({ service: "file" })
 
   const binary = new Set([
@@ -126,7 +148,6 @@ export namespace File {
     "xz",
     "lz",
     "z",
-    "pdf",
     "doc",
     "docx",
     "ppt",
@@ -265,7 +286,10 @@ export namespace File {
     ".eslintrc",
   ])
 
+  const pdf = new Set(["pdf"])
+
   const mime: Record<string, string> = {
+    pdf: "application/pdf",
     png: "image/png",
     jpg: "image/jpeg",
     jpeg: "image/jpeg",
@@ -289,11 +313,13 @@ export namespace File {
   const ext = (file: string) => path.extname(file).toLowerCase().slice(1)
   const name = (file: string) => path.basename(file).toLowerCase()
   const isImageByExtension = (file: string) => image.has(ext(file))
+  const isPdfByExtension = (file: string) => pdf.has(ext(file))
   const isTextByExtension = (file: string) => text.has(ext(file))
   const isTextByName = (file: string) => textName.has(name(file))
   const isBinaryByExtension = (file: string) => binary.has(ext(file))
   const isImage = (mimeType: string) => mimeType.startsWith("image/")
   const getImageMimeType = (file: string) => mime[ext(file)] || "image/" + ext(file)
+  const getPdfMimeType = (_file: string) => "application/pdf"
 
   function shouldEncode(mimeType: string) {
     const type = mimeType.toLowerCase()
@@ -336,6 +362,12 @@ export namespace File {
       dirs?: boolean
       type?: "file" | "directory"
     }) => Effect.Effect<string[]>
+    readonly editLine: (input: {
+      path: string
+      line: number
+      oldContent: string
+      newContent: string
+    }) => Effect.Effect<EditLineResult | EditLineConflict>
   }
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/File") {}
@@ -526,6 +558,20 @@ export namespace File {
           return { type: "text" as const, content: "" }
         }
 
+        if (isPdfByExtension(file)) {
+          const exists = yield* appFs.existsSafe(full)
+          if (exists) {
+            const bytes = yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
+            return {
+              type: "text" as const,
+              content: Buffer.from(bytes).toString("base64"),
+              mimeType: getPdfMimeType(file),
+              encoding: "base64" as const,
+            }
+          }
+          return { type: "text" as const, content: "" }
+        }
+
         const knownText = isTextByExtension(file) || isTextByName(file)
 
         if (isBinaryByExtension(file) && !knownText) return { type: "binary" as const, content: "" }
@@ -643,8 +689,63 @@ export namespace File {
         return output
       })
 
+      const editLine = Effect.fn("File.editLine")(function* (input: {
+        path: string
+        line: number
+        oldContent: string
+        newContent: string
+      }) {
+        const full = path.join(Instance.directory, input.path)
+
+        if (!Instance.containsPath(full)) throw new Error("Access denied: path escapes project directory")
+        if (input.line < 1) throw new Error("Line numbers are 1-indexed")
+        if (input.oldContent.includes("\n") || input.newContent.includes("\n")) {
+          throw new Error("editLine only supports single-line edits")
+        }
+
+        const stat = yield* appFs.stat(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (!stat) throw new Error(`File not found: ${input.path}`)
+        if (stat.type === "Directory") throw new Error(`Path is a directory, not a file: ${input.path}`)
+
+        const current = yield* appFs.readFileString(full).pipe(
+          Effect.orDie,
+        )
+        const ending = current.includes("\r\n") ? "\r\n" : "\n"
+        const lines = current.split(/\r?\n/)
+        // Preserve trailing-newline convention: if the file ends with a newline, split produces
+        // a trailing empty element. Don't treat that as an editable line.
+        const editableCount = current.endsWith(ending) || current.endsWith("\n") ? lines.length - 1 : lines.length
+
+        if (input.line > editableCount) {
+          return {
+            ok: false as const,
+            reason: "conflict" as const,
+            currentContent: current,
+          } satisfies EditLineConflict
+        }
+
+        const actualLine = lines[input.line - 1] ?? ""
+        if (actualLine !== input.oldContent) {
+          return {
+            ok: false as const,
+            reason: "conflict" as const,
+            currentContent: current,
+            currentLineContent: actualLine,
+          } satisfies EditLineConflict
+        }
+
+        lines[input.line - 1] = input.newContent
+        const next = lines.join(ending)
+        yield* appFs.writeFileString(full, next).pipe(Effect.orDie)
+
+        return {
+          ok: true as const,
+          content: next,
+        } satisfies EditLineResult
+      })
+
       log.info("init")
-      return Service.of({ init, status, read, list, search })
+      return Service.of({ init, status, read, list, search, editLine })
     }),
   )
 
@@ -674,5 +775,14 @@ export namespace File {
 
   export async function search(input: { query: string; limit?: number; dirs?: boolean; type?: "file" | "directory" }) {
     return runPromise((svc) => svc.search(input))
+  }
+
+  export async function editLine(input: {
+    path: string
+    line: number
+    oldContent: string
+    newContent: string
+  }): Promise<EditLineResult | EditLineConflict> {
+    return runPromise((svc) => svc.editLine(input))
   }
 }

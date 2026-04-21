@@ -214,7 +214,11 @@ export async function bootstrapDirectory(input: {
   if (Object.keys(input.store.config).length === 0 && Object.keys(input.global.config).length > 0) {
     input.setStore("config", input.global.config)
   }
-  if (loading || input.store.provider.all.length === 0) {
+  // Mark provider ready immediately if we already have providers (seeded from global or prior load).
+  // Only reset to false when there are genuinely no providers available yet.
+  if (input.store.provider.all.length > 0) {
+    input.setStore("provider_ready", true)
+  } else if (loading) {
     input.setStore("provider_ready", false)
   }
   input.setStore("mcp_ready", false)
@@ -309,8 +313,24 @@ export async function bootstrapDirectory(input: {
     () =>
       retry(() =>
         input.sdk.mcp.status().then((x) => {
-          input.setStore("mcp", x.data!)
-          input.setStore("mcp_ready", true)
+          const status = x.data!
+          input.setStore("mcp", status)
+          // REQUIRED servers must be connected for core GPD workflows.
+          // OPTIONAL servers provide graceful degradation — their failure does not block chat.
+          const required = ["gpd-state", "gpd-skills", "gpd-verification", "gpd-conventions"]
+          const optional = ["gpd-protocols", "gpd-errors", "gpd-patterns", "gpd-arxiv"]
+          const mcpStatus = status as Record<string, { state?: string }>
+          const requiredReady = required.every(
+            (name) => !(name in mcpStatus) || mcpStatus[name]?.state === "connected",
+          )
+          input.setStore("mcp_ready", requiredReady)
+          // Log optional server failures without blocking.
+          for (const name of optional) {
+            const s = mcpStatus[name]
+            if (s && s.state !== "connected") {
+              console.warn(`Optional MCP server "${name}" not connected (state: ${s.state}); proceeding without it`)
+            }
+          }
         }),
       ),
   ]

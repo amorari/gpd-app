@@ -49,6 +49,7 @@ export namespace Project {
 
   export const Event = {
     Updated: BusEvent.define("project.updated", Info),
+    Deleted: BusEvent.define("project.deleted", z.object({ id: ProjectID.zod })),
   }
 
   type Row = typeof ProjectTable.$inferSelect
@@ -92,6 +93,7 @@ export namespace Project {
     readonly list: () => Effect.Effect<Info[]>
     readonly get: (id: ProjectID) => Effect.Effect<Info | undefined>
     readonly update: (input: UpdateInput) => Effect.Effect<Info>
+    readonly remove: (id: ProjectID) => Effect.Effect<Info>
     readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
     readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
     readonly sandboxes: (id: ProjectID) => Effect.Effect<string[]>
@@ -139,6 +141,15 @@ export namespace Project {
             directory: "global",
             project: data.id,
             payload: { type: Event.Updated.type, properties: data },
+          }),
+        )
+
+      const emitDeleted = (data: Info) =>
+        Effect.sync(() =>
+          GlobalBus.emit("event", {
+            directory: "global",
+            project: data.id,
+            payload: { type: Event.Deleted.type, properties: { id: data.id } },
           }),
         )
 
@@ -377,6 +388,15 @@ export namespace Project {
         return data
       })
 
+      const remove = Effect.fn("Project.remove")(function* (id: ProjectID) {
+        const existing = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
+        if (!existing) throw new Error(`Project not found: ${id}`)
+        const data = fromRow(existing)
+        yield* db((d) => d.delete(ProjectTable).where(eq(ProjectTable.id, id)).run())
+        yield* emitDeleted(data)
+        return data
+      })
+
       const initGit = Effect.fn("Project.initGit")(function* (input: { directory: string; project: Info }) {
         if (input.project.vcs === "git") return input.project
         if (!(yield* Effect.sync(() => which("git")))) throw new Error("Git is not installed")
@@ -448,6 +468,7 @@ export namespace Project {
         list,
         get,
         update,
+        remove,
         initGit,
         setInitialized,
         sandboxes,

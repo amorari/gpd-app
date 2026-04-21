@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../../../node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/ET5T45DO.js"],
+  "sourcesContent": ["import { isString } from '@kobalte/utils';\nimport { createSignal, createEffect } from 'solid-js';\n\n// src/primitives/create-tag-name/create-tag-name.ts\nfunction createTagName(ref, fallback) {\n  const [tagName, setTagName] = createSignal(stringOrUndefined(fallback?.()));\n  createEffect(() => {\n    setTagName(ref()?.tagName.toLowerCase() || stringOrUndefined(fallback?.()));\n  });\n  return tagName;\n}\nfunction stringOrUndefined(value) {\n  return isString(value) ? value : void 0;\n}\n\nexport { createTagName };\n"],
+  "mappings": ";;;;;;;;;AAIA,SAAS,cAAc,KAAK,UAAU;AACpC,QAAM,CAAC,SAAS,UAAU,IAAI,aAAa,kBAAkB,WAAW,CAAC,CAAC;AAC1E,eAAa,MAAM;AACjB,eAAW,IAAI,GAAG,QAAQ,YAAY,KAAK,kBAAkB,WAAW,CAAC,CAAC;AAAA,EAC5E,CAAC;AACD,SAAO;AACT;AACA,SAAS,kBAAkB,OAAO;AAChC,SAAO,SAAS,KAAK,IAAI,QAAQ;AACnC;",
+  "names": []
+}

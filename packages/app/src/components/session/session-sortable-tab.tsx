@@ -9,8 +9,10 @@ import { getFilename } from "@opencode-ai/util/path"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useCommand } from "@/context/command"
+import { dirtyFileSet } from "@/components/file-edit/dirty-tracker"
 
 export function FileVisual(props: { path: string; active?: boolean }): JSX.Element {
+  const dirty = createMemo(() => dirtyFileSet().has(props.path))
   return (
     <div class="flex items-center gap-x-1.5 min-w-0">
       <Show
@@ -23,6 +25,13 @@ export function FileVisual(props: { path: string; active?: boolean }): JSX.Eleme
         </span>
       </Show>
       <span class="text-14-medium truncate">{getFilename(props.path)}</span>
+      <Show when={dirty()}>
+        <span
+          aria-hidden="true"
+          class="ml-0.5 inline-block size-1.5 shrink-0 rounded-full bg-text-weak"
+          title="Unsaved inline edit"
+        />
+      </Show>
     </div>
   )
 }

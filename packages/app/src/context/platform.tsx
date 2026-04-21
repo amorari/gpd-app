@@ -4,7 +4,7 @@ import type { Accessor } from "solid-js"
 import { ServerConnection } from "./server"
 
 type PickerPaths = string | string[] | null
-type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
+type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean; defaultPath?: string }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
 type UpdateInfo = { updateAvailable: boolean; version?: string }
@@ -87,6 +87,134 @@ export type Platform = {
 
   /** Read image from clipboard (desktop only) */
   readClipboardImage?(): Promise<File | null>
+
+  /** Launch git install on macOS (xcode-select --install). Desktop macOS only. */
+  installGitMacos?(): Promise<{ launched: boolean; message: string }>
+
+  /** Launch git install on Windows (winget). Desktop Windows only. */
+  installGitWindows?(): Promise<{ launched: boolean; message: string }>
+
+  /** Return the install shell snippet for a tool on Linux (no execution). */
+  linuxInstallHint?(tool: string): Promise<string>
+
+  /**
+   * Download and install the Tectonic TeX engine on demand (desktop only).
+   * Resolves with the absolute path to the installed `tectonic` binary.
+   */
+  installTectonic?(): Promise<string>
+
+  /**
+   * Subscribe to Tectonic download progress while `installTectonic()` is in
+   * flight. Returns an unsubscribe callback. Desktop only.
+   */
+  onTectonicDownloadProgress?(
+    cb: (payload: { loaded: number; total: number }) => void,
+  ): Promise<() => void>
+
+  /** Copy a string to the system clipboard. */
+  writeClipboard?(text: string): Promise<void>
+
+  /** Delete the GPD venv + init marker and re-run first-run setup. Desktop only. */
+  repairGpdVenv?(): Promise<void>
+
+  /**
+   * Create a new empty directory under `parent` with name `name`. Desktop
+   * only. Refuses to overwrite an existing file or directory and validates
+   * name (no slashes, not `.` or `..`, non-empty). Resolves with the full
+   * path to the newly created directory.
+   */
+  createProjectDirectory?(parent: string, name: string): Promise<string>
+
+  /**
+   * Probe whether the app can read the given project folder. Runs in the
+   * Tauri main process so macOS TCC attributes any prompt/grant to the
+   * signed app bundle rather than the sidecar subprocess.
+   *
+   * Returns one of:
+   *   - `"ok"`       — directory exists and is readable
+   *   - `"locked"`   — macOS (or another OS) denied read access (EACCES/EPERM)
+   *   - `"missing"`  — directory does not exist
+   */
+  checkProjectAccessible?(path: string): Promise<"ok" | "locked" | "missing">
+
+  /**
+   * TeX compilation surface. Desktop only. Lets the Build pane detect a
+   * compiler, compile a `.tex` file to PDF, and do bidirectional SyncTeX
+   * navigation between source and rendered output.
+   */
+  tex?: {
+    detectCompiler(): Promise<TexCompilerInfo>
+    detectRoot(startFile: string): Promise<string>
+    compile(input: { projectId: string; texFile: string; rootFile: string | null }): Promise<TexCompileResult>
+    synctexForward(input: { synctexPath: string; page: number; x: number; y: number }): Promise<SyncTexResult>
+    synctexReverse(input: { synctexPath: string; sourceFile: string; line: number }): Promise<SyncTexResult>
+    parseLog(logPath: string): Promise<TexLogParseResult>
+    /**
+     * Read a build artifact (PDF, log) and return it as a base64 string.
+     * The backend verifies the path lives under the GPD tex-builds cache.
+     */
+    readArtifactBase64(path: string): Promise<string>
+    /**
+     * Subscribe to compile progress events. Returns an unsubscribe callback.
+     */
+    onProgress(cb: (payload: TexCompileProgress) => void): Promise<() => void>
+  }
+}
+
+export type TexCompileStatus =
+  | "success"
+  | "success_with_warnings"
+  | "error"
+  | "no_compiler"
+  | "cancelled"
+
+export type TexDiagnostic = {
+  severity: string
+  file: string | null
+  line: number | null
+  message: string
+}
+
+export type TexCompileResult = {
+  status: TexCompileStatus
+  pdfPath: string | null
+  synctexPath: string | null
+  logPath: string | null
+  compilerKind: string | null
+  compilerPath: string | null
+  durationMs: number
+  errors: TexDiagnostic[]
+  warnings: TexDiagnostic[]
+  rootFile: string
+  outDir: string
+}
+
+export type TexCompilerInfo = {
+  kind: string
+  path: string | null
+  hasLatexmk: boolean
+  hasBibtex: boolean
+  hasSynctex: boolean
+}
+
+export type SyncTexResult = {
+  file: string | null
+  line: number | null
+  page: number | null
+  x: number | null
+  y: number | null
+}
+
+export type TexLogParseResult = {
+  errors: TexDiagnostic[]
+  warnings: TexDiagnostic[]
+  rawLog: string
+}
+
+export type TexCompileProgress = {
+  status: string
+  percent: number
+  message: string
 }
 
 export type DisplayBackend = "auto" | "wayland"

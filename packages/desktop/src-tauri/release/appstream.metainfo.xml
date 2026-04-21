@@ -5,8 +5,8 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
 
-  <name>OpenCode</name>
-  <summary>Open source AI coding agent</summary>
+  <name>GPD</name>
+  <summary>AI-powered physics research workspace</summary>
 
   <developer id="ly.anoma">
     <name>Anomaly Innovations Inc.</name>
@@ -14,7 +14,7 @@
 
   <description>
     <p>
-      OpenCode is an open source agent that helps you write and run code with any AI model.
+      GPD (Get Physics Done) is an AI-powered research workspace that helps physicists explore ideas, derive equations, and write papers with any AI model.
     </p>
   </description>
 

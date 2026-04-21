@@ -13,7 +13,7 @@ import { TuiPluginRuntime } from "../plugin"
 // TODO: what is the best way to do this?
 let once = false
 const placeholder = {
-  normal: ["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"],
+  normal: ["Derive the Euler-Lagrange equations for this Lagrangian", "Explain spontaneous symmetry breaking in the Higgs mechanism", "Diagnose why my Monte Carlo isn't converging"],
   shell: ["ls -la", "git status", "pwd"],
 }
 

@@ -1,0 +1,126 @@
+name: GPD Smoke Test
+on:
+  workflow_dispatch:
+  push:
+    branches: [gpd]
+    paths:
+      - 'packages/desktop/src-tauri/src/gpd_setup.rs'
+      - 'packages/desktop/src-tauri/src/lib.rs'
+      - 'packages/app/src/**'
+
+jobs:
+  rust-unit-tests:
+    name: Config unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p opencode-desktop --lib
+        working-directory: packages/desktop/src-tauri
+
+  smoke-test:
+    name: Fresh install (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { os: macos-latest, name: mac-arm, target: aarch64-apple-darwin }
+          - { os: macos-13,     name: mac-intel, target: x86_64-apple-darwin }
+          - { os: ubuntu-latest, name: linux, target: x86_64-unknown-linux-gnu }
+          - { os: windows-latest, name: windows, target: x86_64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Verify config JSON is valid ---
+      - name: Build sidecar config and validate
+        shell: bash
+        working-directory: packages/desktop/src-tauri
+        run: cargo test -p opencode-desktop --lib
+
+      # --- Download and install uv (simulates bundled uv) ---
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      # --- Simulate first-run Python provisioning ---
+      - name: Provision Python via uv (like first-run setup)
+        shell: bash
+        run: |
+          uv python install 3.12
+          PYTHON=$(uv python find 3.12)
+          echo "Found Python: $PYTHON"
+          $PYTHON --version
+          echo "PYTHON_PATH=$PYTHON" >> $GITHUB_ENV
+
+      # --- Simulate GPD venv creation ---
+      - name: Create GPD venv and install get-physics-done
+        shell: bash
+        run: |
+          uv venv ~/.config/gpd/.venv -p ${{ env.PYTHON_PATH }}
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            VENV_PYTHON=~/.config/gpd/.venv/Scripts/python.exe
+          else
+            VENV_PYTHON=~/.config/gpd/.venv/bin/python
+          fi
+          uv pip install "get-physics-done[arxiv] @ git+https://github.com/psi-oss/get-physics-done.git@main" \
+            -p $VENV_PYTHON --quiet
+          echo "VENV_PYTHON=$VENV_PYTHON" >> $GITHUB_ENV
+
+      # --- Verify GPD package installed ---
+      - name: Verify GPD package
+        shell: bash
+        run: |
+          ${{ env.VENV_PYTHON }} -c "import gpd; print(f'GPD version: {gpd.__version__}')"
+          ${{ env.VENV_PYTHON }} -c "import arxiv_mcp_server; print('arxiv_mcp_server: OK')"
+
+      # --- Verify all 8 MCP server modules import ---
+      - name: Verify MCP server modules
+        shell: bash
+        run: |
+          FAIL=0
+          for mod in conventions_server errors_mcp patterns_server protocols_server \
+                     skills_server state_server verification_server arxiv_bridge; do
+            if ${{ env.VENV_PYTHON }} -c "from gpd.mcp.servers.$mod import *; print('$mod: OK')" 2>/dev/null; then
+              echo "✓ $mod"
+            else
+              echo "✗ $mod FAILED"
+              FAIL=1
+            fi
+          done
+          [ $FAIL -eq 0 ] || exit 1
+
+      # --- Simulate gpd install opencode ---
+      - name: Install GPD commands and agents
+        shell: bash
+        run: |
+          mkdir -p ~/.config/gpd
+          ${{ env.VENV_PYTHON }} -m gpd.cli install opencode --global --skip-readiness-check
+          CMDS=$(ls ~/.config/gpd/command/ | wc -l)
+          AGENTS=$(ls ~/.config/gpd/agents/ | wc -l)
+          echo "Commands: $CMDS (expect 69)"
+          echo "Agents: $AGENTS (expect 24)"
+          [ "$CMDS" -ge 69 ] || exit 1
+          [ "$AGENTS" -ge 24 ] || exit 1
+
+      # --- Verify LiteLLM proxy is reachable ---
+      - name: Verify LiteLLM proxy health
+        shell: bash
+        run: |
+          HEALTH=$(curl -s https://litellm-production-46bb.up.railway.app/health/liveliness)
+          echo "LiteLLM: $HEALTH"
+          echo "$HEALTH" | grep -q "alive" || exit 1
+
+      # --- Verify a model responds ---
+      - name: Test API call (claude-haiku-4-5)
+        shell: bash
+        env:
+          GPD_SMOKE_KEY: ${{ secrets.GPD_SMOKE_KEY }}
+        run: |
+          if [ -z "$GPD_SMOKE_KEY" ]; then
+            echo "::warning::GPD_SMOKE_KEY secret not set; skipping live API call."
+            exit 0
+          fi
+          RESP=$(curl -s -X POST https://litellm-production-46bb.up.railway.app/v1/chat/completions \
+            -H "Authorization: Bearer $GPD_SMOKE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"Say hello"}],"max_tokens":10}')
+          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print('Response:', d['choices'][0]['message']['content'])" || exit 1

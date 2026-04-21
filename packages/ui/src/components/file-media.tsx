@@ -19,12 +19,12 @@ export type FileMediaOptions = {
   deleted?: boolean
   readFile?: (path: string) => Promise<FileContent | undefined>
   onLoad?: () => void
-  onError?: (ctx: { kind: "image" | "audio" | "svg" }) => void
+  onError?: (ctx: { kind: "image" | "audio" | "svg" | "pdf" }) => void
 }
 
-function mediaValue(cfg: FileMediaOptions, mode: "image" | "audio") {
+function mediaValue(cfg: FileMediaOptions, mode: "image" | "audio" | "pdf") {
   if (cfg.current !== undefined) return cfg.current
-  if (mode === "image") return cfg.after ?? cfg.before
+  if (mode === "image" || mode === "pdf") return cfg.after ?? cfg.before
   return cfg.after ?? cfg.before
 }
 
@@ -59,14 +59,14 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
   const direct = createMemo(() => {
     const media = cfg()
     const k = kind()
-    if (!media || (k !== "image" && k !== "audio")) return
+    if (!media || (k !== "image" && k !== "audio" && k !== "pdf")) return
     return dataUrlFromMediaValue(mediaValue(media, k), k)
   })
 
   const request = createMemo(() => {
     const media = cfg()
     const k = kind()
-    if (!media || (k !== "image" && k !== "audio")) return
+    if (!media || (k !== "image" && k !== "audio" && k !== "pdf")) return
     if (media.current !== undefined) return
     if (deleted()) return
     if (direct()) return
@@ -74,7 +74,7 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
 
     return {
       key: `${k}:${media.path}`,
-      kind: k,
+      kind: k as "image" | "audio" | "pdf",
       path: media.path,
       readFile: media.readFile,
       onError: media.onError,
@@ -246,6 +246,38 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
             </div>
           )
         })()}
+      </Match>
+      <Match when={kind() === "pdf"}>
+        <Show
+          when={src()}
+          fallback={(() => {
+            if (status() === "loading") {
+              return (
+                <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-text-weak">
+                  {i18n.t("ui.fileMedia.state.loading", { kind: "PDF" })}
+                </div>
+              )
+            }
+            if (status() === "error") {
+              return (
+                <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-text-weak">
+                  {i18n.t("ui.fileMedia.state.error", { kind: "PDF" })}
+                </div>
+              )
+            }
+            return props.fallback()
+          })()}
+        >
+          {(value) => (
+            <div class="flex justify-center bg-background-stronger px-6 py-4">
+              <iframe
+                src={value()}
+                class="h-[80vh] w-full rounded border border-border-weak-base bg-background-base"
+                onLoad={onLoad}
+              />
+            </div>
+          )}
+        </Show>
       </Match>
       <Match when={isBinary()}>
         <div class="flex min-h-56 flex-col items-center justify-center gap-2 px-6 py-10 text-center">

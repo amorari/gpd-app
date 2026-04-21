@@ -1,4 +1,4 @@
-import { createEffect, createMemo, onCleanup, Show, untrack } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -16,6 +16,8 @@ import { applyPath, backPath, forwardPath } from "./titlebar-history"
 type TauriDesktopWindow = {
   startDragging?: () => Promise<void>
   toggleMaximize?: () => Promise<void>
+  isFullscreen?: () => Promise<boolean>
+  setFullscreen?: (fullscreen: boolean) => Promise<void>
 }
 
 type TauriThemeWindow = {
@@ -114,6 +116,39 @@ export function Titlebar() {
     if (platform.platform !== "desktop") return
     return currentDesktopWindow()
   }
+
+  const [isFullscreen, setIsFullscreen] = createSignal(false)
+
+  const toggleFullscreen = async () => {
+    const win = getWin()
+    if (!win?.setFullscreen) return
+    await win.setFullscreen(!isFullscreen()).catch(() => undefined)
+    const next = await win.isFullscreen?.().catch(() => false)
+    setIsFullscreen(next ?? false)
+  }
+
+  onMount(() => {
+    if (platform.platform !== "desktop") return
+
+    const syncFullscreen = async () => {
+      const win = getWin()
+      if (!win?.isFullscreen) return
+      const state = await win.isFullscreen().catch(() => false)
+      setIsFullscreen(state)
+    }
+
+    void syncFullscreen()
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "F11") {
+        e.preventDefault()
+        void toggleFullscreen()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown))
+  })
 
   createEffect(() => {
     if (platform.platform !== "desktop") return
@@ -303,6 +338,17 @@ export function Titlebar() {
       >
         <div id="opencode-titlebar-right" class="flex items-center gap-1 shrink-0 justify-end" />
         <Show when={windows()}>
+          <Show when={isFullscreen()}>
+            <Tooltip placement="bottom" value="Exit Fullscreen (F11)">
+              <Button
+                variant="ghost"
+                icon="collapse"
+                class="titlebar-icon w-8 h-6 p-0 box-border mr-1"
+                onClick={() => void toggleFullscreen()}
+                aria-label="Exit Fullscreen"
+              />
+            </Tooltip>
+          </Show>
           {!tauriApi() && <div class="w-36 shrink-0" />}
           <div data-tauri-decorum-tb class="flex flex-row" />
         </Show>

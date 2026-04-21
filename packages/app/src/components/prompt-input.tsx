@@ -560,6 +560,20 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
   const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
+  const agentByName = createMemo(() => {
+    const map = new Map<string, ReturnType<typeof local.agent.list>[number]>()
+    for (const agent of local.agent.list()) {
+      map.set(agent.name, agent)
+    }
+    return map
+  })
+  function prettyAgentName(name: string): string {
+    const stripped = name.startsWith("gpd-") ? name.slice(4) : name
+    return stripped
+      .split(/[-_]/)
+      .map((part) => (part.length > 0 ? part[0].toUpperCase() + part.slice(1) : part))
+      .join(" ")
+  }
 
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!option) return
@@ -684,12 +698,24 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent ?? ""
         if (!text.includes("\u200B")) return true
-        if (text !== "\u200B") return false
 
-        const prev = node.previousSibling
-        const next = node.nextSibling
-        const prevIsBr = prev?.nodeType === Node.ELEMENT_NODE && (prev as HTMLElement).tagName === "BR"
-        return !!prevIsBr && !next
+        // The canonical form is a standalone "\u200B" text node immediately
+        // after a <br> and at the end of the editor.
+        if (text === "\u200B") {
+          const prev = node.previousSibling
+          const next = node.nextSibling
+          const prevIsBr = prev?.nodeType === Node.ELEMENT_NODE && (prev as HTMLElement).tagName === "BR"
+          return !!prevIsBr && !next
+        }
+
+        // WebKit may merge adjacent text nodes so the sentinel appears at the
+        // end of a non-empty text node (e.g. "hello\u200B").  Treat this as
+        // still-normalised so we don't trigger a full DOM re-render that would
+        // make the \u200B visible.
+        if (text.endsWith("\u200B")) return true
+
+        // Any other placement of \u200B is unexpected — force reconciliation.
+        return false
       }
       if (node.nodeType !== Node.ELEMENT_NODE) return false
       const el = node as HTMLElement
@@ -855,6 +881,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const handleInput = () => {
     const rawParts = parseFromDOM()
     const images = imageAttachments()
+
+    // When the browser fires an `input` event due to DOM normalization triggered
+    // by cursor movement (e.g. WebKit merging text nodes on arrow-key press)
+    // without any actual content change, skip the state update entirely.  This
+    // prevents spurious re-renders that make the \u200B sentinel visible.
+    const currentNonImage = prompt.current().filter((part) => part.type !== "image")
+    if (isPromptEqual(rawParts, currentNonImage)) {
+      return
+    }
+
     const cursorPosition = getCursorPosition(editorRef)
     const rawText =
       rawParts.length === 1 && rawParts[0]?.type === "text"
@@ -1456,16 +1492,32 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       size="normal"
                       options={agentNames()}
                       current={local.agent.current()?.name ?? ""}
+                      label={(value) => prettyAgentName(value)}
                       onSelect={(value) => {
                         local.agent.set(value)
                         restoreFocus()
                       }}
-                      class="capitalize max-w-[160px] text-text-base"
+                      class="max-w-[160px] text-text-base"
+                      contentClass="max-w-[22rem]"
                       valueClass="truncate text-13-regular text-text-base"
                       triggerStyle={control()}
                       triggerProps={{ "data-action": "prompt-agent" }}
                       variant="ghost"
-                    />
+                    >
+                      {(value) => {
+                        const agent = value ? agentByName().get(value) : undefined
+                        const color = agent?.color
+                        return (
+                          <div class="flex items-center gap-2 min-w-0">
+                            <div
+                              class="size-2 rounded-full shrink-0"
+                              style={{ "background-color": color ?? "var(--icon-weak-base)" }}
+                            />
+                            <span class="truncate">{value ? prettyAgentName(value) : ""}</span>
+                          </div>
+                        )
+                      }}
+                    </Select>
                   </TooltipKeybind>
                 </div>
                 <Show when={store.mode !== "shell"}>
@@ -1563,6 +1615,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         variant="ghost"
                       />
                     </TooltipKeybind>
+                  </div>
+                  <div data-component="prompt-gpd-skills-control">
+                    <Tooltip placement="top" gutter={4} value={language.t("dock.gpdSkills")}>
+                      <Button
+                        data-action="prompt-gpd-skills"
+                        type="button"
+                        variant="ghost"
+                        size="normal"
+                        style={control()}
+                        class="text-13-regular text-text-base"
+                        onClick={() => {
+                          void import("@/components/dialog-gpd-skills").then((x) => {
+                            dialog.show(() => <x.DialogGpdSkills />)
+                          })
+                        }}
+                        aria-label={language.t("dock.gpdSkills")}
+                      >
+                        <Icon name="sparkles" size="small" class="shrink-0" />
+                        <span class="truncate">{language.t("dock.gpdSkills")}</span>
+                      </Button>
+                    </Tooltip>
                   </div>
                 </Show>
               </div>
