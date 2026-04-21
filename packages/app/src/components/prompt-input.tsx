@@ -1113,7 +1113,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     readClipboardImage: platform.readClipboardImage,
   })
 
-  const variants = createMemo(() => ["default", ...local.model.variant.list()])
+  const variants = createMemo(() => local.model.variant.list())
+  const resolveVariantFallback = (items: string[]) => {
+    if (items.length === 0) return undefined
+    if (items.includes("medium")) return "medium"
+    return items[Math.floor(items.length / 2)]
+  }
+  const resolvedVariant = createMemo(() => {
+    const items = variants()
+    return local.model.variant.current() ?? resolveVariantFallback(items)
+  })
   const accepting = createMemo(() => {
     const id = params.id
     if (!id) return permission.isAutoAcceptingDirectory(sdk.directory)
@@ -1614,30 +1623,32 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       </TooltipKeybind>
                     </Show>
                   </div>
-                  <div data-component="prompt-variant-control">
-                    <TooltipKeybind
-                      placement="top"
-                      gutter={4}
-                      title={language.t("command.model.variant.cycle")}
-                      keybind={command.keybind("model.variant.cycle")}
-                    >
-                      <Select
-                        size="normal"
-                        options={variants()}
-                        current={local.model.variant.current() ?? "default"}
-                        label={(x) => (x === "default" ? language.t("common.default") : x)}
-                        onSelect={(value) => {
-                          local.model.variant.set(value === "default" ? undefined : value)
-                          restoreFocus()
-                        }}
-                        class="capitalize max-w-[160px] text-text-base"
-                        valueClass="truncate text-13-regular text-text-base"
-                        triggerStyle={control()}
-                        triggerProps={{ "data-action": "prompt-model-variant" }}
-                        variant="ghost"
-                      />
-                    </TooltipKeybind>
-                  </div>
+                  <Show when={variants().length > 0}>
+                    <div data-component="prompt-variant-control">
+                      <TooltipKeybind
+                        placement="top"
+                        gutter={4}
+                        title={language.t("command.model.variant.cycle")}
+                        keybind={command.keybind("model.variant.cycle")}
+                      >
+                        <Select
+                          size="normal"
+                          options={variants()}
+                          current={resolvedVariant()}
+                          label={(x) => x}
+                          onSelect={(value) => {
+                            local.model.variant.set(value)
+                            restoreFocus()
+                          }}
+                          class="capitalize max-w-[160px] text-text-base"
+                          valueClass="truncate text-13-regular text-text-base"
+                          triggerStyle={control()}
+                          triggerProps={{ "data-action": "prompt-model-variant" }}
+                          variant="ghost"
+                        />
+                      </TooltipKeybind>
+                    </div>
+                  </Show>
                   <div data-component="prompt-gpd-skills-control">
                     <Tooltip placement="top" gutter={4} value={language.t("dock.gpdSkills")}>
                       <Button
