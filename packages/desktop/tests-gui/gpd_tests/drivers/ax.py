@@ -1,9 +1,12 @@
 """macOS Accessibility driver via osascript/System Events."""
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -32,17 +35,23 @@ class MenuItem:
     name: str
 
 
+def _default_app_name() -> str:
+    """Derive the default AX process name from GPD_APP_PATH."""
+    return Path(os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")).stem
+
+
 class AXClient:
-    def __init__(self, app_name: str = "GPD") -> None:
-        self._app = app_name
+    def __init__(self, app_name: str | None = None) -> None:
+        self._app = app_name if app_name is not None else _default_app_name()
 
     def activate(self) -> None:
-        _osascript(f'tell application "{self._app}" to activate')
+        _osascript(f'tell application "{_esc_as(self._app)}" to activate')
 
     def top_level_menus(self) -> list[str]:
+        app = _esc_as(self._app)
         script = (
             'set AppleScript\'s text item delimiters to "|"\n'
-            f'tell application "System Events" to tell process "{self._app}" '
+            f'tell application "System Events" to tell process "{app}" '
             f'to return (name of every menu bar item of menu bar 1) as string'
         )
         raw = _osascript(script)
@@ -53,12 +62,15 @@ class AXClient:
     def menu_item_exists(self, menu: str, item: str) -> bool:
         # Menu-bar queries work without bringing GPD frontmost — only window
         # queries require activation.
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
+        item_e = _esc_as(item)
         script = f'''
         tell application "System Events"
-          tell process "{self._app}"
+          tell process "{app}"
             try
-              set _m to menu bar item "{menu}" of menu bar 1
-              set _i to menu item "{item}" of menu 1 of _m
+              set _m to menu bar item "{menu_e}" of menu bar 1
+              set _i to menu item "{item_e}" of menu 1 of _m
               return "true"
             on error
               return "false"
@@ -69,12 +81,15 @@ class AXClient:
         return _osascript(script).strip() == "true"
 
     def menu_item_enabled(self, menu: str, item: str) -> bool:
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
+        item_e = _esc_as(item)
         script = f'''
         tell application "System Events"
-          tell process "{self._app}"
+          tell process "{app}"
             try
-              set _m to menu bar item "{menu}" of menu bar 1
-              set _i to menu item "{item}" of menu 1 of _m
+              set _m to menu bar item "{menu_e}" of menu bar 1
+              set _i to menu item "{item_e}" of menu 1 of _m
               return (enabled of _i) as string
             on error
               return "false"
@@ -85,10 +100,13 @@ class AXClient:
         return _osascript(script).strip() == "true"
 
     def click_menu_item(self, menu: str, item: str) -> None:
+        app = _esc_as(self._app)
+        menu_e = _esc_as(menu)
+        item_e = _esc_as(item)
         script = f'''
         tell application "System Events"
-          tell process "{self._app}"
-            click menu item "{item}" of menu 1 of menu bar item "{menu}" of menu bar 1
+          tell process "{app}"
+            click menu item "{item_e}" of menu 1 of menu bar item "{menu_e}" of menu bar 1
           end tell
         end tell
         '''
@@ -170,11 +188,10 @@ class AXClient:
         returns the same data without activation.
         """
         self.activate()
-        import time
-
+        app = _esc_as(self._app)
         for _ in range(20):
             probe = _osascript(
-                f'tell application "System Events" to tell process "{self._app}" '
+                f'tell application "System Events" to tell process "{app}" '
                 f'to return count of windows'
             )
             if probe.strip().isdigit() and int(probe) >= 1:
@@ -184,7 +201,7 @@ class AXClient:
         delim = "|||"
         script = f'''
         tell application "System Events"
-          tell process "{self._app}"
+          tell process "{app}"
             set _w to first window
             set _pos to position of _w
             set _sz to size of _w
