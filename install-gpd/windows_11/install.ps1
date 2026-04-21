@@ -11,6 +11,18 @@
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 
+# Force the console to UTF-8 for output so the Unicode box-drawing chars
+# in the GPD banner render correctly on PowerShell 5.1. Without this,
+# PS 5.1 writes to the OEM codepage (CP850/CP1252) which doesn't contain
+# U+2500-257F (box drawing) — users see mojibake like "�����ۻ" instead
+# of "██████╗". PS 7+ already uses UTF-8 by default; this is a no-op
+# there.
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+} catch {
+    # Non-fatal if the console doesn't let us change encoding (rare)
+}
+
 # ── Configuration ──────────────────────────────────────────────────────────
 
 $GpdHome      = if ($env:GPD_HOME) { $env:GPD_HOME } else { Join-Path $HOME ".gpd" }
