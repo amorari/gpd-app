@@ -71,7 +71,12 @@ def _check_build_skew(mcp_factory, *, sentinel: str = _BUILD_SKEW_SENTINEL):
         return
 
     try:
-        invoke_via_mcp(mcp, sentinel, {})
+        # Short deadline — this is a session-start probe, not a real call.
+        # If the webview bridge is unresponsive for any reason (race with
+        # webview mount, leftover state from a prior test blowing up the
+        # vendored plugin listener, MCP socket momentarily blocked), we
+        # want to log and continue rather than cascade-error every test.
+        invoke_via_mcp(mcp, sentinel, {}, deadline_s=3.0)
     except IPCError as e:
         msg = str(e).lower()
         if "not found" in msg or "unknown" in msg:
@@ -81,6 +86,20 @@ def _check_build_skew(mcp_factory, *, sentinel: str = _BUILD_SKEW_SENTINEL):
             )
         # Other IPCError shapes (arg-validation, etc.) mean the command is
         # registered and the binary is fresh. Swallow and return.
+    except Exception as e:  # noqa: BLE001
+        # MCPTimeout, connection refused, anything else. A timeout here is
+        # not a signal that the binary is stale — it's a signal that the
+        # webview isn't responding. Surface as a warning and let the test
+        # fixtures that actually need MCP handle the real failure.
+        import warnings
+        warnings.warn(
+            f"build-skew probe inconclusive ({type(e).__name__}: {e!r}). "
+            "Downstream MCP-dependent tests may fail at fixture setup; "
+            "this is not a stale-binary signal. Check the running GPD Dev "
+            "webview's state (tauri-plugin-mcp listener may be dead — "
+            "typically recovers with a relaunch).",
+            stacklevel=2,
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)
