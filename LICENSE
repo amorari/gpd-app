@@ -1,6 +1,10 @@
 MIT License
 
-Copyright (c) 2025 opencode
+Copyright (c) 2026 PSI Inc (GPD Desktop fork)
+Copyright (c) 2025 opencode (upstream: https://github.com/anomalyco/opencode)
+
+This repository is a downstream fork of OpenCode. Both copyrights above are
+preserved per the MIT license terms of the upstream project.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

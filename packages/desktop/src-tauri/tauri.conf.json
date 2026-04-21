@@ -34,7 +34,11 @@
     "active": true,
     "targets": ["deb", "rpm", "dmg", "nsis", "app"],
     "externalBin": ["sidecars/opencode-cli"],
-    "resources": ["uv-bundle/"],
+    "resources": {
+      "uv-bundle/": "uv-bundle/",
+      "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../../../LICENSE": "LICENSE"
+    },
     "linux": {
       "rpm": {
         "compression": {

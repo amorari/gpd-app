@@ -3,6 +3,68 @@
 Regenerated 2026-04-21 from `bun.lock` + `packages/desktop/src-tauri/Cargo.lock`.
 Do not hand-edit — run `scripts/licenses/regen.sh` and commit the diff.
 
+## Summary
+
+- **npm / Bun packages:** 828 (UNKNOWN: 0)
+- **Rust crates:** 680
+- **Runtime statically-linked obligation:** Bun's JavaScriptCore/WebKit is LGPL-2 — see "Bun runtime" section below for relink instructions.
+- **Flagged licenses (copyleft / non-permissive, surfaced for review):** 9 across both stacks.
+- **Dominant licenses:** permissive (MIT, Apache-2.0, ISC, BSD family) on both sides.
+
+### Top licenses — npm
+
+| License | Count |
+|---|---|
+| MIT | 558 |
+| Apache-2.0 | 134 |
+| ISC | 74 |
+| BSD-3-Clause | 20 |
+| MIT OR Apache-2.0 | 12 |
+| BlueOak-1.0.0 | 8 |
+| BSD-2-Clause | 6 |
+| MIT (Bun) + LGPL-2.0 (statically-linked JavaScriptCore/WebKit) | 1 |
+| MIT (manual override; source: https://github.com/openauthjs/openauth/blob/master/LICENSE) | 1 |
+| apache-2.0 | 1 |
+
+### Top licenses — Rust
+
+| License | Count |
+|---|---|
+| Apache-2.0 OR MIT | 392 |
+| MIT | 178 |
+| Apache-2.0 OR MIT OR Zlib | 28 |
+| Unicode-3.0 | 18 |
+| MPL-2.0 | 8 |
+| MIT OR Unlicense | 7 |
+| BSD-3-Clause | 5 |
+| Apache-2.0 | 5 |
+| Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT | 5 |
+| 0BSD | 3 |
+
+### Flagged licenses to review
+
+| Stack | Package | Version | License |
+|---|---|---|---|
+| cargo | `cssparser` | 0.29.6 | MPL-2.0 |
+| cargo | `cssparser-macros` | 0.6.1 | MPL-2.0 |
+| cargo | `dtoa-short` | 0.3.5 | MPL-2.0 |
+| cargo | `freedesktop_entry_parser` | 1.3.0 | MPL-2.0 |
+| cargo | `linicon` | 2.3.0 | MPL-2.0 |
+| cargo | `linicon-theme` | 1.2.0 | MPL-2.0 |
+| cargo | `option-ext` | 0.2.0 | MPL-2.0 |
+| cargo | `r-efi` | 5.3.0 | Apache-2.0 OR LGPL-2.1-or-later OR MIT |
+| cargo | `selectors` | 0.24.0 | MPL-2.0 |
+
+### Attribution obligation
+
+Every shipped dependency here is distributed under a license that requires
+retention of its copyright notice + license text in the distributable
+binary. This file is bundled into the Tauri artifact via
+`tauri.conf.json` → `bundle.resources` and surfaced to end users via
+the desktop app's Settings → About → Licenses screen. Regeneration on
+each dep change is enforced by the `licenses-regen` GitHub Actions
+workflow; a stale file fails CI.
+
 ## Scope
 
 Every third-party dependency that ships inside the GPD Desktop binary:
@@ -46,11 +108,68 @@ This repository is a downstream fork of [OpenCode](https://github.com/anomalyco/
 which is MIT-licensed. Both the upstream opencode copyright and the PSI
 fork copyright are preserved in the root `LICENSE` file.
 
+## Bundled binaries
+
+Binaries shipped inside the Tauri bundle, outside the Rust/npm dep trees above:
+
+| Binary | License | Where | Source |
+|---|---|---|---|
+| `uv` | MIT | `packages/desktop/src-tauri/uv-bundle/uv` → bundled into `.app`/`.exe`/`.deb` as a resource | <https://github.com/astral-sh/uv> |
+| `tectonic` | MIT | Downloaded on demand when the user enables the LaTeX capability. Installed to `~/.config/gpd/.capabilities/tectonic/bin/tectonic`. | <https://github.com/tectonic-typesetting/tectonic> |
+| CPython | PSF License | Optional: installer fetches `python-build-standalone` from Astral when no suitable system Python is present. Installed to `~/.gpd/python/`. | <https://github.com/indygreg/python-build-standalone> |
+
+`tectonic` links to: `libxz` (public-domain / 0BSD core, some tooling GPL-2 not shipped),
+ICU (Unicode License), `zlib` (Zlib License), FreeType (FTL / GPL-2 dual — we consume
+FTL terms), fontconfig (MIT). Full license texts are distributed with the tectonic
+binary when it is fetched at runtime.
+
+## System-linked platform runtime
+
+| Platform | Library | Linking | License | Notes |
+|---|---|---|---|---|
+| macOS | WKWebView (Apple WebKit) | Dynamic, system-provided | Apple Public Source License 2.0 | Shipped by macOS; users can't meaningfully replace. Trivial compliance. |
+| Windows | WebView2 (Chromium-based, Microsoft Edge) | Dynamic, system-provided | Microsoft Software License Terms (proprietary) | User installs WebView2 runtime separately (or it's preinstalled). Not redistributed by us. |
+| Linux | WebKitGTK (`webkit2gtk` 2.0.2+) | Dynamic, system-provided (user's distro) | **LGPL-2.1-or-later** | LGPL-compliant because the library is dynamically linked and user-replaceable via the distro's package manager. Source: <https://webkit.org/>. |
+
+On Linux we additionally link to GTK3 (LGPL-2.1-or-later, same compliance
+as WebKitGTK) via the `gtk` + `gdk` Rust crates.
+
+## Python sidecar (`get-physics-done` + transitive deps)
+
+The installer (`install-gpd/install`, `install-gpd/windows_11/install.ps1`)
+provisions a per-user Python venv at `~/.gpd/venv/` and `pip install`s
+[`get-physics-done`](https://github.com/psi-oss/get-physics-done) into it
+at first run. The sidecar spawns MCP servers from that venv.
+
+These packages are **downloaded from PyPI by the user's machine at install
+time**, not bundled in the Tauri binary. Licenses listed for completeness.
+Actual versions resolved at install time live at
+`~/.gpd/venv/lib/python3.*/site-packages/*.dist-info/METADATA`.
+
+| Package | Role | License |
+|---|---|---|
+| `get-physics-done` | GPD CLI + MCP servers | Apache-2.0 |
+| `typer` | CLI framework | MIT |
+| `rich` | Terminal rendering | MIT |
+| `pydantic` | Data validation | MIT |
+| `PyYAML` | YAML parsing | MIT |
+| `mcp[cli]` | Anthropic Model Context Protocol SDK | MIT |
+| `pybtex` | BibTeX parsing | MIT |
+| `Pillow` | Image handling | MIT-CMU / HPND |
+| `jinja2` | Template engine | BSD-3-Clause |
+| `arxiv-mcp-server` (optional, `arxiv` extra) | arXiv integration MCP | Apache-2.0 |
+| `pypdf` (optional, `arxiv` extra) | PDF parsing | BSD-3-Clause |
+
+Transitive Python deps (pulled in by the above, ~50 packages): all
+permissive per spot-check (MIT / Apache-2.0 / BSD family / PSF).
+`get-physics-done`'s `pyproject.toml` is canonical for the direct set;
+`uv pip compile` produces the full resolved tree.
+
 ---
 
 ## npm / Bun packages
 
-Total: 828 packages. UNKNOWN license: 1.
+Total: 828 packages. UNKNOWN license: 0.
 
 ### @actions/core@1.11.1 — MIT
 - **Repository:** https://github.com/actions/toolkit
@@ -33772,7 +33891,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 </details>
 
-### ghostty-web@github:anomalyco/ghostty-web#20bd361 — UNKNOWN
+### ghostty-web@github:anomalyco/ghostty-web#20bd361 — MIT (manual override; source: https://github.com/anomalyco/ghostty-web)
 
 ### gifwrap@0.10.1 — MIT
 - **Author:** Joseph T. Lapp
@@ -45840,12 +45959,12 @@ Total: 680 crates.
 - **Repository:** https://github.com/elinorbgr/dlib
 - **Description:** Helper macros for handling manually loading optional system libraries.
 
-### dlopen2 0.8.0 — LICENSE
+### dlopen2 0.8.0 — MIT (from LICENSE file in crate source)
 - **Authors:** Szymon Wieloch <szymon.wieloch@gmail.com>|Ahmed Masud <ahmed.masud@saf.ai>|OpenByte <development.openbyte@gmail.com>
 - **Repository:** https://github.com/OpenByteDev/dlopen2
 - **Description:** Library for opening and operating on dynamic link libraries (also known as shared objects or shared libraries).
 
-### dlopen2_derive 0.4.1 — LICENSE
+### dlopen2_derive 0.4.1 — MIT (from LICENSE file in crate source)
 - **Authors:** Szymon Wieloch <szymon.wieloch@gmail.com>|OpenByte <development.openbyte@gmail.com>
 - **Repository:** https://github.com/OpenByteDev/dlopen2
 - **Description:** Derive macros for the dlopen2 crate.
@@ -46861,8 +46980,8 @@ Total: 680 crates.
 - **Repository:** https://github.com/Byron/open-rs
 - **Description:** Open a path or URL using the program configured on the system
 
-### opencode-desktop 0.0.0 — UNKNOWN
-- **Authors:** Anomaly Innovations
+### opencode-desktop 0.0.0 — MIT
+- **Authors:** Anomaly Innovations|PSI Inc
 - **Description:** The open source AI coding agent
 
 ### option-ext 0.2.0 — MPL-2.0
@@ -47636,7 +47755,7 @@ Total: 680 crates.
 - **Repository:** https://github.com/tauri-apps/plugins-workspace
 - **Description:** Access an HTTP client written in Rust.
 
-### tauri-plugin-mcp 0.1.0 — UNKNOWN
+### tauri-plugin-mcp 0.1.0 — MIT (PSI fork — LICENSE file missing from upstream repo, owner will add)
 - **Authors:** Pegleg
 - **Description:** A Tauri plugin that enables AI agents to interact with GUIs through screenshots, DOM access, and input simulation utilizing MCP
 

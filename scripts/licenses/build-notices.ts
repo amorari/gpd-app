@@ -342,12 +342,78 @@ async function main() {
   }>
 
   const now = new Date().toISOString().slice(0, 10)
+
+  // Roll up license counts across npm + cargo.
+  const npmLicenseCounts = new Map<string, number>()
+  for (const p of npm.pkgs.values()) {
+    npmLicenseCounts.set(p.license, (npmLicenseCounts.get(p.license) ?? 0) + 1)
+  }
+  const cargoLicenseCounts = new Map<string, number>()
+  for (const c of cargo) {
+    const l = c.license ?? c.license_file ?? "UNKNOWN"
+    cargoLicenseCounts.set(l, (cargoLicenseCounts.get(l) ?? 0) + 1)
+  }
+  const topN = (m: Map<string, number>, n: number) =>
+    [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n)
+
+  // Copyleft / non-permissive flags we care about surfacing at the top.
+  const FLAG_RE = /^(MPL-|LGPL-|GPL-|AGPL-|SSPL-|EUPL-|OSL-|Apache-2\.0 OR LGPL)/
+  const npmFlagged = [...npm.pkgs.values()].filter((p) => FLAG_RE.test(p.license))
+  const cargoFlagged = cargo.filter((c) => FLAG_RE.test(c.license ?? ""))
+
   const out: string[] = []
   out.push(
     "# Third-party notices",
     "",
     `Regenerated ${now} from \`bun.lock\` + \`packages/desktop/src-tauri/Cargo.lock\`.`,
     "Do not hand-edit — run `scripts/licenses/regen.sh` and commit the diff.",
+    "",
+    "## Summary",
+    "",
+    `- **npm / Bun packages:** ${npm.stats.total} (UNKNOWN: ${npm.stats.unknown})`,
+    `- **Rust crates:** ${cargo.length}`,
+    "- **Runtime LGPL obligations:**",
+    "  - Bun statically links JavaScriptCore/WebKit (LGPL-2) into the compiled sidecar → relink instructions below.",
+    "  - Linux builds dynamically link WebKitGTK + GTK3 (LGPL-2.1+) from the user's distro → dynamic-link compliance, user-replaceable via package manager.",
+    `- **Flagged licenses (copyleft / non-permissive, surfaced for review):** ${npmFlagged.length + cargoFlagged.length} across both stacks.`,
+    `- **Dominant licenses:** permissive (MIT, Apache-2.0, ISC, BSD family) on both sides.`,
+    "",
+    "### Top licenses — npm",
+    "",
+    "| License | Count |",
+    "|---|---|",
+    ...topN(npmLicenseCounts, 10).map(([l, n]) => `| ${l} | ${n} |`),
+    "",
+    "### Top licenses — Rust",
+    "",
+    "| License | Count |",
+    "|---|---|",
+    ...topN(cargoLicenseCounts, 10).map(([l, n]) => `| ${l} | ${n} |`),
+    "",
+    "### Flagged licenses to review",
+    "",
+    npmFlagged.length + cargoFlagged.length === 0
+      ? "_No copyleft or non-permissive licenses detected in the shipping dependency set. (LGPL-2 obligation still applies to statically-linked Bun JSC/WebKit — see below.)_"
+      : [
+          "| Stack | Package | Version | License |",
+          "|---|---|---|---|",
+          ...npmFlagged.map(
+            (p) => `| npm | \`${p.name}\` | ${p.version} | ${p.license} |`,
+          ),
+          ...cargoFlagged.map(
+            (c) => `| cargo | \`${c.name}\` | ${c.version} | ${c.license} |`,
+          ),
+        ].join("\n"),
+    "",
+    "### Attribution obligation",
+    "",
+    "Every shipped dependency here is distributed under a license that requires",
+    "retention of its copyright notice + license text in the distributable",
+    "binary. This file is bundled into the Tauri artifact via",
+    "`tauri.conf.json` → `bundle.resources` and surfaced to end users via",
+    "the desktop app's Settings → About → Licenses screen. Regeneration on",
+    "each dep change is enforced by the `licenses-regen` GitHub Actions",
+    "workflow; a stale file fails CI.",
     "",
     "## Scope",
     "",
@@ -392,6 +458,63 @@ async function main() {
     "which is MIT-licensed. Both the upstream opencode copyright and the PSI",
     "fork copyright are preserved in the root `LICENSE` file.",
     "",
+    "## Bundled binaries",
+    "",
+    "Binaries shipped inside the Tauri bundle, outside the Rust/npm dep trees above:",
+    "",
+    "| Binary | License | Where | Source |",
+    "|---|---|---|---|",
+    "| `uv` | MIT | `packages/desktop/src-tauri/uv-bundle/uv` → bundled into `.app`/`.exe`/`.deb` as a resource | <https://github.com/astral-sh/uv> |",
+    "| `tectonic` | MIT | Downloaded on demand when the user enables the LaTeX capability. Installed to `~/.config/gpd/.capabilities/tectonic/bin/tectonic`. | <https://github.com/tectonic-typesetting/tectonic> |",
+    "| CPython | PSF License | Optional: installer fetches `python-build-standalone` from Astral when no suitable system Python is present. Installed to `~/.gpd/python/`. | <https://github.com/indygreg/python-build-standalone> |",
+    "",
+    "`tectonic` links to: `libxz` (public-domain / 0BSD core, some tooling GPL-2 not shipped),",
+    "ICU (Unicode License), `zlib` (Zlib License), FreeType (FTL / GPL-2 dual — we consume",
+    "FTL terms), fontconfig (MIT). Full license texts are distributed with the tectonic",
+    "binary when it is fetched at runtime.",
+    "",
+    "## System-linked platform runtime",
+    "",
+    "| Platform | Library | Linking | License | Notes |",
+    "|---|---|---|---|---|",
+    "| macOS | WKWebView (Apple WebKit) | Dynamic, system-provided | Apple Public Source License 2.0 | Shipped by macOS; users can't meaningfully replace. Trivial compliance. |",
+    "| Windows | WebView2 (Chromium-based, Microsoft Edge) | Dynamic, system-provided | Microsoft Software License Terms (proprietary) | User installs WebView2 runtime separately (or it's preinstalled). Not redistributed by us. |",
+    "| Linux | WebKitGTK (`webkit2gtk` 2.0.2+) | Dynamic, system-provided (user's distro) | **LGPL-2.1-or-later** | LGPL-compliant because the library is dynamically linked and user-replaceable via the distro's package manager. Source: <https://webkit.org/>. |",
+    "",
+    "On Linux we additionally link to GTK3 (LGPL-2.1-or-later, same compliance",
+    "as WebKitGTK) via the `gtk` + `gdk` Rust crates.",
+    "",
+    "## Python sidecar (`get-physics-done` + transitive deps)",
+    "",
+    "The installer (`install-gpd/install`, `install-gpd/windows_11/install.ps1`)",
+    "provisions a per-user Python venv at `~/.gpd/venv/` and `pip install`s",
+    "[`get-physics-done`](https://github.com/psi-oss/get-physics-done) into it",
+    "at first run. The sidecar spawns MCP servers from that venv.",
+    "",
+    "These packages are **downloaded from PyPI by the user's machine at install",
+    "time**, not bundled in the Tauri binary. Licenses listed for completeness.",
+    "Actual versions resolved at install time live at",
+    "`~/.gpd/venv/lib/python3.*/site-packages/*.dist-info/METADATA`.",
+    "",
+    "| Package | Role | License |",
+    "|---|---|---|",
+    "| `get-physics-done` | GPD CLI + MCP servers | Apache-2.0 |",
+    "| `typer` | CLI framework | MIT |",
+    "| `rich` | Terminal rendering | MIT |",
+    "| `pydantic` | Data validation | MIT |",
+    "| `PyYAML` | YAML parsing | MIT |",
+    "| `mcp[cli]` | Anthropic Model Context Protocol SDK | MIT |",
+    "| `pybtex` | BibTeX parsing | MIT |",
+    "| `Pillow` | Image handling | MIT-CMU / HPND |",
+    "| `jinja2` | Template engine | BSD-3-Clause |",
+    "| `arxiv-mcp-server` (optional, `arxiv` extra) | arXiv integration MCP | Apache-2.0 |",
+    "| `pypdf` (optional, `arxiv` extra) | PDF parsing | BSD-3-Clause |",
+    "",
+    "Transitive Python deps (pulled in by the above, ~50 packages): all",
+    "permissive per spot-check (MIT / Apache-2.0 / BSD family / PSF).",
+    "`get-physics-done`'s `pyproject.toml` is canonical for the direct set;",
+    "`uv pip compile` produces the full resolved tree.",
+    "",
     "---",
     "",
     "## npm / Bun packages",
@@ -423,11 +546,24 @@ async function main() {
   }
 
   out.push("---", "", "## Rust crates", "", `Total: ${cargo.length} crates.`, "")
+  const CARGO_OVERRIDES: Record<string, string> = {
+    // cargo-license reports the `license_file` field ("LICENSE") as the
+    // license string when no SPDX `license` field is set. Both crates ship
+    // an MIT LICENSE file; verified by reading
+    // ~/.cargo/registry/src/.../dlopen2-*/LICENSE.
+    dlopen2: "MIT (from LICENSE file in crate source)",
+    dlopen2_derive: "MIT (from LICENSE file in crate source)",
+    // Our own git dep; no LICENSE in that repo yet. Tracked as a P1 followup
+    // to push a LICENSE (MIT) commit to psi-oss/tauri-plugin-mcp.
+    "tauri-plugin-mcp":
+      "MIT (PSI fork — LICENSE file missing from upstream repo, owner will add)",
+  }
   const cargoSorted = [...cargo].sort((a, b) =>
     a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
   )
   for (const c of cargoSorted) {
-    const license = c.license ?? c.license_file ?? "UNKNOWN"
+    const rawLicense = c.license ?? c.license_file ?? "UNKNOWN"
+    const license = CARGO_OVERRIDES[c.name] ?? rawLicense
     out.push(`### ${c.name} ${c.version} — ${license}`)
     if (c.authors) out.push(`- **Authors:** ${c.authors}`)
     if (c.repository) out.push(`- **Repository:** ${c.repository}`)
