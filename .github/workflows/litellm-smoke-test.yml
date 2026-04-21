@@ -1,0 +1,70 @@
+name: LiteLLM /gpd/log smoke test
+
+# Posts a tiny gzipped NDJSON payload to the live /gpd/log endpoint,
+# asserts 200 + well-formed response. Detects:
+#   - upstream LiteLLM rename that breaks our LiteLLMRoutes.openai_routes
+#     monkey-patch in infra/litellm/gpd_log/hook.py
+#   - stale Dockerfile pin with missing security patches
+#   - Railway misconfig (missing GPD_USER_HASH_PEPPER / GPD_LOG_BUCKET /
+#     SA JSON env vars)
+#   - GCS IAM/bucket drift
+#
+# Uses a long-lived canary virtual key (user_id="gpd-smoke-canary") stored
+# as a GH secret. Rotate quarterly via `bq ... /key/regenerate`.
+
+on:
+  push:
+    branches: [gpd]
+    paths:
+      - 'infra/litellm/**'
+      - '.github/workflows/litellm-smoke-test.yml'
+  schedule:
+    - cron: '17 7 * * 1'  # Mondays 07:17 UTC — catches upstream breakage
+  workflow_dispatch:
+
+concurrency:
+  group: litellm-smoke-test
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: POST /gpd/log
+        env:
+          GPD_LOG_URL: ${{ secrets.GPD_LOG_URL }}
+          CANARY_KEY: ${{ secrets.LITELLM_SMOKE_CANARY_KEY }}
+        run: |
+          set -euo pipefail
+
+          # 26-char Crockford ULID from Python (ulidtools not needed for a
+          # random-enough test value).
+          SEQ=$(python3 -c 'import secrets; a="0123456789ABCDEFGHJKMNPQRSTVWXYZ"; print("".join(secrets.choice(a) for _ in range(26)))')
+          BODY=$(printf '{"kind":"smoke","v":1,"ts":%d,"sessionID":"ses_smoke_ci","rootSessionID":"ses_smoke_ci"}\n' "$(date +%s%3N)")
+          GZ=$(mktemp --suffix=.gz)
+          printf '%s' "$BODY" | gzip -c > "$GZ"
+
+          HTTP=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+            -X POST "$GPD_LOG_URL?session=ses_smoke_ci&root_session=ses_smoke_ci&seq=$SEQ" \
+            -H "Authorization: Bearer $CANARY_KEY" \
+            -H "Content-Encoding: gzip" \
+            -H "Content-Type: application/x-ndjson" \
+            --data-binary "@$GZ")
+
+          echo "HTTP $HTTP"
+          cat /tmp/resp.json
+          echo
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::smoke test failed: non-200 from /gpd/log"
+            exit 1
+          fi
+
+          # Shape check: response must include "ok":true and "path":"user=..."
+          if ! jq -e '.ok == true and (.path | startswith("user="))' /tmp/resp.json >/dev/null; then
+            echo "::error::smoke test failed: response shape unexpected"
+            exit 1
+          fi
+
+          echo "smoke OK — path: $(jq -r .path /tmp/resp.json)"

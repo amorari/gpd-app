@@ -33,13 +33,14 @@ POST https://litellm-production-46bb.up.railway.app/gpd/log
   ?session=<id>&root_session=<id>&seq=<ULID>
         │
         ▼
-LiteLLM proxy on Railway (stock image + LITELLM_WORKER_STARTUP_HOOKS)
+LiteLLM proxy on Railway (pinned release + LITELLM_WORKER_STARTUP_HOOKS)
   1. Content-Length ≤ 64 MB gate
   2. Depends(user_api_key_auth)   — validates key, handles revocation/expiry
-  3. proxy_logging_obj.pre_call_hook — reuses RPM/TPM limiter
-  4. Redis per-key daily byte quota (fail-closed)
-  5. user_hash = sha256(user_api_key_dict.user_id)[:16]  (server-derived)
-  6. Idempotent GCS upload (if_generation_match=0)
+  3. Reject keys with null/empty user_id (401)
+  4. proxy_logging_obj.pre_call_hook — reuses RPM/TPM limiter
+  5. Redis per-key daily byte quota (fail-closed, default 10 GiB/day)
+  6. user_hash = hmac_sha256(pepper, user_id)[:16]  (server-derived, peppered)
+  7. Idempotent GCS upload (if_generation_match=0)
         │
         ▼
 gs://gpd-desktop-logs/
@@ -88,6 +89,28 @@ The design goals that fell out:
 ---
 
 ## Decisions (and what we rejected)
+
+### HMAC with a pepper, not bare SHA256, for user_hash
+Bare `sha256(user_id)[:16]` is only 64 bits and trivially reversible
+given the LiteLLM user table: anyone with bucket-read access who leaks
+`SELECT user_id FROM LiteLLM_UserTable` can enumerate the (user_id →
+user_hash) mapping in seconds. We use `hmac_sha256(pepper, user_id)`
+where `pepper` (`GPD_USER_HASH_PEPPER`, 32 random bytes hex-encoded) is
+a Railway-resident env var. Without the pepper the mapping is
+intractable.
+
+**Threat model protected:** bucket-read compromise + LiteLLM user-table
+leak. Attacker sees the hashes but can't map them to user identities.
+
+**Threat model NOT protected:** Railway admin compromise. Attacker
+gets the pepper + user table + bucket contents → full mapping.
+Accepted — if Railway is compromised, the SA key is too.
+
+**Pepper rotation orphans every existing GCS object** (path prefixes
+use the pepper; old paths unreachable via new pepper). Do not rotate
+unless you also `gcloud storage rm -r gs://gpd-desktop-logs/**` to
+start fresh. The handler raises at boot if the env var is unset, so
+you can't accidentally ship a deploy with no pepper.
 
 ### Don't bake the GCS SA key into the Tauri bundle
 Initial plan was `include_str!("gpd-log-writer-key.json")` in `lib.rs`. That
@@ -248,11 +271,13 @@ when a non-engineer needs self-serve audit.
 ### Railway project `psi-gpd`
 - Service `litellm`, production environment
 - Source: this repo, `infra/litellm/` as build root (Dockerfile mode via `railway.json`)
+- LiteLLM image pinned to `ghcr.io/berriai/litellm:v1.83.7-stable` (see Dockerfile for CVE coverage + upgrade procedure)
 - Public URL: `https://litellm-production-46bb.up.railway.app`
 - Env vars added for logging:
-  - `GOOGLE_APPLICATION_CREDENTIALS_JSON` — inline SA JSON
+  - `GOOGLE_APPLICATION_CREDENTIALS_JSON` — inline SA JSON (gpd-log-writer)
   - `GPD_LOG_BUCKET=gpd-desktop-logs`
-  - `GPD_LOG_BYTES_PER_DAY` — unset, defaults to 1 GiB/day/key
+  - `GPD_USER_HASH_PEPPER` — 64 hex chars; **handler refuses to boot without it**
+  - `GPD_LOG_BYTES_PER_DAY` — unset, defaults to 10 GiB/day/key
   - `LITELLM_WORKER_STARTUP_HOOKS` — baked into Dockerfile, **do not** also set in Railway env (would double-register)
 - Redeploys: push changes to the `gpd` branch that touch `infra/litellm/`, then `railway up infra/litellm --path-as-root --service litellm --detach`, OR click Redeploy in the Railway dashboard
 
@@ -261,6 +286,13 @@ when a non-engineer needs self-serve audit.
 - `sessions` — native clustered table, 730-day partition expiration
 - `sessions_text_index` — SEARCH index on string cols
 - Scheduled transfer config `6a32e0bb-0000-2128-9732-94eb2c1f907c` — "gpd_logs 6h materialize (today only)", runs every 6h, state `RUNNING`
+
+### GitHub Actions workflows
+- `.github/workflows/compactor.yml` — daily 03:00 UTC. Fuses yesterday's `parts/*.jsonl.gz` into one `root.jsonl.gz` per session via `Objects.compose()`. Uses SA `gpd-log-compactor@gpd-desktop` (role `roles/storage.objectUser` on the bucket), key in GH secret `GCS_COMPACTOR_SA_JSON`.
+- `.github/workflows/litellm-smoke-test.yml` — runs on every push touching `infra/litellm/**`, plus Mondays 07:17 UTC, plus manual dispatch. POSTs a tiny payload to `/gpd/log` via a canary LiteLLM key stored in GH secret `LITELLM_SMOKE_CANARY_KEY` (rotate quarterly). Asserts 200 + response shape. Catches upstream LiteLLM renames breaking our monkey-patch.
+
+### Invariant: materialize window vs compactor window
+03-materialize.sql runs on **today only**; compactor runs on **yesterday**. The two windows MUST stay disjoint, or the sessions table double-ingests compacted data (different `source_object`, same event content — anti-dedupe misses it). Comments in both files call this out.
 
 ---
 
@@ -286,11 +318,26 @@ All events carry `ts` (ms epoch), `v` (schema version, currently 1), and
 `parentSessionID` + `rootSessionID` inline; for all other events the root is
 derived from the `session=<root>/` path segment at materialize time.
 
+### Per-event field contents — what is and isn't captured
+
+**NO redaction layer.** Tool stdout, user-pasted text, file contents,
+and attachment URLs are written verbatim. Treat the bucket as having
+the same sensitivity class as raw session transcripts.
+
+| Event kind | Fields captured | Notable drops / gotchas |
+|---|---|---|
+| `session_init` | `sessionID`, `parentSessionID`, `rootSessionID`, and the full `Session.Info` (id, title, time, mode, agent, parent_id, token/cost counters, error state) | Share secret and internal-only bookkeeping omitted by construction of `Session.Info`. Emitted once per session the first time any event is flushed for that session. |
+| `message_updated` | Full `MessageV2.Info`: role, id, timestamps, model id, request id, content parts, tokens (input/output/cache), cost in USD, error, finish reason, path (cwd, worktree root). **Assistant messages include the reasoning tokens/text the model emitted.** | The assembled outbound LLM request body (system prompt + tool schemas + message history) is NOT logged. If you need bit-exact replay, see Future Work. User messages logged verbatim — secrets pasted by the researcher will appear here. |
+| `part_updated` | Full `Part`: type, id, messageID, state. For `tool`: arg JSON (every bash command, Read path, Write target, etc.), output text, tool title, per-tool metadata. For `text`: accumulated text. For `reasoning`: accumulated reasoning. For `file`: url (local `file://` path), filename, mime. | Tool args include the literal bash command strings; Read outputs include file contents; WebFetch responses include remote-fetched HTML/JSON. Binary attachments (image/pdf/audio) log only the `url` + `mime` + `filename`; the bytes themselves live in the local opencode SQLite and are never re-uploaded. |
+| `session_diff` | `Snapshot.FileDiff[]` — per path: old content-hash, new content-hash, and a unified diff of text changes. | Only file contents the diff engine considered text-diffable. Binary-mode files show hash-only. |
+| `session_deleted` | sessionID | Emitted when the user deletes a session client-side. |
+| `session_close` | sessionID, reason (`flush` / `delete` / `shutdown`) | **Currently never emitted** — see "Session lifecycle observability" under Limitations. |
+
 ### What's in GCS
 
 ```
 gs://gpd-desktop-logs/
-  user=<sha256(user_id)[:16]>/
+  user=<hmac_sha256(pepper, user_id)[:16]>/
     date=YYYY-MM-DD/
       session=<rootSessionID>/
         parts/<ULID>.jsonl.gz
@@ -298,10 +345,15 @@ gs://gpd-desktop-logs/
         root.jsonl.gz           ← written by the nightly compactor
 ```
 
-`user_hash` is **server-derived** from `user_api_key_dict.user_id`. The
-client cannot steer which prefix it writes under. Tool outputs >32 KB
-are NOT currently spilled to side files on the HTTP path — only the
-(deprecated, opt-in) local-FS mirror does that.
+`user_hash` is **server-derived** from `user_api_key_dict.user_id`,
+HMAC'd with a Railway-resident pepper. See "HMAC with a pepper" under
+Decisions for the threat model. The client cannot steer which prefix
+it writes under. Keys with null user_id are rejected (401), so admin
+keys can't collide into a single bucket.
+
+Tool outputs >32 KB are NOT spilled to side files on the HTTP path —
+only the (opt-in, dev-only) local-FS mirror does that. Every event
+lives inline in its `parts/<ULID>.jsonl.gz` object.
 
 ### What's in BigQuery
 
@@ -425,7 +477,7 @@ uncompressed.
 | Window in `03-materialize.sql` | today only | Widening to `yesterday+today` doubles bytes scanned per run |
 | `partition_expiration_days=730` on `sessions` | 2 y retention | Drop to 365 if 1y audit window is acceptable |
 | Lifecycle `age: 30` → NEARLINE | 30 d hot | Drop to 7 d if queries rarely hit data that old (nearline 2× cheaper) |
-| `GPD_LOG_BYTES_PER_DAY` | 1 GiB/user | Tighter cap = earlier 429 for abusive clients |
+| `GPD_LOG_BYTES_PER_DAY` | 10 GiB/user | Tighter cap = earlier 429 for abusive clients |
 
 ---
 
@@ -465,21 +517,24 @@ don't set `cost_per_request` on it, so `spend` stays 0. This is
 intentional — log writes should not eat the user's LLM budget. Team/
 user/org budgets still fire via `common_checks`.
 
-### No compactor schedule yet
-`infra/litellm/gpd_log/compactor.py` exists and works, but nothing calls
-it on a schedule. `parts/` objects accumulate until the 730-day lifecycle
-deletes them. For realistic volumes (hundreds of flushes per session-day)
-this is a lot of small objects — if a given `session=<root>/` goes past
-a few hundred `parts/`, querying its `subagents/*` becomes GCS-metadata-
-expensive. Fix when we have enough session volume to notice. Candidates:
-Railway cron `python -m gpd_log.compactor --yesterday`, Cloud Scheduler
-HTTP trigger, or GitHub Actions nightly.
+### Session lifecycle observability
+Two small gaps compound to make "is session X still live or done?"
+queries awkward:
 
-### Session boundaries aren't emitted
-The `session_close` event type exists in the schema but the logger
-doesn't currently emit it on session termination. Ending the session
-just stops producing events. Low priority — you can reconstruct session
-end from the `last_seen` ts of the last event on that session_id.
+- `session_close` event type exists in the schema but the logger never
+  emits it. Ending a session just stops producing events. You can
+  infer "done" from the `last_seen` ts of events for the session_id
+  and a timeout, but it's inference.
+- Sub-second staleness between the external table (where today's data
+  arrives as fast as the client flushes) and the materialized table
+  (refreshed every 6h) means "is this live?" can also be answered by
+  "does sessions have a recent row for it" → unreliable during the
+  freshness gap.
+
+Fix path when someone actually needs this: (1) emit `session_close` on
+client shutdown and when OpenCode deletes a session; (2) add a derived
+view `session_status` that joins "last event ts" + "close event" + a
+staleness threshold.
 
 ---
 
@@ -496,7 +551,7 @@ end from the `last_seen` ts of the last event on that session_id.
   exact request body (minus response body, for storage) to a 14-day sub-
   bucket, keyed on `gpd_root_session_id`. Needed only if we want to
   replay a session through a different model.
-- **Scheduled compactor** (see above).
+- **Emit `session_close`** (see "Session lifecycle observability" above).
 - **Streaming body ingest** (see above).
 - **BigQuery Dataform / DBT layer** for per-session rollup views
   (e.g., `session_summary` — one row per session_id with turn counts,

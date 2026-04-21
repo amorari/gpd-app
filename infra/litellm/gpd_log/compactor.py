@@ -10,9 +10,15 @@ timestamp-prefixed). Simple concat of gzipped streams works because gzip
 is concatenation-safe per RFC 1952 §2.2.
 
 Run modes:
-  - Railway cron:    `python -m gpd_log.compactor --yesterday`
-  - Cloud Function:  `compact_all()` as the entry point, HTTP trigger
-  - Ad-hoc:          `python -m gpd_log.compactor --date 2026-04-20`
+  - GitHub Actions cron:  .github/workflows/compactor.yml (03:00 UTC daily)
+  - Ad-hoc local:         `python -m gpd_log.compactor --date 2026-04-20`
+
+INVARIANT — do not widen the compactor window without also moving the
+BigQuery materialize window (infra/bigquery/03-materialize.sql) to stay
+disjoint. Currently: materialize = today, compactor = yesterday. After
+compaction the same event bytes live under a new path (root.jsonl.gz
+instead of parts/<ULID>.jsonl.gz), which the source_object-based
+anti-dedupe in materialize does not catch.
 
 What survives: `parts/` is deleted after a successful fuse, leaving just
 `root.jsonl.gz`. The lifecycle policy (30d nearline, 90d coldline) then

@@ -42,9 +42,17 @@ shred -u /tmp/gpd-log-writer-key.json         # destroy local copy
    Settings → Source → point at this repo, root directory `infra/litellm/`.
 2. **Add env vars** (Settings → Variables):
    ```
-   GOOGLE_APPLICATION_CREDENTIALS_JSON = <paste the JSON from step above>
+   GOOGLE_APPLICATION_CREDENTIALS_JSON = <paste SA JSON from step above>
    GPD_LOG_BUCKET = gpd-desktop-logs
-   GPD_LOG_BYTES_PER_DAY = 1073741824    # 1 GiB/day per key (optional; default)
+   GPD_USER_HASH_PEPPER = <64 hex chars — generate once, NEVER rotate>
+   GPD_LOG_BYTES_PER_DAY = 10737418240   # 10 GiB/day/key (optional; default)
+
+   # Generate pepper:
+   #   python -c 'import secrets; print(secrets.token_hex(32))'
+   # Store it in Railway env only. Rotation orphans all existing GCS
+   # objects (user_hash in paths uses the pepper). If you rotate, you
+   # must also delete every old user=*/ prefix.
+   #
    # Existing vars stay untouched: DATABASE_URL, LITELLM_MASTER_KEY,
    # REDIS_URL (or REDIS_HOST / REDIS_PASSWORD), STORE_MODEL_IN_DB, etc.
    ```

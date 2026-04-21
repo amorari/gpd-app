@@ -2,6 +2,14 @@
 -- Scheduled query runs every 6h; re-running is safe because we filter on
 -- (ingest_date, source_object) against what's already landed today.
 --
+-- INVARIANT — do not widen this date window without also moving the
+-- compactor window (.github/workflows/compactor.yml) to stay disjoint.
+-- Currently: materialize = today. compactor = yesterday.
+-- Post-compaction, the same event bytes exist under a new path
+-- (session=<root>/root.jsonl.gz vs parts/<ULID>.jsonl.gz), which
+-- source_object-based anti-dedupe doesn't catch. Overlapping windows
+-- → duplicate rows in gpd_logs.sessions.
+--
 -- Scheduled query parameterization:
 --   @run_date: filled automatically by BigQuery Data Transfer (today UTC).
 --   We scan today only. Midnight-spanning sessions whose "yesterday"

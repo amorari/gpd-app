@@ -1,0 +1,66 @@
+name: Nightly GCS compactor
+
+# Fuses yesterday's gs://gpd-desktop-logs/user=*/date=*/session=*/parts/*.jsonl.gz
+# into one root.jsonl.gz per session-day via GCS Objects.compose().
+# Script: infra/litellm/gpd_log/compactor.py.
+#
+# INVARIANT: this workflow runs on yesterday's data; 03-materialize.sql
+# runs on today's data. The two windows must not overlap, or the
+# sessions table double-ingests compacted data (different source_object,
+# same event content). Comments in both files state this.
+
+on:
+  schedule:
+    # 03:00 UTC — late enough that yesterday's last researchers in
+    # EU/PT have finished, early enough for US/EU morning queries to
+    # hit compacted data.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to compact (YYYY-MM-DD UTC). Empty = yesterday.'
+        required: false
+        default: ''
+
+concurrency:
+  group: gpd-log-compactor
+  cancel-in-progress: false
+
+jobs:
+  compact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install deps
+        run: pip install 'google-cloud-storage>=2.18'
+
+      - name: Write SA credentials to disk
+        run: |
+          umask 077
+          printf '%s' "$GCS_SA_JSON" > /tmp/gcs-sa.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcs-sa.json" >> "$GITHUB_ENV"
+        env:
+          GCS_SA_JSON: ${{ secrets.GCS_COMPACTOR_SA_JSON }}
+
+      - name: Run compactor
+        env:
+          GPD_LOG_BUCKET: gpd-desktop-logs
+          PYTHONPATH: ${{ github.workspace }}/infra/litellm
+          LOG_LEVEL: INFO
+        run: |
+          if [ -z "${{ github.event.inputs.date }}" ]; then
+            python -m gpd_log.compactor --yesterday
+          else
+            python -m gpd_log.compactor --date "${{ github.event.inputs.date }}"
+          fi
+
+      - name: Scrub credentials
+        if: always()
+        run: shred -u /tmp/gcs-sa.json 2>/dev/null || rm -f /tmp/gcs-sa.json
