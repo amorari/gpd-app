@@ -118,13 +118,6 @@ class AppState:
     def launch(self, *, background: bool = True) -> None:
         """Launch GPD. Default is background (-g) — keeps focus on the
         caller's current app. Pass background=False to bring GPD frontmost.
-
-        When ``GPD_TEST_HIDE_AFTER_LAUNCH=1`` is set (the default for CI and
-        recommended for interactive dev), immediately hide the GPD
-        application post-launch (equivalent to Cmd-H). The window
-        disappears from every Space; MCP socket + AX System Events queries
-        continue to work. Tests that genuinely need focus (typically
-        marked ``steals_focus``) call ``ax.activate()`` which un-hides.
         """
         args = ["open", "-a", APP_PATH]
         if background:
@@ -140,23 +133,6 @@ class AppState:
                 f"(matching pids: {pids_str})"
             )
         self._launched_pid = self.gpd_pid()
-        if os.environ.get("GPD_TEST_HIDE_AFTER_LAUNCH", "1") == "1":
-            # Best-effort hide. Failure is non-fatal: worst case GPD is
-            # visible, which is the pre-patch behavior.
-            try:
-                subprocess.run(
-                    [
-                        "osascript",
-                        "-e",
-                        f'tell application "System Events" to '
-                        f'set visible of process "{_APP_NAME}" to false',
-                    ],
-                    capture_output=True,
-                    check=False,
-                    timeout=3,
-                )
-            except (subprocess.TimeoutExpired, OSError):
-                pass
 
     def quit(self) -> None:
         subprocess.run(
