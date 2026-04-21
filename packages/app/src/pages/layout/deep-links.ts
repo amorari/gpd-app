@@ -10,6 +10,15 @@ const parseUrl = (input: string) => {
   }
 }
 
+const parseAnySchemeUrl = (input: string) => {
+  if (typeof URL.canParse === "function" && !URL.canParse(input)) return
+  try {
+    return new URL(input)
+  } catch {
+    return
+  }
+}
+
 export const parseDeepLink = (input: string) => {
   const url = parseUrl(input)
   if (!url) return
@@ -35,6 +44,18 @@ export const collectOpenProjectDeepLinks = (urls: string[]) =>
 
 export const collectNewSessionDeepLinks = (urls: string[]) =>
   urls.map(parseNewSessionDeepLink).filter((link): link is { directory: string; prompt?: string } => !!link)
+
+export const parseSessionDeepLink = (input: string) => {
+  const url = parseAnySchemeUrl(input)
+  if (!url) return
+  if (url.hostname !== "session") return
+  const id = url.pathname.replace(/^\/+/, "")
+  if (!id) return
+  return id
+}
+
+export const collectSessionDeepLinks = (urls: string[]) =>
+  urls.map(parseSessionDeepLink).filter((id): id is string => !!id)
 
 type OpenCodeWindow = Window & {
   __OPENCODE__?: {
