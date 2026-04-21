@@ -3,8 +3,6 @@ import appPlugin from "@opencode-ai/app/vite"
 
 const host = process.env.TAURI_DEV_HOST
 
-<<<<<<< HEAD
-=======
 // True when built via `tauri dev` or `tauri build --debug`. Gates the
 // vendored tauri-plugin-mcp listener wire-up in src/index.tsx so it ships
 // only when the Rust-side plugin is gated in via cfg(debug_assertions).
@@ -13,17 +11,13 @@ const host = process.env.TAURI_DEV_HOST
 // emits so registering JS listeners there is both wrong and wasteful.
 const tauriDebug = process.env.TAURI_ENV_DEBUG === "true"
 
->>>>>>> feature/gui-test-suite
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [appPlugin],
   publicDir: "../app/public",
-<<<<<<< HEAD
-=======
   define: {
     __GPD_TAURI_DEBUG__: JSON.stringify(tauriDebug),
   },
->>>>>>> feature/gui-test-suite
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
