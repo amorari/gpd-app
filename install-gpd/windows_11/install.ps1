@@ -152,14 +152,26 @@ function Invoke-Download {
 # The filename includes the version so we use the web redirect on
 # /releases/latest to discover the tag without hitting the rate-limited API.
 function Get-GpdLatestTag {
+    # GitHub's /releases/latest URL redirects twice for repos that have
+    # been renamed: the first hop goes from the old repo name to the new
+    # one (repo rename redirect), and only the second hop has /tag/... in
+    # the Location. Example chain as of 2026-04:
+    #   github.com/psi-oss/opencode/releases/latest
+    #     --> github.com/psi-oss/gpd-app/releases/latest   (rename)
+    #     --> github.com/psi-oss/gpd-app/releases/tag/gpd-desktop-v1.1.4
+    # So follow up to 3 redirects, parsing the tag from whichever hop
+    # actually has it. Using AllowAutoRedirect=true + ResponseUri is the
+    # simplest correct path; .NET follows all 3xx for us and lands on
+    # the tagged URL which we can regex on directly.
     try {
         $req = [System.Net.WebRequest]::Create("https://github.com/$OpenCodeOrg/$OpenCodeRepo/releases/latest")
         $req.Method = "HEAD"
-        $req.AllowAutoRedirect = $false
+        $req.AllowAutoRedirect = $true
+        $req.MaximumAutomaticRedirections = 5
         $r = $req.GetResponse()
-        $loc = $r.Headers["Location"]
+        $finalUri = $r.ResponseUri.AbsoluteUri
         $r.Close()
-        if ($loc -match 'tag/([^/]+)') { return $Matches[1] }
+        if ($finalUri -match 'tag/([^/]+)') { return $Matches[1] }
     } catch {
         return $null
     }
