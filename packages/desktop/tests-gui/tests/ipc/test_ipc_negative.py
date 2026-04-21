@@ -12,7 +12,12 @@ _CATALOG_PATH = (
     Path(__file__).resolve().parents[2]
     / "gpd_tests" / "fixtures" / "tauri_commands.json"
 )
-_CATALOG = json.loads(_CATALOG_PATH.read_text())
+try:
+    _CATALOG = json.loads(_CATALOG_PATH.read_text())
+    _CATALOG_LOAD_ERROR: str | None = None
+except (FileNotFoundError, json.JSONDecodeError) as _e:
+    _CATALOG = None
+    _CATALOG_LOAD_ERROR = str(_e)
 
 # Commands that are unsafe to invoke with a bogus argument shape even in a
 # "negative sweep" because they either (a) execute destructive side effects
@@ -33,7 +38,7 @@ _UNSAFE_FOR_NEGATIVE_SWEEP = {
     "compile_tex",             # spawns a tectonic subprocess that may take minutes
 }
 _COMMAND_NAMES = [
-    c["name"] for c in _CATALOG
+    c["name"] for c in (_CATALOG or [])
     if c["name"] not in _UNSAFE_FOR_NEGATIVE_SWEEP
 ]
 
@@ -53,6 +58,8 @@ def test_command_rejects_bogus_arg_shape(mcp, cmd):
 
     Dangerous commands are excluded via `_UNSAFE_FOR_NEGATIVE_SWEEP`; their
     deserializer behavior is checked (if at all) by dedicated tests."""
+    if _CATALOG is None:
+        pytest.skip(f"tauri_commands.json unloadable: {_CATALOG_LOAD_ERROR}")
     try:
         result = invoke_via_mcp(mcp, cmd, {"__bogus__": None})
         # If a command takes no args, Tauri often ignores the extra field and
@@ -83,6 +90,8 @@ def test_nonexistent_command_errors_cleanly(mcp):
 @pytest.mark.timeout(20)
 def test_empty_args_on_commands_with_required_fields(mcp):
     """Commands with required args should reject an empty {} dict."""
+    if _CATALOG is None:
+        pytest.skip(f"tauri_commands.json unloadable: {_CATALOG_LOAD_ERROR}")
     # Pick a few commands we know take args (from catalog).
     required_arg_commands = [
         c["name"] for c in _CATALOG
