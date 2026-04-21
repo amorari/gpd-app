@@ -86,10 +86,24 @@ gui_config_dirs=(
 # opencode.db) so a reinstall is truly clean.
 opencode_config_dir="$HOME/.config/opencode"
 opencode_data_dirs=()
+# XDG_DATA_HOME (session DB, auth.json). Defaults to ~/.local/share.
 if [[ -n "${XDG_DATA_HOME:-}" ]]; then
     opencode_data_dirs+=("$XDG_DATA_HOME/opencode")
 fi
 opencode_data_dirs+=("$HOME/.local/share/opencode")
+# XDG_STATE_HOME (persistent session state). Defaults to ~/.local/state.
+# opencode writes lock files, session markers, and crash reports here.
+if [[ -n "${XDG_STATE_HOME:-}" ]]; then
+    opencode_data_dirs+=("$XDG_STATE_HOME/opencode")
+fi
+opencode_data_dirs+=("$HOME/.local/state/opencode")
+# XDG_CACHE_HOME (bin cache, compiled artifacts). Defaults to ~/.cache.
+# opencode caches downloaded binaries and temporary build output here;
+# ~40 MB on a typical install.
+if [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+    opencode_data_dirs+=("$XDG_CACHE_HOME/opencode")
+fi
+opencode_data_dirs+=("$HOME/.cache/opencode")
 
 # ── Discovery: show what will be removed ──────────────────────────────────
 

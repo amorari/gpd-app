@@ -45,6 +45,20 @@ $XdgData    = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { $env:APPDATA
 $OpenCodeDir = Join-Path $XdgData "opencode"
 $AuthFile    = Join-Path $OpenCodeDir "auth.json"
 
+# opencode also honors XDG_STATE_HOME / XDG_CACHE_HOME on Windows when
+# they're set explicitly. Check the "Linux-style" defaults too in case
+# the user (or a script) created them under the Windows home dir.
+$OpenCodeStateDir = if ($env:XDG_STATE_HOME) {
+    Join-Path $env:XDG_STATE_HOME "opencode"
+} else {
+    Join-Path $env:USERPROFILE ".local\state\opencode"
+}
+$OpenCodeCacheDir = if ($env:XDG_CACHE_HOME) {
+    Join-Path $env:XDG_CACHE_HOME "opencode"
+} else {
+    Join-Path $env:USERPROFILE ".cache\opencode"
+}
+
 # Files in the opencode config dir that are gpd-specific and safe to remove.
 $GpdManifestFile = Join-Path $OpenCodeDir "gpd-file-manifest.json"
 $OpenCodeJson    = Join-Path $OpenCodeDir "opencode.json"
@@ -328,6 +342,24 @@ function Remove-OpenCodeGpdFiles {
     }
 }
 
+function Remove-OpenCodeXdgDirs {
+    # opencode writes session state to XDG_STATE_HOME/opencode and cache
+    # to XDG_CACHE_HOME/opencode. Remove these only when we're also
+    # removing the main opencode config (GPD-only install heuristic).
+    foreach ($dir in @($OpenCodeStateDir, $OpenCodeCacheDir)) {
+        if (Test-Path $dir) {
+            try {
+                Remove-Item -Path $dir -Recurse -Force -ErrorAction Stop
+                Write-Success "Removed $dir"
+            } catch {
+                Write-Warn "Could not remove $dir -- $_"
+            }
+        } else {
+            Write-Skip "No opencode state/cache at $dir"
+        }
+    }
+}
+
 function Remove-GpdHome {
     if (Test-Path $GpdHome) {
         try {
@@ -380,6 +412,15 @@ function Invoke-GpdUninstall {
         $found = $true
     }
 
+    if (Test-Path $OpenCodeStateDir) {
+        Write-Log "Found opencode state dir: $OpenCodeStateDir"
+        $found = $true
+    }
+    if (Test-Path $OpenCodeCacheDir) {
+        Write-Log "Found opencode cache dir: $OpenCodeCacheDir"
+        $found = $true
+    }
+
     if (Test-Path $GpdManifestFile) {
         Write-Log "Found gpd-file-manifest.json in $OpenCodeDir"
         $found = $true
@@ -426,6 +467,7 @@ function Invoke-GpdUninstall {
     Remove-GpdFromPath
     Remove-AuthJsonGpdEntry
     Remove-OpenCodeGpdFiles
+    Remove-OpenCodeXdgDirs
     Remove-GpdHome
 
     # Final message.

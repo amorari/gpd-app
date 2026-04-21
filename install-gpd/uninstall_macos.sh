@@ -70,6 +70,18 @@ GPD_APP="/Applications/GPD.app"
 GPD_CACHES_BUNDLE="$HOME/Library/Caches/inc.psi.gpd"
 GPD_WEBKIT_BUNDLE="$HOME/Library/WebKit/inc.psi.gpd"
 
+# opencode also honors XDG_* env vars on macOS for anyone who sets them
+# explicitly (Linux conventions on a Mac). We clean up those fallback
+# paths too so a macOS user with XDG_STATE_HOME set doesn't end up with
+# orphaned session state after uninstall.
+opencode_extra_dirs=()
+[[ -n "${XDG_DATA_HOME:-}" ]]  && opencode_extra_dirs+=("$XDG_DATA_HOME/opencode")
+[[ -n "${XDG_STATE_HOME:-}" ]] && opencode_extra_dirs+=("$XDG_STATE_HOME/opencode")
+[[ -n "${XDG_CACHE_HOME:-}" ]] && opencode_extra_dirs+=("$XDG_CACHE_HOME/opencode")
+opencode_extra_dirs+=("$HOME/.local/share/opencode")
+opencode_extra_dirs+=("$HOME/.local/state/opencode")
+opencode_extra_dirs+=("$HOME/.cache/opencode")
+
 # ── Discovery: show what will be removed ──────────────────────────────────
 
 printf "\n"
@@ -132,6 +144,17 @@ if [[ -d "$OPENCODE_DIR" ]]; then
     remove_opencode_dir=true
     found_anything=true
 fi
+
+# XDG fallback paths — any of these exist on a macOS box with a
+# Linux-style env would be orphaned without explicit cleanup.
+opencode_extra_dirs_found=()
+for d in "${opencode_extra_dirs[@]}"; do
+    if [[ -d "$d" ]]; then
+        opencode_extra_dirs_found+=("$d")
+        log "Found opencode XDG dir: $d"
+        found_anything=true
+    fi
+done
 
 # Check for auth.json with a "gpd" entry
 strip_auth_gpd=false
@@ -385,6 +408,15 @@ except Exception:
     fi
 else
     skip "No $OPENCODE_DIR to remove"
+fi
+
+# Clean up any XDG-style opencode dirs (only when we're removing the
+# main opencode dir — same "opencode only exists for GPD" heuristic).
+if [[ "${preserve_opencode:-false}" != true ]] && (( ${#opencode_extra_dirs_found[@]} > 0 )); then
+    for d in "${opencode_extra_dirs_found[@]}"; do
+        rm -rf "$d"
+        success "Removed $d"
+    done
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────
