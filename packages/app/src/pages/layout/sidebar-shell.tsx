@@ -30,8 +30,6 @@ export const SidebarContent = (props: {
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
   onOpenSettings: () => void
-  helpLabel: Accessor<string>
-  onOpenHelp: () => void
   onResetKey?: () => void
   resetKeyLabel?: Accessor<string>
   renderPanel: () => JSX.Element
@@ -123,15 +121,6 @@ export const SidebarContent = (props: {
               />
             </Tooltip>
           </Show>
-          <Tooltip placement={placement()} value={props.helpLabel()}>
-            <IconButton
-              icon="help"
-              variant="ghost"
-              size="large"
-              onClick={props.onOpenHelp}
-              aria-label={props.helpLabel()}
-            />
-          </Tooltip>
         </div>
       </div>
 
