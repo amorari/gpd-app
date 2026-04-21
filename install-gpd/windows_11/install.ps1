@@ -104,10 +104,23 @@ function Write-SuccessBanner {
 # ── Utilities ──────────────────────────────────────────────────────────────
 
 function Get-Arch {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    # Use $env:PROCESSOR_ARCHITECTURE (always set by Windows) instead of
+    # [RuntimeInformation]::OSArchitecture. The latter returns $null in
+    # PowerShell 5.1 + .NET Framework 4.x combinations we've seen on
+    # Windows 11 25H2, causing a "null method call" on .ToString().
+    # PROCESSOR_ARCHITECTURE is reliable across all Windows versions.
+    #
+    # On 64-bit Windows: AMD64 (x64) or ARM64
+    # Under WOW64 (32-bit process on 64-bit host): PROCESSOR_ARCHITECTURE
+    # reports x86, but PROCESSOR_ARCHITEW6432 has the real value — check
+    # both since PowerShell 5.1 is a 64-bit process by default but
+    # scheduled/remote contexts can run 32-bit.
+    $arch = $env:PROCESSOR_ARCHITEW6432
+    if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
     switch ($arch) {
-        "X64"   { return "x64" }
-        "Arm64" { return "arm64" }
+        "AMD64" { return "x64" }
+        "ARM64" { return "arm64" }
+        "x86"   { Stop-WithError "32-bit Windows is not supported. Use 64-bit Windows." }
         default { Stop-WithError "Unsupported architecture: $arch" }
     }
 }
