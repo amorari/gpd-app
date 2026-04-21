@@ -1596,7 +1596,12 @@ export namespace Config {
         const existing = yield* loadFile(file)
         yield* fs
           .writeFileString(file, JSON.stringify(mergeDeep(writable(existing), writable(config)), null, 2))
-          .pipe(Effect.orDie)
+          .pipe(
+            Effect.tapError((err) =>
+              Effect.sync(() => log.error("failed to write config file", { file, error: String(err) })),
+            ),
+            Effect.orDie,
+          )
         yield* Effect.promise(() => Instance.dispose())
       })
 

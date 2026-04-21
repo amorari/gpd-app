@@ -56,7 +56,13 @@ export const ConfigRoutes = lazy(() =>
       validator("json", Config.Info),
       async (c) => {
         const config = c.req.valid("json")
-        await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.update(config)))
+        try {
+          await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.update(config)))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          log.error("failed to update config", { error: message })
+          return c.json({ error: message }, 500)
+        }
         return c.json(config)
       },
     )
