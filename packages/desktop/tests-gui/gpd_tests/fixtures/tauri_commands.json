@@ -30,7 +30,7 @@
   {
     "name": "repair_gpd_venv",
     "file": "gpd_setup.rs",
-    "line": 123,
+    "line": 138,
     "signature": "pub async fn repair_gpd_venv(app: tauri::AppHandle) -> Result<(), String>",
     "async": true
   },
@@ -84,9 +84,23 @@
     "async": false
   },
   {
+    "name": "read_third_party_notices",
+    "file": "lib.rs",
+    "line": 276,
+    "signature": "fn read_third_party_notices(app: AppHandle) -> Result<String, String>",
+    "async": false
+  },
+  {
+    "name": "read_license",
+    "file": "lib.rs",
+    "line": 283,
+    "signature": "fn read_license(app: AppHandle) -> Result<String, String>",
+    "async": false
+  },
+  {
     "name": "wsl_path",
     "file": "lib.rs",
-    "line": 270,
+    "line": 298,
     "signature": "fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String>",
     "async": false
   },
