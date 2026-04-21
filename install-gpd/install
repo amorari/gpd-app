@@ -514,10 +514,18 @@ EOF
     local auth_file="$auth_dir/auth.json"
     mkdir -p "$auth_dir"
     # If auth.json already has other providers, preserve them. Otherwise
-    # write a fresh one. We use python/jq if available for a proper merge;
-    # fall back to a fresh overwrite if the user has neither (rare).
-    if [[ -f "$auth_file" ]] && command -v python3 &>/dev/null; then
-        python3 - "$auth_file" "$key" <<'PY'
+    # write a fresh one. Prefer the app-local Python we just installed —
+    # using bare `python3` on a fresh macOS where Xcode CLT is absent
+    # triggers the "install developer tools" GUI prompt even though the
+    # stub succeeds `command -v` checks.
+    local merger_python=""
+    if [[ -n "${PYTHON:-}" && -x "${PYTHON:-}" ]]; then
+        merger_python="$PYTHON"
+    elif [[ -x "$GPD_VENV_DIR/bin/python" ]]; then
+        merger_python="$GPD_VENV_DIR/bin/python"
+    fi
+    if [[ -f "$auth_file" && -n "$merger_python" ]]; then
+        "$merger_python" - "$auth_file" "$key" <<'PY'
 import json, os, sys, stat
 path, key = sys.argv[1], sys.argv[2]
 try:

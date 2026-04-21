@@ -82,6 +82,21 @@ opencode_extra_dirs+=("$HOME/.local/share/opencode")
 opencode_extra_dirs+=("$HOME/.local/state/opencode")
 opencode_extra_dirs+=("$HOME/.cache/opencode")
 
+# Prefer the GPD-managed Python over the system `python3` stub. On a fresh
+# macOS without Xcode Command Line Tools, `/usr/bin/python3` is a stub that
+# pops a GUI "install developer tools" dialog when invoked — even from an
+# SSH session — which is poor UX for an uninstaller. The installer always
+# creates a venv at $GPD_VENV_DIR/bin/python, so we can reach for that
+# first and fall back to the system python only if the venv is gone.
+PY=""
+if [[ -x "$GPD_HOME/venv/bin/python" ]]; then
+    PY="$GPD_HOME/venv/bin/python"
+elif [[ -x "$GPD_HOME/python/bin/python3" ]]; then
+    PY="$GPD_HOME/python/bin/python3"
+elif command -v python3 &>/dev/null && python3 -c '' &>/dev/null; then
+    PY="$(command -v python3)"
+fi
+
 # ── Discovery: show what will be removed ──────────────────────────────────
 
 printf "\n"
@@ -156,10 +171,14 @@ for d in "${opencode_extra_dirs[@]}"; do
     fi
 done
 
-# Check for auth.json with a "gpd" entry
+# Check for auth.json with a "gpd" entry, and pre-compute whether it has
+# any non-gpd providers. Both checks happen here — before we remove
+# $GPD_HOME (and with it the venv Python we rely on). Caching the result
+# avoids calling python3 after the venv is gone.
 strip_auth_gpd=false
-if [[ -f "$OPENCODE_AUTH" ]]; then
-    if python3 -c "
+auth_has_other_providers=false
+if [[ -f "$OPENCODE_AUTH" && -n "$PY" ]]; then
+    if "$PY" -c "
 import json, sys
 try:
     with open('$OPENCODE_AUTH') as f:
@@ -172,6 +191,24 @@ except Exception:
         strip_auth_gpd=true
         found_anything=true
     fi
+    if "$PY" -c "
+import json, sys
+try:
+    with open('$OPENCODE_AUTH') as f:
+        data = json.load(f)
+    others = [k for k in data if k != 'gpd'] if isinstance(data, dict) else []
+    sys.exit(0 if others else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+        auth_has_other_providers=true
+    fi
+elif [[ -f "$OPENCODE_AUTH" ]] && grep -q '"gpd"' "$OPENCODE_AUTH" 2>/dev/null; then
+    # Fallback when no usable python3 is available: crude grep. Good enough
+    # for the common case where the installer wrote the auth entry itself.
+    log "Found 'gpd' entry in $OPENCODE_AUTH"
+    strip_auth_gpd=true
+    found_anything=true
 fi
 
 # Check shell rc files for PATH entries
@@ -258,8 +295,8 @@ fi
 
 # ── Strip 'gpd' entry from opencode auth.json ────────────────────────────
 
-if [[ "$strip_auth_gpd" == true ]]; then
-    if python3 - "$OPENCODE_AUTH" <<'PYEOF'
+if [[ "$strip_auth_gpd" == true && -n "$PY" ]]; then
+    if "$PY" - "$OPENCODE_AUTH" <<'PYEOF'
 import json, sys
 path = sys.argv[1]
 try:
@@ -281,6 +318,10 @@ PYEOF
     else
         warn "Failed to strip 'gpd' entry from $OPENCODE_AUTH"
     fi
+elif [[ "$strip_auth_gpd" == true ]]; then
+    # No usable python3 — auth.json is going to be removed with the
+    # opencode dir anyway, so just note it and move on.
+    warn "No python3 available to surgically strip 'gpd' from auth.json; will remove the whole opencode dir below"
 else
     skip "No 'gpd' entry in opencode auth.json"
 fi
@@ -384,20 +425,13 @@ fi
 # because the installer created it.
 
 if [[ "$remove_opencode_dir" == true ]] && [[ -d "$OPENCODE_DIR" ]]; then
-    # If auth.json still exists and has other providers, preserve the directory.
+    # If auth.json still has other providers (not just gpd), preserve the
+    # directory. This check was performed during discovery while the venv
+    # Python was still available — we use the cached result here to avoid
+    # invoking the `/usr/bin/python3` stub after the venv was removed.
     preserve_opencode=false
-    if [[ -f "$OPENCODE_AUTH" ]]; then
-        if python3 -c "
-import json, sys
-try:
-    with open('$OPENCODE_AUTH') as f:
-        data = json.load(f)
-    sys.exit(0 if isinstance(data, dict) and len(data) > 0 else 1)
-except Exception:
-    sys.exit(1)
-" 2>/dev/null; then
-            preserve_opencode=true
-        fi
+    if [[ "$auth_has_other_providers" == true ]]; then
+        preserve_opencode=true
     fi
 
     if [[ "$preserve_opencode" == true ]]; then
