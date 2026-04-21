@@ -19,7 +19,13 @@ try:
 except ImportError:  # pragma: no cover — stock LiteLLM image ships redis
     aioredis = None  # type: ignore[assignment]
 
-DEFAULT_CAP_BYTES = int(os.environ.get("GPD_LOG_BYTES_PER_DAY", 1024 * 1024 * 1024))
+# Default daily byte cap per virtual key.
+# 10 GiB is sized for our motivating example: one Claude Code session at
+# 2.5 GB on disk. 1 GiB default would silently truncate such sessions
+# (client spills to 1 GiB local cap, then FIFO-drops tail events). 10 GiB
+# gives room for several long sessions per day while still catching
+# runaway abuse.
+DEFAULT_CAP_BYTES = int(os.environ.get("GPD_LOG_BYTES_PER_DAY", 10 * 1024 * 1024 * 1024))
 _redis: "aioredis.Redis | None" = None
 
 

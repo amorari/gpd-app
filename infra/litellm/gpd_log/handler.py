@@ -25,6 +25,8 @@ Invariants enforced here:
 from __future__ import annotations
 
 import hashlib
+import hmac
+import os
 import re
 from datetime import datetime, timezone
 
@@ -36,6 +38,22 @@ from .gcs_writer import stream_to_gcs
 from .quota import check_daily_bytes
 
 MAX_BYTES = 64 * 1024 * 1024
+
+# HMAC pepper for user_hash. Required — we refuse to start without it so an
+# unpeppered deploy can never silently ship.
+# Bare SHA256 of user_id gives only 64 bits of hiding; anyone with bucket-read
+# access plus the LiteLLM users table can enumerate the (user_id → hash)
+# mapping in seconds. HMAC with a pepper held only by LiteLLM makes that
+# lookup intractable.
+# Rotation = orphan all existing objects (old paths unreachable without old
+# pepper). DON'T rotate unless you're prepared for that.
+_PEPPER_HEX = os.environ.get("GPD_USER_HASH_PEPPER")
+if not _PEPPER_HEX:
+    raise RuntimeError(
+        "GPD_USER_HASH_PEPPER env var required; generate with "
+        "`python -c 'import secrets; print(secrets.token_hex(32))'`"
+    )
+_PEPPER = bytes.fromhex(_PEPPER_HEX)
 
 # Crockford base32 alphabet, as used by ULIDs.
 _ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
@@ -83,11 +101,17 @@ async def gpd_log(
         raise HTTPException(400, detail="'seq' must be a 26-char ULID")
 
     # User prefix is derived server-side, NEVER from the request body/query.
-    # Prefer user_id (stable across key rotations); fall back to hashed token.
-    identity = user_api_key_dict.user_id or user_api_key_dict.api_key or ""
-    if not identity:
-        raise HTTPException(401, detail="auth object carries no user_id or api_key")
-    user_hash = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    # Reject keys that carry no user_id — admin/master keys, misconfigured
+    # keys. Without this check, every such caller would collide into a
+    # single sha256("") bucket. Operators who really want to log from such
+    # keys should assign the key a user_id first.
+    user_id = user_api_key_dict.user_id
+    if not user_id:
+        raise HTTPException(
+            401,
+            detail="virtual key must carry a user_id (admin keys cannot write logs)",
+        )
+    user_hash = hmac.new(_PEPPER, user_id.encode("utf-8"), hashlib.sha256).hexdigest()[:16]
 
     # Build object path.
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
