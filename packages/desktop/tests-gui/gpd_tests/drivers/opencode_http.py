@@ -96,6 +96,90 @@ class HTTPClient:
             return None
         return r.json()
 
+    def _patch(self, path: str, json: dict | list | None = None) -> Any:
+        r = self._client.patch(path, json=json)
+        r.raise_for_status()
+        if r.status_code == 204 or not r.content:
+            return None
+        ct = r.headers.get("content-type", "")
+        if "json" in ct or r.text.startswith(("{", "[")):
+            return r.json()
+        return r.text
+
+    # ------------------------------------------------------------------
+    # /config and /provider wrappers
+    # ------------------------------------------------------------------
+
+    def get_config(self) -> dict[str, Any]:
+        """GET /config — current project Config.Info."""
+        return self._get("/config")
+
+    def patch_config(self, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH /config — replace the whole Config.Info.
+
+        The server's Config.Info schema is strict (Zod discriminated fields),
+        so callers generally pass a GET-then-modify round-trip, not a sparse
+        patch. The request body is validated by Zod; invalid shapes return 400.
+        """
+        return self._patch("/config", json=patch)
+
+    def list_providers_full(self) -> dict[str, Any]:
+        """GET /provider — deeper view than /config/providers.
+
+        Returns ``{ all: Provider.Info[], default: Record<id, modelID>,
+        connected: string[] }``.
+        """
+        return self._get("/provider")
+
+    def provider_models(self, provider_id: str) -> dict[str, Any]:
+        """Return the ``models`` dict for a single provider.
+
+        Derived from ``list_providers_full()`` — there is no dedicated server
+        endpoint for per-provider model listing; callers pick by ``id``.
+        Raises ``KeyError`` if the provider is not in the response.
+        """
+        data = self.list_providers_full()
+        for p in data.get("all", []):
+            if p.get("id") == provider_id:
+                return p.get("models", {})
+        raise KeyError(f"provider {provider_id!r} not in /provider response")
+
+    def enable_provider(self, provider_id: str) -> dict[str, Any]:
+        """Ensure ``provider_id`` is enabled by updating Config.disabled_providers.
+
+        Implementation: GET /config, remove ``provider_id`` from
+        ``disabled_providers`` (and if ``enabled_providers`` is set, add it
+        there), PATCH /config with the result. Returns the new config.
+        There is no dedicated server endpoint for this toggle — the sidecar
+        stores provider enable/disable state inside Config.Info.
+        """
+        cfg = self.get_config()
+        disabled = list(cfg.get("disabled_providers", []) or [])
+        if provider_id in disabled:
+            disabled = [p for p in disabled if p != provider_id]
+        cfg["disabled_providers"] = disabled
+        enabled = cfg.get("enabled_providers")
+        if isinstance(enabled, list) and provider_id not in enabled:
+            cfg["enabled_providers"] = [*enabled, provider_id]
+        return self.patch_config(cfg)
+
+    def disable_provider(self, provider_id: str) -> dict[str, Any]:
+        """Ensure ``provider_id`` is disabled by updating Config.disabled_providers.
+
+        Adds ``provider_id`` to ``disabled_providers``; if ``enabled_providers``
+        is an explicit allowlist that includes this provider, also remove it
+        there to make the disable take effect. Returns the new config.
+        """
+        cfg = self.get_config()
+        disabled = list(cfg.get("disabled_providers", []) or [])
+        if provider_id not in disabled:
+            disabled.append(provider_id)
+        cfg["disabled_providers"] = disabled
+        enabled = cfg.get("enabled_providers")
+        if isinstance(enabled, list) and provider_id in enabled:
+            cfg["enabled_providers"] = [p for p in enabled if p != provider_id]
+        return self.patch_config(cfg)
+
     def create_session(
         self,
         *,
