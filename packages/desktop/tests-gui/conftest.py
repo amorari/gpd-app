@@ -23,6 +23,94 @@ from gpd_tests.helpers.timings import wait_until
 _session_app_state: Optional["AppState"] = None  # noqa: F821
 
 
+# --- Build-skew detector (task #91) --------------------------------------
+
+# Sentinel Tauri command chosen from gpd_tests/fixtures/tauri_commands.json.
+# `check_project_accessible` landed on 2026-04-20, right after the
+# full-coverage sweep that surfaced 5 stale-binary regressions. Missing it
+# at session start is a reliable signal that the running GPD debug binary
+# is older than the current Rust source.
+_BUILD_SKEW_SENTINEL = "check_project_accessible"
+
+_BUILD_SKEW_MESSAGE = (
+    "Build-skew detected: Tauri command {sentinel!r} is not "
+    "registered in the running GPD binary.\n"
+    "Your debug build is older than the current source. Run:\n"
+    "    cd packages/desktop && bun run tauri build --debug\n"
+    "Then relaunch GPD Dev.app and rerun the tests."
+)
+
+
+def _check_build_skew(mcp_factory, *, sentinel: str = _BUILD_SKEW_SENTINEL):
+    """Probe one Tauri command to detect a stale GPD debug binary.
+
+    Extracted from the `_build_skew_detector` fixture so it can be exercised
+    directly from unit tests without going through pytest's fixture machinery.
+
+    Semantics:
+      - If `mcp_factory()` raises (no MCP reachable / no GPD running), this
+        returns silently so the fixtures that actually need MCP handle the
+        skip. A session-start probe must not fail when GPD simply isn't up.
+      - If `invoke_via_mcp(..., sentinel, {})` raises IPCError whose message
+        contains "not found" or "unknown", we interpret that as a stale
+        binary and call `pytest.exit(...)` with a one-liner rebuild hint.
+      - Any other IPCError (missing arg, invalid shape) means the command
+        IS registered and the binary is fresh — that's the success path.
+    """
+    try:
+        from gpd_tests.helpers.ipc import IPCError, invoke_via_mcp
+    except ImportError:
+        return
+
+    try:
+        mcp = mcp_factory()
+        mcp.ping()
+    except Exception:
+        # No GPD / no MCP socket / auth problem — let the downstream fixtures
+        # that actually need MCP produce the appropriate skip or failure.
+        return
+
+    try:
+        invoke_via_mcp(mcp, sentinel, {})
+    except IPCError as e:
+        msg = str(e).lower()
+        if "not found" in msg or "unknown" in msg:
+            pytest.exit(
+                _BUILD_SKEW_MESSAGE.format(sentinel=sentinel),
+                returncode=3,
+            )
+        # Other IPCError shapes (arg-validation, etc.) mean the command is
+        # registered and the binary is fresh. Swallow and return.
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _build_skew_detector(request):
+    """Fail fast if the debug binary is missing a recently-added Tauri command.
+
+    The full catalog is at gpd_tests/fixtures/tauri_commands.json. We only
+    probe ONE sentinel — ``check_project_accessible`` — which was added after
+    the 2026-04-20 full-coverage sweep. If that command is missing at
+    session start, every ipc test that depends on it will fail with
+    "Command not found". Surfacing this once is much cheaper than N
+    per-command failures.
+
+    Skipped if MCP isn't reachable (no GPD running — covered by other
+    fixtures). Skipped for pure `-m unit` runs (no webview, no binary
+    involved).
+    """
+    # Only run when an ipc/smoke/surfaces/etc. test is actually selected;
+    # skip for pure-unit runs where -m explicitly excludes integration.
+    markers = request.config.getoption("-m") or ""
+    if markers and "unit" in markers and "ipc" not in markers and "smoke" not in markers:
+        return
+
+    def _factory():
+        from gpd_tests.drivers.mcp import MCPClient
+        return MCPClient()
+
+    _check_build_skew(_factory)
+
+
 def pytest_configure(config):
     """Guard against accidental parallel execution that would corrupt state."""
     if config.pluginmanager.hasplugin("xdist") and getattr(config.option, "dist", "no") != "no":
