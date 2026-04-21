@@ -104,6 +104,9 @@ class HTTPClient:
     def messages(self, session_id: str) -> list[dict[str, Any]]:
         return self._get(f"/session/{session_id}/message")
 
+    def abort(self, session_id: str) -> Any:
+        return self._post(f"/session/{session_id}/abort")
+
     def delete_session(self, session_id: str) -> bool:
         r = self._delete(f"/session/{session_id}")
         return r is None or bool(r)
