@@ -344,17 +344,43 @@ async function main() {
   const now = new Date().toISOString().slice(0, 10)
 
   // Roll up license counts across npm + cargo.
+  // Strip the "(manual override; source: …)" suffix so matched-via-override
+  // packages group with the canonical license. Normalize case so `apache-2.0`
+  // merges with `Apache-2.0` instead of showing as two distinct buckets.
+  function canonicalize(lic: string): string {
+    const stripped = lic.replace(/\s*\(manual override; source:[^)]+\)\s*/g, "").trim()
+    // Well-known SPDX-ish ids are PascalCase with digits (`MIT`, `Apache-2.0`,
+    // `BSD-3-Clause`, `ISC`, `MPL-2.0`, …). Anything that looks that shape in
+    // lowercase, title-case it. Leave compound strings ("A OR B") alone.
+    if (/^[a-z0-9.-]+$/.test(stripped) && stripped !== stripped.toUpperCase()) {
+      // Don't uppercase a whole thing; just normalize common-case offenders.
+      if (stripped.toLowerCase() === "apache-2.0") return "Apache-2.0"
+      if (stripped.toLowerCase() === "mit") return "MIT"
+      if (stripped.toLowerCase() === "isc") return "ISC"
+    }
+    return stripped
+  }
   const npmLicenseCounts = new Map<string, number>()
   for (const p of npm.pkgs.values()) {
-    npmLicenseCounts.set(p.license, (npmLicenseCounts.get(p.license) ?? 0) + 1)
+    const lic = canonicalize(p.license)
+    npmLicenseCounts.set(lic, (npmLicenseCounts.get(lic) ?? 0) + 1)
   }
   const cargoLicenseCounts = new Map<string, number>()
   for (const c of cargo) {
-    const l = c.license ?? c.license_file ?? "UNKNOWN"
+    const l = canonicalize(c.license ?? c.license_file ?? "UNKNOWN")
     cargoLicenseCounts.set(l, (cargoLicenseCounts.get(l) ?? 0) + 1)
   }
-  const topN = (m: Map<string, number>, n: number) =>
-    [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n)
+
+  // Combined, deduplicated: every distinct license + count from each stack + total.
+  const allLicenses = new Set<string>([...npmLicenseCounts.keys(), ...cargoLicenseCounts.keys()])
+  const combinedRows = [...allLicenses]
+    .map((lic) => ({
+      license: lic,
+      npm: npmLicenseCounts.get(lic) ?? 0,
+      cargo: cargoLicenseCounts.get(lic) ?? 0,
+      total: (npmLicenseCounts.get(lic) ?? 0) + (cargoLicenseCounts.get(lic) ?? 0),
+    }))
+    .sort((a, b) => b.total - a.total || a.license.localeCompare(b.license))
 
   // Copyleft / non-permissive flags we care about surfacing at the top.
   const FLAG_RE = /^(MPL-|LGPL-|GPL-|AGPL-|SSPL-|EUPL-|OSL-|Apache-2\.0 OR LGPL)/
@@ -378,17 +404,19 @@ async function main() {
     `- **Flagged licenses (copyleft / non-permissive, surfaced for review):** ${npmFlagged.length + cargoFlagged.length} across both stacks.`,
     `- **Dominant licenses:** permissive (MIT, Apache-2.0, ISC, BSD family) on both sides.`,
     "",
-    "### Top licenses — npm",
+    `### Licenses in use (${combinedRows.length} distinct; ${npm.stats.total + cargo.length} total package entries)`,
     "",
-    "| License | Count |",
-    "|---|---|",
-    ...topN(npmLicenseCounts, 10).map(([l, n]) => `| ${l} | ${n} |`),
+    "Deduplicated across npm + Rust. Compound strings like `A OR B` are NOT",
+    "split — they represent a single upstream SPDX expression that the",
+    "consumer picks from. Flagged licenses (MPL, LGPL) are also listed in",
+    "the separate table below.",
     "",
-    "### Top licenses — Rust",
-    "",
-    "| License | Count |",
-    "|---|---|",
-    ...topN(cargoLicenseCounts, 10).map(([l, n]) => `| ${l} | ${n} |`),
+    "| License | npm | Rust | Total |",
+    "|---|---:|---:|---:|",
+    ...combinedRows.map(
+      (r) =>
+        `| \`${r.license}\` | ${r.npm || ""} | ${r.cargo || ""} | ${r.total} |`,
+    ),
     "",
     "### Flagged licenses to review",
     "",

@@ -7,39 +7,64 @@ Do not hand-edit — run `scripts/licenses/regen.sh` and commit the diff.
 
 - **npm / Bun packages:** 828 (UNKNOWN: 0)
 - **Rust crates:** 680
-- **Runtime statically-linked obligation:** Bun's JavaScriptCore/WebKit is LGPL-2 — see "Bun runtime" section below for relink instructions.
+- **Runtime LGPL obligations:**
+  - Bun statically links JavaScriptCore/WebKit (LGPL-2) into the compiled sidecar → relink instructions below.
+  - Linux builds dynamically link WebKitGTK + GTK3 (LGPL-2.1+) from the user's distro → dynamic-link compliance, user-replaceable via package manager.
 - **Flagged licenses (copyleft / non-permissive, surfaced for review):** 9 across both stacks.
 - **Dominant licenses:** permissive (MIT, Apache-2.0, ISC, BSD family) on both sides.
 
-### Top licenses — npm
+### Licenses in use (43 distinct; 1508 total package entries)
 
-| License | Count |
-|---|---|
-| MIT | 558 |
-| Apache-2.0 | 134 |
-| ISC | 74 |
-| BSD-3-Clause | 20 |
-| MIT OR Apache-2.0 | 12 |
-| BlueOak-1.0.0 | 8 |
-| BSD-2-Clause | 6 |
-| MIT (Bun) + LGPL-2.0 (statically-linked JavaScriptCore/WebKit) | 1 |
-| MIT (manual override; source: https://github.com/openauthjs/openauth/blob/master/LICENSE) | 1 |
-| apache-2.0 | 1 |
+Deduplicated across npm + Rust. Compound strings like `A OR B` are NOT
+split — they represent a single upstream SPDX expression that the
+consumer picks from. Flagged licenses (MPL, LGPL) are also listed in
+the separate table below.
 
-### Top licenses — Rust
-
-| License | Count |
-|---|---|
-| Apache-2.0 OR MIT | 392 |
-| MIT | 178 |
-| Apache-2.0 OR MIT OR Zlib | 28 |
-| Unicode-3.0 | 18 |
-| MPL-2.0 | 8 |
-| MIT OR Unlicense | 7 |
-| BSD-3-Clause | 5 |
-| Apache-2.0 | 5 |
-| Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT | 5 |
-| 0BSD | 3 |
+| License | npm | Rust | Total |
+|---|---:|---:|---:|
+| `MIT` | 561 | 178 | 739 |
+| `Apache-2.0 OR MIT` | 1 | 392 | 393 |
+| `Apache-2.0` | 135 | 5 | 140 |
+| `ISC` | 74 | 3 | 77 |
+| `Apache-2.0 OR MIT OR Zlib` |  | 28 | 28 |
+| `BSD-3-Clause` | 20 | 5 | 25 |
+| `Unicode-3.0` |  | 18 | 18 |
+| `MIT OR Apache-2.0` | 12 |  | 12 |
+| `BlueOak-1.0.0` | 8 |  | 8 |
+| `BSD-2-Clause` | 6 | 2 | 8 |
+| `MPL-2.0` |  | 8 | 8 |
+| `MIT OR Unlicense` |  | 7 | 7 |
+| `Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT` |  | 5 | 5 |
+| `0BSD` | 1 | 3 | 4 |
+| `Apache-2.0 OR BSD-2-Clause OR MIT` |  | 2 | 2 |
+| `Apache-2.0 OR BSD-3-Clause` |  | 2 | 2 |
+| `Apache-2.0 OR BSD-3-Clause OR MIT` |  | 2 | 2 |
+| `Apache-2.0 OR ISC OR MIT` |  | 2 | 2 |
+| `BSL-1.0` |  | 2 | 2 |
+| `CC0-1.0` | 1 | 1 | 2 |
+| `LICENSE` |  | 2 | 2 |
+| `(AFL-2.1 OR BSD-3-Clause)` | 1 |  | 1 |
+| `(Apache-2.0 OR MIT) AND BSD-3-Clause` |  | 1 | 1 |
+| `(Apache-2.0 OR MIT) AND Unicode-3.0` |  | 1 | 1 |
+| `(MIT AND Zlib)` | 1 |  | 1 |
+| `(MIT OR CC0-1.0)` | 1 |  | 1 |
+| `(MPL-2.0 OR Apache-2.0)` | 1 |  | 1 |
+| `0BSD OR Apache-2.0 OR MIT` |  | 1 | 1 |
+| `Apache-2.0 AND ISC` |  | 1 | 1 |
+| `Apache-2.0 AND MIT` |  | 1 | 1 |
+| `Apache-2.0 OR BSL-1.0` |  | 1 | 1 |
+| `Apache-2.0 OR CC0-1.0 OR MIT-0` |  | 1 | 1 |
+| `Apache-2.0 OR LGPL-2.1-or-later OR MIT` |  | 1 | 1 |
+| `BSD-3-Clause AND MIT` |  | 1 | 1 |
+| `BSD-3-Clause OR MIT` |  | 1 | 1 |
+| `CC-BY-3.0` | 1 |  | 1 |
+| `CC-BY-4.0` | 1 |  | 1 |
+| `CDLA-Permissive-2.0` |  | 1 | 1 |
+| `MIT (Bun) + LGPL-2.0 (statically-linked JavaScriptCore/WebKit)` | 1 |  | 1 |
+| `MIT (inferred from LICENSE file)` | 1 |  | 1 |
+| `Python-2.0` | 1 |  | 1 |
+| `UNKNOWN` |  | 1 | 1 |
+| `Zlib` |  | 1 | 1 |
 
 ### Flagged licenses to review
 
