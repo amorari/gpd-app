@@ -520,6 +520,13 @@ async fn initialize(app: AppHandle) {
             // with enabled_providers: ["gpd"], so the models.dev network fetch is wasted work.
             // Skipping it eliminates several seconds of startup latency on cold cache.
             ("OPENCODE_DISABLE_MODELS_FETCH", "1".to_string()),
+            // GPD: session sharing is hidden in the UI and no-op'd at the runtime layer
+            // until we ship a PSI-hosted share service. Upstream's default share
+            // endpoint is opncd.ai (anomalyco-operated); we don't want researcher
+            // sessions flowing through that. Hard-disable at the sidecar so
+            // programmatic invocations (SDK calls, slash commands, deep links)
+            // all no-op cleanly.
+            ("OPENCODE_DISABLE_SHARE", "1".to_string()),
         ],
     );
 
