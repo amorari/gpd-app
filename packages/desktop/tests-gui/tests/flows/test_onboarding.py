@@ -1,7 +1,7 @@
 """Phase 3 flow: first-run welcome → paste API key → reach home.
 
 Gating (post G6.1):
-  - ``@pytest.mark.real_backend`` — skipped unless ``GPD_TEST_ANTHROPIC_KEY``
+  - ``@pytest.mark.real_backend`` — skipped unless GPD key is in auth.json
     is set (via the ``gpd_key`` fixture); the flow writes the key to
     auth.json so a real (non-stub) key is required.
   - ``@pytest.mark.fresh_app`` — alias for ``@pytest.mark.tier(2)``; before

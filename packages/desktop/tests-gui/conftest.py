@@ -190,7 +190,7 @@ def seed_onboarding_state(request):
     """Seed auth.json + onboarding sentinel so GPD doesn't first-run.
 
     Opt in via two env vars together:
-      GPD_TEST_SEED_ONBOARDING=1  AND  GPD_TEST_ANTHROPIC_KEY=<key>
+      GPD_TEST_SEED_ONBOARDING=1  AND  auth.json with {"gpd":{"type":"api","key":"<key>"}}
 
     The two-flag guard avoids accidentally clobbering a dev's real
     auth.json. When both are set, this fixture writes the key to the
@@ -203,7 +203,15 @@ def seed_onboarding_state(request):
     if os.environ.get("GPD_TEST_SEED_ONBOARDING") != "1":
         yield
         return
-    key = os.environ.get("GPD_TEST_ANTHROPIC_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    # Read from auth.json (canonical source; env var fallback for CI)
+    _auth = (Path(os.environ["XDG_DATA_HOME"])/"opencode"/"auth.json"
+             if os.environ.get("XDG_DATA_HOME")
+             else Path.home()/".local"/"share"/"opencode"/"auth.json")
+    try:
+        import json as _json
+        key = _json.loads(_auth.read_text()).get("gpd", {}).get("key", "")
+    except Exception:
+        key = os.environ.get("GPD_API_KEY", "")
     if not key:
         yield
         return

@@ -14,8 +14,17 @@ def test_session_survives_quit_relaunch(http, app_state):
     # tests/flows/conftest.py and isn't visible from tests/lifecycle/.
     # Keeping the check inline avoids duplicating the fixture here and keeps
     # tests/lifecycle/conftest.py truly minimal (per plan task D1, step 2).
-    if not (os.environ.get("GPD_TEST_ANTHROPIC_KEY") or os.environ.get("ANTHROPIC_API_KEY")):
-        pytest.skip("GPD_TEST_ANTHROPIC_KEY not set; skipping real-backend lifecycle")
+    import json as _json, os as _os
+    from pathlib import Path as _Path
+    _xdg = _os.environ.get("XDG_DATA_HOME")
+    _auth = (_Path(_xdg)/"opencode"/"auth.json" if _xdg
+             else _Path.home()/".local"/"share"/"opencode"/"auth.json")
+    try:
+        _key = _json.loads(_auth.read_text()).get("gpd", {}).get("key", "")
+    except Exception:
+        _key = ""
+    if not _key:
+        pytest.skip(f"GPD key not found in {_auth}; skipping real-backend lifecycle")
 
     ses = http.create_session()
     http.send_message(

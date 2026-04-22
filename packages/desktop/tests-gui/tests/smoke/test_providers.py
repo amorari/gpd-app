@@ -6,8 +6,8 @@ import pytest
 @pytest.mark.smoke
 @pytest.mark.real_backend
 @pytest.mark.skipif(
-    not (os.environ.get("GPD_TEST_ANTHROPIC_KEY") or os.environ.get("ANTHROPIC_API_KEY")),
-    reason="GPD_TEST_ANTHROPIC_KEY not set",
+    not (lambda p: p.exists() and __import__("json").loads(p.read_text()).get("gpd",{}).get("key",""))(__import__("pathlib").Path.home()/".local/share/opencode/auth.json"),
+    reason="GPD key not found in auth.json",
 )
 def test_providers_non_empty(http):
     data = http.providers()

@@ -1,7 +1,7 @@
 """E2E stress — high-volume single session (20 turns, context retention, timing).
 
 Uses the cheapest Anthropic model (Haiku) to minimise cost.
-Requires a real Anthropic key (GPD_TEST_ANTHROPIC_KEY env var).
+Requires GPD key in ~/.local/share/opencode/auth.json.
 
 Assertions:
   1. All 20 assistant replies are delivered.
