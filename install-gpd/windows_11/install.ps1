@@ -787,19 +787,16 @@ function Read-LiteLlmKey {
             Write-Warn "Set `$env:GPD_API_KEY and re-run, or run interactively to be prompted."
             return
         }
-        # Up to 3 attempts with secure (masked) input. Read-Host -AsSecureString
-        # keeps the key off screen + out of transcript logs; convert to plain
-        # text via the standard SecureString marshal pattern.
+        # Up to 3 attempts. Echo the key as the user types so they can
+        # verify what they pasted (per user request; users generally
+        # want to confirm a sk-... key is intact before hitting Enter).
+        # This does leave the key in the PowerShell transcript/history
+        # if transcription is enabled, which is acceptable on a trusted
+        # local install.
         $attempts = 0
         $maxAttempts = 3
         while ($attempts -lt $maxAttempts) {
-            $secure = Read-Host "  Enter your PSI key (sk-...)" -AsSecureString
-            $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-            try {
-                $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-            } finally {
-                [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-            }
+            $plain = Read-Host "  Enter your PSI key (sk-...)"
             $plain = $plain -replace "`r",''
             $plain = $plain -replace '\s',''
             if ([string]::IsNullOrWhiteSpace($plain)) {
@@ -808,7 +805,6 @@ function Read-LiteLlmKey {
                 Write-Warn "Key format looks wrong. Expected sk-<letters/digits/_-> (min 10 chars after prefix)."
             } else {
                 $key = $plain
-                Write-Host ("  Key received ({0} chars)" -f $key.Length)
                 break
             }
             $attempts++

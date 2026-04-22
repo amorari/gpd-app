@@ -816,16 +816,17 @@ configure_litellm_key() {
         printf " ${DIM}Your PSI key connects GPD to AI models. Get it from your lab admin.${RESET}\n"
         printf "\n"
 
-        # Up to 3 validation attempts. `read -rs` keeps the key off the
-        # terminal (and out of scrollback + screen-sharing); we echo a
-        # newline after each prompt since -s swallows the Enter.
+        # Up to 3 validation attempts. Echo the key as the user types so
+        # they can verify what they pasted (per user request; users
+        # generally want to confirm a `sk-` key is intact before hitting
+        # Enter). This does leave the key in terminal scrollback, which
+        # is acceptable on a trusted local install.
         local attempts=0
         local max_attempts=3
         key=""
         while (( attempts < max_attempts )); do
             printf " Enter your PSI key (sk-...): "
-            read -rs key
-            printf "\n"
+            read -r key
             # Strip CR (paste from Windows-terminated files) and any
             # other whitespace before validating or storing.
             key="${key//$'\r'/}"
@@ -836,7 +837,6 @@ configure_litellm_key() {
                 warn "Key format looks wrong. Expected sk-<letters/digits/_-> (min 10 chars after prefix)."
                 key=""
             else
-                printf " Key received (%d chars)\n" "${#key}"
                 break
             fi
             attempts=$((attempts + 1))
