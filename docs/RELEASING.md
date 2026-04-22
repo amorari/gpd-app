@@ -4,15 +4,22 @@ How to cut, inspect, and publish GPD Desktop releases on `psi-oss/gpd-app`.
 
 ## TL;DR
 
-```bash
-# 1. Cut a draft (reads get-physics-done version from GitHub by default)
-gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd
+**Always pass `-f version=<next-patch>`.** Never dispatch without it.
 
-# 2. When you're satisfied with the draft, publish it
+```bash
+# 1. Check the newest published tag so you know the next patch number
+gh api repos/psi-oss/gpd-app/releases --jq '.[] | select(.draft == false) | .tag_name' | head -5
+
+# 2. Cut a draft at the next explicit version (e.g., 1.1.9 if 1.1.8 is latest)
+gh workflow run gpd-release.yml --repo psi-oss/gpd-app --ref gpd -f version=1.1.9
+
+# 3. When the draft looks good, publish it
 gh workflow run gpd-publish-draft.yml --repo psi-oss/gpd-app --ref gpd
 ```
 
 Builds are uploaded to the draft release **as each platform finishes**, so mac-intel / mac-arm binaries appear first (~6 min), linux next (~8 min), Windows last (~15 min). You can download them from the draft page while the rest are still building.
+
+> **Why always explicit?** The `get-physics-done` sidecar version on `main` rarely bumps, so dispatching without `-f version` keeps resolving to the same number (`1.1.0`). The workflow then auto-appends a `-N` redrop suffix to avoid colliding with published releases — and **redrop tags do not reach existing installs via auto-update** (semver sorts `1.1.0-2` *below* `1.1.0` as a pre-release). We don't cut redrops anymore; always bump the patch number.
 
 ---
 
@@ -38,29 +45,24 @@ Builds are uploaded to the draft release **as each platform finishes**, so mac-i
 
 A release carries two versions — **desktop** and **sidecar** (the bundled `get-physics-done` Python package) — and they are intentionally allowed to drift:
 
-- **Desktop version** drives the tag, asset filenames, and the app's reported version. It's what the auto-updater compares.
-- **Sidecar version** is reported in the release body for clarity. It's the version of `get-physics-done` available at build time (and what fresh installs will start with).
+- **Desktop version** drives the tag, asset filenames, and the app's reported version. It's what the auto-updater compares. **Always provided explicitly via `-f version=<next-patch>`.**
+- **Sidecar version** is reported in the release body for clarity. It's the version of `get-physics-done` available at build time (and what fresh installs will start with). Resolved by the workflow's `resolve-version` job from `version_source` (default: `github` — reads `pyproject.toml` on `psi-oss/get-physics-done@main`; can also be `pypi` or `npm`).
 
-The release workflow's `resolve-version` job always resolves the sidecar version from `version_source` (default: `github` — reads `pyproject.toml` on `psi-oss/get-physics-done@main`; can also be `pypi` or `npm`). The desktop version then takes the explicit `version` input if provided, otherwise follows the sidecar.
+### Current practice: always explicit
 
-### When to override
+Every desktop release bumps the patch number (`1.1.1` → `1.1.2` → … → `1.1.9` → `1.2.0`). This keeps the auto-updater working for every release. We do **not** let the workflow resolve the desktop version implicitly from the sidecar, because the sidecar version bumps rarely and every implicit dispatch would collide with an already-published tag.
 
-- **Desktop-only patch releases** (UI copy fix, bug fix, translation, etc. — no sidecar change): bump desktop independently with `-f version=<next-patch>`. The auto-updater will promote this to existing installs. The release body still accurately reports which sidecar version is bundled.
-- **Sidecar release** (new `get-physics-done` on PyPI / GitHub): leave `version` empty, let desktop follow.
-
-### Tag collision handling
+### Tag collision safety net (do not rely on it)
 
 If the chosen `gpd-desktop-v<version>` tag already exists:
 - If it's a **draft**, the workflow appends its assets to that draft.
 - If it's **published**, the workflow appends a redrop suffix: `1.1.0` → `1.1.0-1` → `1.1.0-2` → …, stopping at the first available slot. Hard cap `-100`.
 
-Tag shape:
-
 ```
 gpd-desktop-v<desktop-version>[-<redrop-counter>]
 ```
 
-⚠️ **The redrop suffix (`-N`) does NOT reach existing installs via auto-update.** semver treats `1.1.0-1` as a *pre-release of* `1.1.0` and sorts it *below*; the updater concludes the new build is older. Auto-update is otherwise healthy — the plugin is registered whenever CI has `TAURI_SIGNING_PRIVATE_KEY` (see `constants.rs:UPDATER_ENABLED`), and `latest.json` is signed. Treat `-N` suffixes as "fresh-install only" deliveries (download page, new machines). For patch releases that need to promote, always use a real semver bump (`1.1.1`, `1.2.0`, etc.).
+This exists only so concurrent dispatches or a mistyped version don't destroy an existing release. **Do not intentionally produce `-N` tags.** semver treats `1.1.0-1` as a *pre-release of* `1.1.0` and sorts it *below*, so the updater sees it as older and won't promote — auto-update silently skips `-N` builds for users on a real version like `1.1.8`. If you somehow land on a `-N` draft, delete it (or publish it but mark `mark_latest=false`) and cut a real patch bump.
 
 ---
 

@@ -27,20 +27,29 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ inputs.tag }}"
+
+          # Use gh CLI throughout. Draft releases do not have an underlying
+          # git tag ref until publish, so the raw API GET /releases/tags/<tag>
+          # endpoint returns 404 for them — that path is only usable after
+          # the draft is published. gh CLI's `release list/view/edit` all
+          # resolve drafts correctly (they fan out to /releases and match on
+          # tag_name themselves).
           if [ -z "$TAG" ]; then
-            TAG=$(gh api "repos/$REPO/releases" \
-              --jq '[.[] | select(.draft == true and (.tag_name | startswith("gpd-desktop-v")))] | sort_by(.created_at) | reverse | .[0].tag_name // ""')
+            TAG=$(gh release list --repo "$REPO" --limit 100 \
+              --json tagName,isDraft,createdAt \
+              --jq '[.[] | select(.isDraft == true and (.tagName | startswith("gpd-desktop-v")))] | sort_by(.createdAt) | reverse | .[0].tagName // ""')
             if [ -z "$TAG" ]; then
-              echo "::error::No draft gpd-desktop-v* release found."
+              echo "::error::No draft gpd-desktop-v* release found in the most recent 100."
               exit 1
             fi
             echo "Selected newest draft tag: $TAG"
           fi
 
-          RELEASE_JSON=$(gh api "repos/$REPO/releases/tags/$TAG")
-          IS_DRAFT=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['draft'])")
-          ASSET_COUNT=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['assets']))")
-          echo "Tag: $TAG  draft=$IS_DRAFT  assets=$ASSET_COUNT"
+          META=$(gh release view "$TAG" --repo "$REPO" --json isDraft,assets,databaseId)
+          IS_DRAFT=$(echo "$META" | python3 -c "import sys,json; print(json.load(sys.stdin)['isDraft'])")
+          ASSET_COUNT=$(echo "$META" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['assets']))")
+          RELEASE_ID=$(echo "$META" | python3 -c "import sys,json; print(json.load(sys.stdin)['databaseId'])")
+          echo "Release: $TAG  id=$RELEASE_ID  draft=$IS_DRAFT  assets=$ASSET_COUNT"
 
           if [ "$IS_DRAFT" != "True" ]; then
             echo "::warning::$TAG is already published; no action taken."
@@ -56,4 +65,4 @@ jobs:
             MARK_LATEST_ARG="--latest"
           fi
           gh release edit "$TAG" --draft=false $MARK_LATEST_ARG --repo "$REPO"
-          echo "Published $TAG"
+          echo "Published $TAG (id=$RELEASE_ID)"
