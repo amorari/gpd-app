@@ -27,6 +27,7 @@ import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { sanitizeProject } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
+import { workspaceKey } from "@/pages/layout/helpers"
 
 type GlobalStore = {
   ready: boolean
@@ -323,7 +324,13 @@ function createGlobalSync() {
       return
     }
 
-    const existing = children.children[directory]
+    const existing =
+      children.children[directory] ??
+      (() => {
+        const normalized = workspaceKey(directory)
+        const key = Object.keys(children.children).find((k) => workspaceKey(k) === normalized)
+        return key ? children.children[key] : undefined
+      })()
     if (!existing) return
     children.mark(directory)
     const [store, setStore] = existing
