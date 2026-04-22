@@ -1085,6 +1085,19 @@ export namespace Config {
   export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
 
   function globalConfigFile() {
+    // When OPENCODE_CONFIG_DIR is set (e.g. GPD's ~/.config/gpd/), prefer
+    // writing there. That directory is merged after the XDG global config so
+    // it wins in the merged GET /config response; writing only to the XDG
+    // global config leaves the change invisible because the config-dir file
+    // overrides it.
+    if (Flag.OPENCODE_CONFIG_DIR) {
+      const configDirCandidates = ["opencode.jsonc", "opencode.json"].map((file) =>
+        path.join(Flag.OPENCODE_CONFIG_DIR!, file),
+      )
+      for (const file of configDirCandidates) {
+        if (existsSync(file)) return file
+      }
+    }
     const candidates = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
       path.join(Global.Path.config, file),
     )
@@ -1596,7 +1609,12 @@ export namespace Config {
         const existing = yield* loadFile(file)
         yield* fs
           .writeFileString(file, JSON.stringify(mergeDeep(writable(existing), writable(config)), null, 2))
-          .pipe(Effect.orDie)
+          .pipe(
+            Effect.tapError((err) =>
+              Effect.sync(() => log.error("failed to write config file", { file, error: String(err) })),
+            ),
+            Effect.orDie,
+          )
         yield* Effect.promise(() => Instance.dispose())
       })
 
@@ -1630,11 +1648,15 @@ export namespace Config {
           next = merged
         } else {
           const updated = patchJsonc(before, input)
-          next = parseConfig(updated, file)
           yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+          next = config
         }
 
-        yield* invalidate()
+        // Wait for all instances to be disposed so that a subsequent GET
+        // /config reflects the new file contents rather than the stale
+        // in-memory instance state. Without wait=true, invalidate() is
+        // fire-and-forget and the next get() races against the disposal.
+        yield* invalidate(true)
         return next
       })
 
