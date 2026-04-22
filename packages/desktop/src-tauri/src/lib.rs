@@ -69,6 +69,7 @@ struct InitState {
 
 struct ServerState {
     child: Arc<Mutex<Option<CommandChild>>>,
+    stopping: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Resolves with sidecar credentials as soon as the sidecar is spawned (before health check).
@@ -82,7 +83,12 @@ fn kill_sidecar(app: AppHandle) {
         return;
     };
 
-    let Some(server_state) = server_state
+    // Signal the watchdog to stop before killing so it doesn't immediately respawn.
+    server_state
+        .stopping
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+
+    let Some(child) = server_state
         .child
         .lock()
         .expect("Failed to acquire mutex lock")
@@ -92,7 +98,11 @@ fn kill_sidecar(app: AppHandle) {
         return;
     };
 
-    let _ = server_state.kill();
+    // Synchronous kill first: if the Tokio runtime is shutting down (RunEvent::Exit),
+    // the async kill channel may not be processed before all tasks are dropped.
+    // force_kill_sync() uses the raw OS PID for a direct SIGKILL.
+    child.force_kill_sync();
+    let _ = child.kill();
 
     tracing::info!("Killed server");
 }
@@ -204,6 +214,7 @@ fn check_macos_app(app_name: &str) -> bool {
     let mut app_locations = vec![
         format!("/Applications/{}.app", app_name),
         format!("/System/Applications/{}.app", app_name),
+        format!("/System/Library/CoreServices/{}.app", app_name),
     ];
 
     if let Ok(home) = std::env::var("HOME") {
@@ -549,34 +560,48 @@ async fn initialize(app: AppHandle) {
         current_path,
     );
 
-    let (child, health_check) = server::spawn_local_server(
-        app.clone(),
-        hostname.to_string(),
-        port,
-        password.clone(),
-        &[
-            ("OPENCODE_CONFIG_DIR", gpd_config_str),
-            ("OPENCODE_CONFIG_CONTENT", gpd_setup::build_config_json()),
-            ("PATH", augmented_path),
-            // GPD uses a fully self-contained provider definition via OPENCODE_CONFIG_CONTENT
-            // with enabled_providers: ["gpd"], so the models.dev network fetch is wasted work.
-            // Skipping it eliminates several seconds of startup latency on cold cache.
-            ("OPENCODE_DISABLE_MODELS_FETCH", "1".to_string()),
-            // GPD: session sharing is hidden in the UI and no-op'd at the runtime layer
-            // until we ship a PSI-hosted share service. Upstream's default share
-            // endpoint is opncd.ai (anomalyco-operated); we don't want researcher
-            // sessions flowing through that. Hard-disable at the sidecar so
-            // programmatic invocations (SDK calls, slash commands, deep links)
-            // all no-op cleanly.
-            ("OPENCODE_DISABLE_SHARE", "1".to_string()),
-            // GPD session logging. Activates the GpdLogger bus-subscriber
-            // which POSTs gzipped NDJSON flushes to LiteLLM's /gpd/log route.
-            // Auth flows through the user's existing virtual key in auth.json;
-            // we never ship a GCS service-account key on the desktop.
-            // The proxy on Railway forwards writes to gs://gpd-desktop-logs.
-            ("OPENCODE_GPD_LOGS_ENABLED", "1".to_string()),
-        ],
-    );
+    // Stable env vars captured for both the initial launch and watchdog respawn.
+    // The password is NOT included here — it is regenerated on each spawn.
+    let stable_env: Vec<(String, String)> = vec![
+        ("OPENCODE_CONFIG_DIR".to_string(), gpd_config_str),
+        ("OPENCODE_CONFIG_CONTENT".to_string(), gpd_setup::build_config_json()),
+        ("PATH".to_string(), augmented_path),
+        // GPD uses a fully self-contained provider definition via OPENCODE_CONFIG_CONTENT
+        // with enabled_providers: ["gpd"], so the models.dev network fetch is wasted work.
+        // Skipping it eliminates several seconds of startup latency on cold cache.
+        ("OPENCODE_DISABLE_MODELS_FETCH".to_string(), "1".to_string()),
+        // GPD: session sharing is hidden in the UI and no-op'd at the runtime layer
+        // until we ship a PSI-hosted share service. Upstream's default share
+        // endpoint is opncd.ai (anomalyco-operated); we don't want researcher
+        // sessions flowing through that. Hard-disable at the sidecar so
+        // programmatic invocations (SDK calls, slash commands, deep links)
+        // all no-op cleanly.
+        ("OPENCODE_DISABLE_SHARE".to_string(), "1".to_string()),
+        // GPD session logging. Activates the GpdLogger bus-subscriber
+        // which POSTs gzipped NDJSON flushes to LiteLLM's /gpd/log route.
+        // Auth flows through the user's existing virtual key in auth.json;
+        // we never ship a GCS service-account key on the desktop.
+        // The proxy on Railway forwards writes to gs://gpd-desktop-logs.
+        ("OPENCODE_GPD_LOGS_ENABLED".to_string(), "1".to_string()),
+    ];
+
+    let (child, health_check) = {
+        let env_refs: Vec<(&str, String)> = stable_env
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.clone()))
+            .collect();
+        server::spawn_local_server(
+            app.clone(),
+            hostname.to_string(),
+            port,
+            password.clone(),
+            &env_refs,
+        )
+    };
+
+    // Create the Arc upfront so the watchdog can also hold a reference.
+    let server_child_arc: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(Some(child)));
+    let stopping = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Make sidecar credentials available immediately (before health check completes)
     let (ready_tx, ready_rx) = oneshot::channel();
@@ -587,8 +612,51 @@ async fn initialize(app: AppHandle) {
     });
     app.manage(SidecarReady(ready_rx.shared()));
     app.manage(ServerState {
-        child: Arc::new(Mutex::new(Some(child))),
+        child: Arc::clone(&server_child_arc),
+        stopping: Arc::clone(&stopping),
     });
+
+    // Watchdog: detect unexpected sidecar death and respawn automatically.
+    // Runs until the app shuts down (stopping flag set by kill_sidecar).
+    {
+        let watchdog_app = app.clone();
+        let watchdog_child = Arc::clone(&server_child_arc);
+        let watchdog_stopping = Arc::clone(&stopping);
+        tokio::spawn(async move {
+            // Give the initial sidecar time to start before monitoring begins.
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            loop {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if watchdog_stopping.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                let alive = watchdog_child
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .map(|c| c.is_alive())
+                    .unwrap_or(false);
+                if !alive {
+                    tracing::warn!("Sidecar died unexpectedly, respawning");
+                    let new_port = get_sidecar_port();
+                    let new_password = uuid::Uuid::new_v4().to_string();
+                    let env_refs: Vec<(&str, String)> = stable_env
+                        .iter()
+                        .map(|(k, v)| (k.as_str(), v.clone()))
+                        .collect();
+                    let (new_child, _hc) = server::spawn_local_server(
+                        watchdog_app.clone(),
+                        "127.0.0.1".to_string(),
+                        new_port,
+                        new_password,
+                        &env_refs,
+                    );
+                    *watchdog_child.lock().unwrap() = Some(new_child);
+                    tracing::info!(new_port, "Sidecar respawned successfully");
+                }
+            }
+        });
+    }
 
     let loading_window_complete = event_once_fut::<LoadingWindowComplete>(&app);
 
