@@ -99,8 +99,6 @@ def _inject_text(probe: DOMProbe, text: str) -> bool:
             f'  if (!el) return false;'
             f'  el.focus();'
             f'  el.textContent = "{safe_text}";'
-            f'  // Place cursor at end so the regex in handleInput sees the'
-            f'  // correct position when it reads cursorPosition.'
             f'  const range = document.createRange();'
             f'  const sel = window.getSelection();'
             f'  range.selectNodeContents(el);'
