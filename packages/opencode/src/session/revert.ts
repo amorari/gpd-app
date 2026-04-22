@@ -3,6 +3,7 @@ import { Effect, Layer, Context } from "effect"
 import { Bus } from "../bus"
 import { Snapshot } from "../snapshot"
 import { Storage } from "@/storage/storage"
+import { NotFoundError } from "@/storage/db"
 import { SyncEvent } from "../sync"
 import { Log } from "../util/log"
 import { Session } from "."
@@ -70,7 +71,17 @@ export namespace SessionRevert {
           }
         }
 
-        if (!rev) return session
+        if (!rev) {
+          // The caller's messageID/partID didn't match any message or
+          // part in this session. Previously we silently returned the
+          // session unchanged — a no-op 200 that callers could not
+          // distinguish from a successful revert. Throw so the HTTP
+          // layer returns 404 and the UI can surface a real error.
+          const target = input.partID
+            ? `part ${input.partID} in message ${input.messageID}`
+            : `message ${input.messageID}`
+          throw new NotFoundError({ message: `Revert target not found: ${target} in session ${input.sessionID}` })
+        }
 
         rev.snapshot = session.revert?.snapshot ?? (yield* snap.track())
         if (session.revert?.snapshot) yield* snap.restore(session.revert.snapshot)

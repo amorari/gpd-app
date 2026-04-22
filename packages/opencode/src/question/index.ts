@@ -3,6 +3,7 @@ import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
 import { SessionID, MessageID } from "@/session/schema"
+import { NotFoundError } from "@/storage/db"
 import { zod } from "@/util/effect-zod"
 import { Log } from "@/util/log"
 import { withStatics } from "@/util/schema"
@@ -187,8 +188,7 @@ export namespace Question {
         const pending = (yield* InstanceState.get(state)).pending
         const existing = pending.get(input.requestID)
         if (!existing) {
-          log.warn("reply for unknown request", { requestID: input.requestID })
-          return
+          throw new NotFoundError({ message: `Question not found: ${input.requestID}` })
         }
         pending.delete(input.requestID)
         log.info("replied", { requestID: input.requestID, answers: input.answers })
@@ -204,8 +204,7 @@ export namespace Question {
         const pending = (yield* InstanceState.get(state)).pending
         const existing = pending.get(requestID)
         if (!existing) {
-          log.warn("reject for unknown request", { requestID })
-          return
+          throw new NotFoundError({ message: `Question not found: ${requestID}` })
         }
         pending.delete(requestID)
         log.info("rejected", { requestID })

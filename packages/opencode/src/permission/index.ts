@@ -6,7 +6,7 @@ import { ProjectID } from "@/project/schema"
 import { Instance } from "@/project/instance"
 import { MessageID, SessionID } from "@/session/schema"
 import { PermissionTable } from "@/session/session.sql"
-import { Database, eq } from "@/storage/db"
+import { Database, eq, NotFoundError } from "@/storage/db"
 import { Log } from "@/util/log"
 import { Wildcard } from "@/util/wildcard"
 import { Deferred, Effect, Layer, Schema, Context } from "effect"
@@ -203,7 +203,15 @@ export namespace Permission {
       const reply = Effect.fn("Permission.reply")(function* (input: z.infer<typeof ReplyInput>) {
         const { approved, pending } = yield* InstanceState.get(state)
         const existing = pending.get(input.requestID)
-        if (!existing) return
+        // Missing requestID collapses two cases: the id never existed, OR
+        // it was already resolved (we delete pending entries on reply, and
+        // a cascading reply on the same session can remove siblings too —
+        // see the for-loops below). Either way the caller's decision did
+        // not take effect; report 404 rather than returning a misleading
+        // 200 that the route handler has no way to distinguish.
+        if (!existing) {
+          throw new NotFoundError({ message: `Permission request not found: ${input.requestID}` })
+        }
 
         pending.delete(input.requestID)
         yield* bus.publish(Event.Replied, {
