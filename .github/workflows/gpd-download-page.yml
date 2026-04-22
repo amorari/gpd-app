@@ -3,13 +3,18 @@ name: GPD Update Download Page
 on:
   release:
     types: [published]
+  # Manual rerun when the release:published hook did not fire — e.g.,
+  # publish was done via gh release edit --draft=false (REST path) with
+  # the repo configured to skip release events, or we want to force a
+  # regen after a gh-pages edit.
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   update-download-page:
-    if: startsWith(github.event.release.tag_name, 'gpd-desktop-v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'gpd-desktop-v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
