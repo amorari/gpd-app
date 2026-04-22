@@ -32,16 +32,53 @@ type GlobalStore = {
   reload: undefined | "pending" | "complete"
 }
 
-function waitForPaint() {
+/**
+ * Resolve once the browser has (probably) painted the current frame, so
+ * that deferred work started afterwards doesn't steal the main thread
+ * during initial render.
+ *
+ * The naive implementation is `requestAnimationFrame(() => setTimeout(resolve, 0))`,
+ * but rAF is suspended while the document is hidden / occluded / in a
+ * background tab. Relying on it alone means `bootstrapGlobal()` — which
+ * gates `setGlobalStore("ready", true)` on this promise — can hang
+ * indefinitely when the app is launched into a non-visible window
+ * (CLI-provisioned auth never gets discovered, welcome/loading UI sticks).
+ *
+ * Strategy:
+ *   1. If the document is not `visible`, resolve via microtask. No paint
+ *      is coming; there's nothing to wait for. Bootstrap proceeds and
+ *      the UI catches up when the user brings the window forward.
+ *   2. Otherwise, race the rAF+setTimeout(0) path against a 500 ms
+ *      ceiling so a tab that gets backgrounded mid-bootstrap (or a
+ *      browser that silently drops rAF) still completes.
+ */
+export function waitForPaint() {
   return new Promise<void>((resolve) => {
+    // SSR / non-browser — yield once and return.
+    if (typeof requestAnimationFrame !== "function") {
+      Promise.resolve().then(() => resolve())
+      return
+    }
+
+    // Hidden tab / backgrounded Tauri window: rAF may never fire. Don't
+    // gate bootstrap on a paint that isn't coming. A microtask is
+    // enough to let the current synchronous work flush.
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      Promise.resolve().then(() => resolve())
+      return
+    }
+
     let done = false
     const finish = () => {
       if (done) return
       done = true
       resolve()
     }
-    const timer = setTimeout(finish, 50)
-    if (typeof requestAnimationFrame !== "function") return
+
+    // Ultimate safety net. If rAF is dropped or suspended between the
+    // visibility check above and the callback firing (the browser can
+    // minimize the window here), release bootstrap after 500 ms.
+    const timer = setTimeout(finish, 500)
     requestAnimationFrame(() => {
       setTimeout(() => {
         clearTimeout(timer)
@@ -319,16 +356,19 @@ export async function bootstrapDirectory(input: {
           // OPTIONAL servers provide graceful degradation — their failure does not block chat.
           const required = ["gpd-state", "gpd-skills", "gpd-verification", "gpd-conventions"]
           const optional = ["gpd-protocols", "gpd-errors", "gpd-patterns", "gpd-arxiv"]
-          const mcpStatus = status as Record<string, { state?: string }>
+          // Server schema uses `status` field (see packages/opencode/src/mcp/index.ts
+          // `MCPStatus` discriminated union). Reading `state` was silently always
+          // undefined, producing false "not connected" warnings on every boot.
+          const mcpStatus = status as Record<string, { status?: string }>
           const requiredReady = required.every(
-            (name) => !(name in mcpStatus) || mcpStatus[name]?.state === "connected",
+            (name) => !(name in mcpStatus) || mcpStatus[name]?.status === "connected",
           )
           input.setStore("mcp_ready", requiredReady)
           // Log optional server failures without blocking.
           for (const name of optional) {
             const s = mcpStatus[name]
-            if (s && s.state !== "connected") {
-              console.warn(`Optional MCP server "${name}" not connected (state: ${s.state}); proceeding without it`)
+            if (s && s.status !== "connected") {
+              console.warn(`Optional MCP server "${name}" not connected (status: ${s.status}); proceeding without it`)
             }
           }
         }),
