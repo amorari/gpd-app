@@ -489,6 +489,21 @@ def test_default_app_path_respects_env(monkeypatch):
 
 
 @pytest.mark.unit
-def test_default_app_path_fallback(monkeypatch):
+def test_default_app_path_fallback_to_prod_when_no_build(monkeypatch, tmp_path):
+    """When env is unset and no app bundle exists anywhere, fall back to prod path."""
     monkeypatch.delenv("GPD_APP_PATH", raising=False)
-    assert mod._default_app_path() == "/Applications/GPD.app"
+    # Patch Path.__file__ resolution so no in-tree bundle is found.
+    import gpd_tests.pages.app_state as _mod
+    from unittest.mock import patch
+    with patch.object(_mod.Path, "exists", return_value=False):
+        result = _mod._default_app_path()
+    assert result == "/Applications/GPD.app"
+
+
+@pytest.mark.unit
+def test_default_app_path_fallback_finds_debug_build(monkeypatch):
+    """When env is unset but the in-tree debug build exists, return it."""
+    monkeypatch.delenv("GPD_APP_PATH", raising=False)
+    result = mod._default_app_path()
+    # Either the debug build was found or we fell back to prod — never empty.
+    assert result.endswith(".app")

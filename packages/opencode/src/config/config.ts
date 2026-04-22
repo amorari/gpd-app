@@ -1657,8 +1657,8 @@ export namespace Config {
           next = merged
         } else {
           const updated = patchJsonc(before, input)
-          next = parseConfig(updated, file)
           yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+          next = config
         }
 
         yield* invalidate(true)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -10,6 +11,22 @@ import time
 from pathlib import Path
 
 from scripts._bundle import app_name as _app_name
+
+
+def _ps_pids(pattern: str) -> list[str]:
+    """Return PIDs whose command line matches pattern (handles spaces in paths)."""
+    out = subprocess.run(
+        ["ps", "-ax", "-o", "pid=,command="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    pids = []
+    for line in out.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and re.search(pattern, parts[1]):
+            pids.append(parts[0].strip())
+    return pids
 from scripts._bundle import bundle_id as _bundle_id
 
 HOME = Path.home()
@@ -68,39 +85,22 @@ def stop_gpd() -> None:
         text=True,
         check=False,
     )
-    pattern = f"{name}.app/Contents/MacOS/{name}"
+    # macOS pgrep -f silently fails on paths with spaces; use _ps_pids instead.
+    pattern = re.escape(f"{name}.app/Contents/MacOS/")
     # Poll up to 10 s for graceful exit.
     for _ in range(100):
-        out = subprocess.run(
-            ["pgrep", "-f", pattern],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if not out.stdout.strip():
+        if not _ps_pids(pattern):
             return
         time.sleep(0.1)
 
     # Graceful quit timed out — SIGKILL remaining PIDs.
-    out = subprocess.run(
-        ["pgrep", "-f", pattern],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    pids = out.stdout.strip().split()
+    pids = _ps_pids(pattern)
     if pids:
         subprocess.run(["kill", "-KILL", *pids], check=False)
 
     # Poll up to 3 more seconds for the SIGKILL to take effect.
     for _ in range(30):
-        out = subprocess.run(
-            ["pgrep", "-f", pattern],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if not out.stdout.strip():
+        if not _ps_pids(pattern):
             return
         time.sleep(0.1)
 
@@ -128,17 +128,12 @@ def start_gpd() -> None:
             f"{result.stderr.strip()}"
         )
 
-    # Verify the main process came up.
-    binary_pattern = f"{name}.app/Contents/MacOS/{name}"
+    # macOS pgrep -f silently fails on paths with spaces; use _ps_pids.
+    # Match on MacOS/ directory prefix — debug binary is "GPD", not "GPD Dev".
+    binary_pattern = re.escape(f"{name}.app/Contents/MacOS/")
     launched = False
     for _ in range(50):
-        out = subprocess.run(
-            ["pgrep", "-f", binary_pattern],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if out.stdout.strip():
+        if _ps_pids(binary_pattern):
             launched = True
             break
         time.sleep(0.2)
@@ -151,13 +146,7 @@ def start_gpd() -> None:
     # Wait up to 15 s for the opencode-cli sidecar to appear.
     sidecar_appeared = False
     for _ in range(150):
-        out = subprocess.run(
-            ["pgrep", "-f", "opencode-cli.*serve"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if out.stdout.strip():
+        if _ps_pids("opencode-cli.*serve"):
             sidecar_appeared = True
             break
         time.sleep(0.1)

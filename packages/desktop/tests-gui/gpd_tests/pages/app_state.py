@@ -13,14 +13,30 @@ from gpd_tests.helpers.timings import wait_until
 def _default_app_path() -> str:
     """Resolve the GPD app bundle path.
 
-    Order: GPD_APP_PATH env override > installed /Applications/GPD.app.
-    In-tree builds land at
-    packages/desktop/src-tauri/target/{debug,release}/bundle/macos/:
-      - debug build: GPD Dev.app
-      - release build: GPD.app
-    Point GPD_APP_PATH there when running against a local build.
+    Order:
+      1. GPD_APP_PATH env override
+      2. Installed /Applications/GPD.app (production)
+      3. In-tree debug build  (packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app)
+      4. In-tree release build (…/release/…/GPD.app)
     """
-    return os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")
+    if env := os.environ.get("GPD_APP_PATH"):
+        return env
+
+    prod = "/Applications/GPD.app"
+    if os.path.exists(prod):
+        return prod
+
+    # Walk up from this file to the repo root and probe the Tauri bundle dirs.
+    here = Path(__file__).resolve()
+    # gpd_tests/pages/app_state.py → tests-gui → desktop → packages → repo root
+    desktop = here.parents[3]
+    bundle_base = desktop / "src-tauri" / "target"
+    for variant, name in [("debug", "GPD Dev.app"), ("release", "GPD.app")]:
+        candidate = bundle_base / variant / "bundle" / "macos" / name
+        if candidate.exists():
+            return str(candidate)
+
+    return prod  # fall back; will fail loudly if missing
 
 
 APP_PATH = _default_app_path()
