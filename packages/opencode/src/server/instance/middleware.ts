@@ -37,12 +37,11 @@ function getSessionID(url: URL) {
   return SessionID.make(id)
 }
 
-async function getSessionWorkspace(url: URL) {
+async function getSessionInfo(url: URL) {
   const id = getSessionID(url)
   if (!id) return null
 
-  const session = await AppRuntime.runPromise(Session.Service.use((svc) => svc.get(id))).catch(() => undefined)
-  return session?.workspaceID
+  return AppRuntime.runPromise(Session.Service.use((svc) => svc.get(id))).catch(() => undefined)
 }
 
 export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): MiddlewareHandler {
@@ -60,13 +59,19 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
 
     const url = new URL(c.req.url)
 
-    const sessionWorkspaceID = await getSessionWorkspace(url)
-    const workspaceID = sessionWorkspaceID || url.searchParams.get("workspace")
+    const sessionInfo = await getSessionInfo(url)
+    const workspaceID = sessionInfo?.workspaceID || url.searchParams.get("workspace")
 
-    // If no workspace is provided we use the project
+    // If no workspace is provided we use the project.
+    // When the request is for a specific session (e.g. DELETE /session/:id),
+    // use the session's own directory so that SSE events are emitted with the
+    // correct directory and routed to the right frontend child store.
     if (!workspaceID) {
+      const instanceDir = sessionInfo?.directory
+        ? Filesystem.resolve(sessionInfo.directory)
+        : directory
       return Instance.provide({
-        directory,
+        directory: instanceDir,
         init: () => AppRuntime.runPromise(InstanceBootstrap),
         async fn() {
           return next()
