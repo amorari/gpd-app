@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 from pathlib import Path
@@ -33,13 +34,26 @@ _PGREP_PATTERN = f"{_APP_NAME}.app/Contents/MacOS/"
 
 
 def _pgrep(pattern: str) -> list[int]:
+    # macOS pgrep -f silently fails when the pattern contains spaces
+    # (e.g. "GPD Dev.app/Contents/MacOS/"). Use ps and filter in Python.
     out = subprocess.run(
-        ["pgrep", "-f", pattern],
+        ["ps", "-ax", "-o", "pid=,command="],
         capture_output=True,
         text=True,
         check=False,
     )
-    return [int(x) for x in out.stdout.split() if x.strip().isdigit()]
+    pids = []
+    for line in out.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) < 2:
+            continue
+        pid_str, command = parts
+        if pid_str.isdigit() and re.search(pattern, command):
+            pids.append(int(pid_str))
+    return pids
 
 
 class AppState:
