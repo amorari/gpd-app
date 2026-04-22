@@ -74,8 +74,8 @@ def test_send_to_invalid_session_raises(http, bad_id):
         http.send_message(
             bad_id,
             parts=[{"type": "text", "text": "hello"}],
-            model_id="claude-haiku-4-5-20251001",
-            provider_id="anthropic",
+            model_id="claude-haiku-4-5",
+            provider_id="gpd",
             agent="default",
         )
 
@@ -107,8 +107,8 @@ def test_oversized_message_body_accepted_or_rejected_cleanly(http):
             http.send_message(
                 ses["id"],
                 parts=[{"type": "text", "text": big_text}],
-                model_id="claude-haiku-4-5-20251001",
-                provider_id="anthropic",
+                model_id="claude-haiku-4-5",
+                provider_id="gpd",
                 agent="default",
             )
         except Exception as exc:

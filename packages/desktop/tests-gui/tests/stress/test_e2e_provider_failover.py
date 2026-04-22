@@ -18,9 +18,9 @@ from __future__ import annotations
 import pytest
 
 
-HAIKU = "claude-haiku-4-5-20251001"
+HAIKU = "claude-haiku-4-5"
 SONNET = "claude-sonnet-4-6"
-PROVIDER = "anthropic"
+PROVIDER = "gpd"
 
 
 def _send(http, ses_id, text, model=HAIKU):

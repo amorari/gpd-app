@@ -37,8 +37,8 @@ def test_abort_stops_generation(http, gpd_key):
                             "Do not summarize. Just the numbers."
                         ),
                     }],
-                    model_id="claude-4-7",
-                    provider_id="anthropic",
+                    model_id="claude-sonnet-4-6",
+                    provider_id="gpd",
                     agent="default",
                 )
             except Exception as e:  # noqa: BLE001

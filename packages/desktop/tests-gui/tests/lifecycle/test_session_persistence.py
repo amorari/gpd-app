@@ -21,8 +21,8 @@ def test_session_survives_quit_relaunch(http, app_state):
     http.send_message(
         ses["id"],
         parts=[{"type": "text", "text": "Remember the number 847392. Reply only with 'OK'."}],
-        model_id="claude-4-7",
-        provider_id="anthropic",
+        model_id="claude-sonnet-4-6",
+        provider_id="gpd",
         agent="default",
     )
     pre_msgs = http.messages(ses["id"])
@@ -43,8 +43,8 @@ def test_session_survives_quit_relaunch(http, app_state):
     http.send_message(
         ses["id"],
         parts=[{"type": "text", "text": "What number did I ask you to remember?"}],
-        model_id="claude-4-7",
-        provider_id="anthropic",
+        model_id="claude-sonnet-4-6",
+        provider_id="gpd",
         agent="default",
     )
     final = http.messages(ses["id"])

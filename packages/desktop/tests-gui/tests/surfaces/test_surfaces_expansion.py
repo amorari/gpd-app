@@ -81,8 +81,8 @@ def test_fork_dialog_opens_with_message_list(http, mcp, os_input, gpd_key):
         http.send_message(
             sid,
             parts=[{"type": "text", "text": "Say the word 'ready' and nothing else."}],
-            model_id="claude-haiku-4-5-20251001",
-            provider_id="anthropic",
+            model_id="claude-haiku-4-5",
+            provider_id="gpd",
             agent="default",
         )
 

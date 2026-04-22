@@ -17,8 +17,8 @@ import pytest
 
 from gpd_tests.helpers.llm_tolerant import assistant_text
 
-MODEL = "claude-haiku-4-5-20251001"
-PROVIDER = "anthropic"
+MODEL = "claude-haiku-4-5"
+PROVIDER = "gpd"
 MARKERS = [
     "alpha-fa3c",
     "bravo-2e91",

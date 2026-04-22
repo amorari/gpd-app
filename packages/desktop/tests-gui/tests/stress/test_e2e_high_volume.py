@@ -19,8 +19,8 @@ import pytest
 from gpd_tests.helpers.llm_tolerant import assert_assistant_replied
 
 
-MODEL = "claude-haiku-4-5-20251001"
-PROVIDER = "anthropic"
+MODEL = "claude-haiku-4-5"
+PROVIDER = "gpd"
 SECRET = "XRAY-LIMA-9"
 
 

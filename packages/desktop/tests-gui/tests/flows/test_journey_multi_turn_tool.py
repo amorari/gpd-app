@@ -47,8 +47,8 @@ def test_journey_multi_turn_tool(http, gpd_key, tmp_path):
                     "file operations should happen relative to that directory."
                 ),
             }],
-            model_id="claude-4-7",
-            provider_id="anthropic",
+            model_id="claude-sonnet-4-6",
+            provider_id="gpd",
             agent="default",
         )
 
@@ -62,8 +62,8 @@ def test_journey_multi_turn_tool(http, gpd_key, tmp_path):
                     "contents. Quote the unique sentinel string exactly."
                 ),
             }],
-            model_id="claude-4-7",
-            provider_id="anthropic",
+            model_id="claude-sonnet-4-6",
+            provider_id="gpd",
             agent="default",
         )
 
@@ -79,8 +79,8 @@ def test_journey_multi_turn_tool(http, gpd_key, tmp_path):
                     "newline or extra text."
                 ),
             }],
-            model_id="claude-4-7",
-            provider_id="anthropic",
+            model_id="claude-sonnet-4-6",
+            provider_id="gpd",
             agent="default",
         )
 

@@ -21,8 +21,8 @@ def test_two_sessions_do_not_cross_contaminate(http, gpd_key):
                 "type": "text",
                 "text": f"Echo this unique marker back to me verbatim: {marker}",
             }],
-            model_id="claude-4-7",
-            provider_id="anthropic",
+            model_id="claude-sonnet-4-6",
+            provider_id="gpd",
             agent="default",
         )
         msgs = http.messages(ses_id)

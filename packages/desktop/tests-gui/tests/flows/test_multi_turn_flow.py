@@ -12,24 +12,24 @@ def test_three_turn_context_retention(http, gpd_key):
         http.send_message(
             ses["id"],
             parts=[{"type": "text", "text": "My favorite color is octarine. Remember this exact word."}],
-            model_id="claude-4-7",
-            provider_id="anthropic",
+            model_id="claude-sonnet-4-6",
+            provider_id="gpd",
             agent="default",
         )
         # Turn 2: distraction
         http.send_message(
             ses["id"],
             parts=[{"type": "text", "text": "What is 2+2?"}],
-            model_id="claude-4-7",
-            provider_id="anthropic",
+            model_id="claude-sonnet-4-6",
+            provider_id="gpd",
             agent="default",
         )
         # Turn 3: recall
         http.send_message(
             ses["id"],
             parts=[{"type": "text", "text": "What is my favorite color?"}],
-            model_id="claude-4-7",
-            provider_id="anthropic",
+            model_id="claude-sonnet-4-6",
+            provider_id="gpd",
             agent="default",
         )
 
