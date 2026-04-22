@@ -9,14 +9,18 @@ Headers captured server-side:
 Out:    {"ok": true}
 
 Writes one append-only row to `gpd_tos_acceptance` with:
-  user_id      — from user_api_key_dict (server-derived, not client-settable)
-  key_last4    — last 4 chars of the LiteLLM api_key (for cross-reference
-                 with LiteLLM_VerificationToken without storing the full key)
-  tos_version  — the version the user explicitly agreed to
-  app_version  — desktop build that rendered the TOS (optional)
-  user_agent   — from the request
-  client_ip    — X-Forwarded-For first hop (Railway preserves this)
-  accepted_at  — server UTC timestamp (clock skew-proof)
+  user_id         — from user_api_key_dict (server-derived, not client-settable)
+  key_hash_last4  — last 4 chars of `user_api_key_dict.api_key`, which is
+                    the SHA256-hashed bearer (what LiteLLM persists in
+                    LiteLLM_VerificationToken), NOT the raw sk-... string
+                    the user typed. Useful for cross-reference with the
+                    token table; not usable as a "key ends in XXXX"
+                    display to the user.
+  tos_version     — the version the user explicitly agreed to
+  app_version     — desktop build that rendered the TOS (optional)
+  user_agent      — from the request
+  client_ip       — X-Forwarded-For first hop (Railway preserves this)
+  accepted_at     — server UTC timestamp (clock skew-proof)
 
 Invariants:
   1. Virtual key is valid & not revoked/expired (Depends user_api_key_auth).
@@ -83,13 +87,13 @@ async def gpd_tos_accept(
 
     user_agent = (request.headers.get("user-agent") or "")[:_MAX_USER_AGENT_LEN] or None
 
-    api_key = user_api_key_dict.api_key or ""
-    key_last4 = api_key[-4:] if len(api_key) >= 4 else api_key
+    api_key_hash = user_api_key_dict.api_key or ""
+    key_hash_last4 = api_key_hash[-4:] if len(api_key_hash) >= 4 else api_key_hash
 
     try:
         await db.insert_acceptance(
             user_id=user_id,
-            key_last4=key_last4,
+            key_hash_last4=key_hash_last4,
             tos_version=tos_version,
             app_version=app_version,
             user_agent=user_agent,

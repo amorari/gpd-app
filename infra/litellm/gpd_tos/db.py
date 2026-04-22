@@ -55,7 +55,7 @@ async def _get_client():
 async def insert_acceptance(
     *,
     user_id: str,
-    key_last4: str,
+    key_hash_last4: str,
     tos_version: str,
     app_version: Optional[str],
     user_agent: Optional[str],
@@ -68,12 +68,17 @@ async def insert_acceptance(
     client_ip is cast `::inet` on the server — invalid addresses will raise
     and the handler will return 503 to the client. That's preferable to
     silently dropping the row.
+
+    key_hash_last4 is the last 4 chars of LiteLLM's SHA256 token hash
+    (what `user_api_key_dict.api_key` exposes), NOT the raw sk-... key the
+    user typed. Column was renamed from `key_last4` to reflect this; see
+    `infra/litellm/scripts/rename-key-last4.py` for the migration.
     """
     client = await _get_client()
     await client.db.execute_raw(
         """
         INSERT INTO gpd_tos_acceptance (
-          user_id, key_last4, tos_version, app_version,
+          user_id, key_hash_last4, tos_version, app_version,
           user_agent, client_ip
         ) VALUES (
           $1, $2, $3, $4,
@@ -81,7 +86,7 @@ async def insert_acceptance(
         )
         """,
         user_id,
-        key_last4,
+        key_hash_last4,
         tos_version,
         app_version,
         user_agent,

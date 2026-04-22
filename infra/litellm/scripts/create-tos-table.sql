@@ -16,15 +16,19 @@
 -- upstream table-name conventions if LiteLLM ever ships its own TOS
 -- tracking.
 
+-- key_hash_last4: last 4 chars of LiteLLM's SHA256 token hash (what
+-- user_api_key_dict.api_key exposes), NOT the raw sk-... string the
+-- user typed. Useful for cross-reference with LiteLLM_VerificationToken;
+-- not usable as a user-facing "key ends in XXXX" display.
 CREATE TABLE IF NOT EXISTS gpd_tos_acceptance (
-  id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id       TEXT         NOT NULL,
-  key_last4     TEXT         NOT NULL,
-  tos_version   TEXT         NOT NULL,
-  app_version   TEXT,
-  user_agent    TEXT,
-  client_ip     INET,
-  accepted_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+  id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          TEXT         NOT NULL,
+  key_hash_last4   TEXT         NOT NULL,
+  tos_version      TEXT         NOT NULL,
+  app_version      TEXT,
+  user_agent       TEXT,
+  client_ip        INET,
+  accepted_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
 -- Lookup pattern: "what's the latest TOS acceptance this user has on

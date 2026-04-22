@@ -136,23 +136,52 @@ console.log(`[3/4] Postgres: DELETE FROM gpd_tos_acceptance WHERE user_id = ${us
 if (!userId) {
   console.log(`      skipped: gpd_tos_acceptance is indexed by plain user_id, not hash.`)
 } else if (dryRun) {
-  console.log(`      would DELETE via railway ssh → psql`)
+  console.log(`      would DELETE via railway ssh → python (asyncpg)`)
 } else {
-  // Route via `railway ssh` so we don't need the operator to have
-  // DATABASE_URL in their shell — LiteLLM has it in-container.
-  const sql = `DELETE FROM gpd_tos_acceptance WHERE user_id = $$${userId.replace(/\$/g, "")}$$`
+  // LiteLLM's Docker image ships neither psql nor a shell that can run
+  // arbitrary SQL against DATABASE_URL. We cannot use PrismaClient either
+  // because its execute_raw() silently rolls DDL/DML back on disconnect
+  // when used outside LiteLLM's own request context. The robust path is
+  // asyncpg (pip-installed on first use) via a short Python snippet
+  // piped over `railway ssh` as base64 so the script can contain quotes.
+  const pyScript = `
+import asyncio, os, sys
+try:
+    import asyncpg
+except ImportError:
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "asyncpg"])
+    import asyncpg
+
+async def main():
+    url = os.environ["DATABASE_URL"]
+    if "?" in url:
+        url = url.split("?", 1)[0]
+    c = await asyncpg.connect(url)
+    try:
+        result = await c.execute(
+            "DELETE FROM gpd_tos_acceptance WHERE user_id = $1",
+            ${JSON.stringify(userId)},
+        )
+        print(f"    {result}")
+    finally:
+        await c.close()
+
+asyncio.run(main())
+`
+  const b64 = Buffer.from(pyScript).toString("base64")
   const res = spawnSync(
     "railway",
     [
       "ssh",
       "--service",
       "litellm",
-      `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c ${JSON.stringify(sql)}`,
+      `echo ${b64} | base64 -d > /tmp/delete-tos.py && python /tmp/delete-tos.py`,
     ],
     { stdio: "inherit", encoding: "utf8" },
   )
   if (res.status !== 0) {
-    die(`railway ssh psql DELETE failed (exit ${res.status})`)
+    die(`railway ssh python DELETE failed (exit ${res.status})`)
   }
   console.log(`      ✓ deleted`)
 }
