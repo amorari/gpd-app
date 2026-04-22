@@ -378,6 +378,9 @@ const createPlatform = (): Platform => {
     readThirdPartyNotices: () => commands.readThirdPartyNotices(),
     quit: () => commands.quitApp(),
     readGpdKey: () => commands.readGpdKey(),
+    removeGpdKey: async () => {
+      await commands.removeGpdKey()
+    },
 
     webviewZoom,
 

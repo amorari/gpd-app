@@ -534,24 +534,45 @@ export const SettingsGeneral: Component = () => {
     const [revokeError, setRevokeError] = createSignal<string | undefined>()
 
     const handleChangeApiKey = async () => {
-      console.log("[gpd] handleChangeApiKey: start")
-      try {
-        const r = await globalSDK.client.auth.remove({ providerID: "gpd" })
-        console.log("[gpd] auth.remove('gpd') →", r)
-      } catch (e) {
-        console.error("[gpd] auth.remove('gpd') failed:", e)
-      }
-      try {
-        const r = await globalSDK.client.global.dispose()
-        console.log("[gpd] global.dispose →", r)
-      } catch (e) {
-        console.error("[gpd] global.dispose failed:", e)
-      }
       // Deliberately DO NOT clear gpd.tos.acceptedVersion — changing key
       // on the same device keeps prior version acceptance valid. Revoke
       // Consent is the explicit path for wiping it.
+      //
+      // Authoritative delete path is the Tauri `removeGpdKey` command:
+      // it writes auth.json synchronously on the filesystem, so the
+      // next SetupGate mount reads a key-free auth.json regardless of
+      // sidecar state. The sidecar's HTTP `auth.remove` endpoint was
+      // unreliable here — if the sidecar was mid-dispose or wedged on
+      // a request, the await blocked indefinitely and the reload never
+      // ran, so the button appeared dead. Even when it did complete,
+      // racing `global.dispose` meant provider.connected could still
+      // include "gpd" on the next launch and re-promote the user past
+      // the welcome screen.
+      if (platform.removeGpdKey) {
+        try {
+          await platform.removeGpdKey()
+        } catch (e) {
+          console.error("[gpd] removeGpdKey failed:", e)
+        }
+      } else {
+        // Web / non-desktop fallback — HTTP path with a short timeout
+        // so a stalled sidecar cannot wedge the button.
+        const timeout = <T,>(p: Promise<T>) =>
+          Promise.race([
+            p,
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000)),
+          ])
+        await timeout(globalSDK.client.auth.remove({ providerID: "gpd" })).catch((e) =>
+          console.error("[gpd] auth.remove failed:", e),
+        )
+      }
+      // Best-effort instance dispose so the sidecar forgets the stale
+      // in-memory provider state. Not required for correctness — the
+      // file-backed state is already clean.
+      void globalSDK.client.global.dispose().catch((e) =>
+        console.error("[gpd] global.dispose failed:", e),
+      )
       localStorage.removeItem("gpd.key.saved")
-      console.log("[gpd] localStorage cleared (tos version preserved), reloading")
       window.location.reload()
     }
 

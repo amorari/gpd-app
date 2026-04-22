@@ -438,6 +438,25 @@ function SetupGate(props: ParentProps) {
     setHasKey(false)
   })
 
+  // Demote when localStorage disagrees with auth.json. Without this, a
+  // stale gpd.key.saved=true combined with an empty auth.json (e.g. a
+  // half-completed Change-API-Key that cleared the server side but not
+  // localStorage) renders the main IDE with no usable key, so every LLM
+  // call 401s as "Sign-in failed" and the user has no path back to the
+  // welcome screen. auth.json is authoritative — if the sidecar reports
+  // gpd not connected once providers are loaded, hasKey must drop.
+  createEffect(() => {
+    if (!hasKey()) return
+    if (!globalSync.ready) return
+    const allProviders = globalSync.data.provider.all
+    if (!allProviders || allProviders.length === 0) return
+    const connected = globalSync.data.provider.connected ?? []
+    if (connected.includes("gpd")) return
+    setReonboardLatched(true)
+    localStorage.removeItem("gpd.key.saved")
+    setHasKey(false)
+  })
+
   return (
     <Show when={hasKey()} fallback={<WelcomeScreen onComplete={handleApiKeySaved} />}>
       <Show

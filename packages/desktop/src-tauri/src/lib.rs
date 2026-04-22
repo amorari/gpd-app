@@ -336,6 +336,45 @@ fn read_gpd_key() -> Result<Option<String>, String> {
     Ok(key)
 }
 
+/// Remove the "gpd" entry from auth.json so the sidecar stops reading
+/// a stale key on the next provider resolve. Called by the settings /
+/// sidebar "Change API Key" flow as an authoritative reset — the
+/// sidecar's own `auth.remove` HTTP endpoint is unreliable when the
+/// sidecar is mid-dispose or wedged on a request, and the handler used
+/// to hang indefinitely waiting on it. Filesystem writes are fast and
+/// synchronous, which guarantees the next launch's `read_gpd_key`
+/// returns None and SetupGate falls back to the welcome screen.
+///
+/// Missing file is not an error: the caller's intent is "end state has
+/// no gpd key", which is already true. Malformed JSON falls through
+/// the same way — we replace it with a clean empty object.
+#[tauri::command]
+#[specta::specta]
+fn remove_gpd_key() -> Result<(), String> {
+    let auth_path = opencode_data_dir()?.join("auth.json");
+    let bytes = match std::fs::read(&auth_path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("read auth.json: {e}")),
+    };
+    let mut json: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(_) => serde_json::json!({}),
+    };
+    if let Some(obj) = json.as_object_mut() {
+        obj.remove("gpd");
+    } else {
+        json = serde_json::json!({});
+    }
+    let serialized =
+        serde_json::to_vec_pretty(&json).map_err(|e| format!("serialize auth.json: {e}"))?;
+    if let Some(parent) = auth_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    std::fs::write(&auth_path, serialized).map_err(|e| format!("write auth.json: {e}"))?;
+    Ok(())
+}
+
 fn opencode_data_dir() -> Result<std::path::PathBuf, String> {
     if let Ok(p) = std::env::var("XDG_DATA_HOME") {
         return Ok(std::path::PathBuf::from(p).join("opencode"));
@@ -499,6 +538,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             read_license,
             quit_app,
             read_gpd_key,
+            remove_gpd_key,
             cli::install_cli,
             await_initialization,
             server::get_default_server_url,

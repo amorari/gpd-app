@@ -1124,23 +1124,31 @@ export default function Layout(props: ParentProps) {
         title: language.t("sidebar.resetKey"),
         category: language.t("command.category.settings"),
         onSelect: async () => {
-          console.log("[gpd] command gpd.resetKey: start")
-          try {
-            const r = await globalSDK.client.auth.remove({ providerID: "gpd" })
-            console.log("[gpd] auth.remove('gpd') →", r)
-          } catch (e) {
-            console.error("[gpd] auth.remove('gpd') failed:", e)
+          // Authoritative delete via Tauri FS command; HTTP auth.remove
+          // can hang if sidecar is mid-dispose. See settings-general.tsx
+          // handleChangeApiKey for the full rationale. Preserve
+          // gpd.tos.acceptedVersion — changing key on same device keeps
+          // prior acceptance valid.
+          if (platform.removeGpdKey) {
+            try {
+              await platform.removeGpdKey()
+            } catch (e) {
+              console.error("[gpd] removeGpdKey failed:", e)
+            }
+          } else {
+            const timeout = <T,>(p: Promise<T>) =>
+              Promise.race([
+                p,
+                new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000)),
+              ])
+            await timeout(globalSDK.client.auth.remove({ providerID: "gpd" })).catch((e) =>
+              console.error("[gpd] auth.remove failed:", e),
+            )
           }
-          try {
-            const r = await globalSDK.client.global.dispose()
-            console.log("[gpd] global.dispose →", r)
-          } catch (e) {
-            console.error("[gpd] global.dispose failed:", e)
-          }
-          // Preserve gpd.tos.acceptedVersion — changing key on same device
-          // doesn't invalidate prior TOS acceptance. Revoke Consent wipes it.
+          void globalSDK.client.global.dispose().catch((e) =>
+            console.error("[gpd] global.dispose failed:", e),
+          )
           localStorage.removeItem("gpd.key.saved")
-          console.log("[gpd] localStorage cleared (tos version preserved), reloading")
           window.location.reload()
         },
       },
@@ -2507,21 +2515,29 @@ export default function Layout(props: ParentProps) {
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}
       onResetKey={async () => {
-        console.log("[gpd] sidebar onResetKey: start")
-        try {
-          const r = await globalSDK.client.auth.remove({ providerID: "gpd" })
-          console.log("[gpd] auth.remove('gpd') →", r)
-        } catch (e) {
-          console.error("[gpd] auth.remove('gpd') failed:", e)
+        // Authoritative delete via Tauri FS command; HTTP auth.remove
+        // can hang if sidecar is mid-dispose. See settings-general.tsx
+        // handleChangeApiKey for the full rationale.
+        if (platform.removeGpdKey) {
+          try {
+            await platform.removeGpdKey()
+          } catch (e) {
+            console.error("[gpd] removeGpdKey failed:", e)
+          }
+        } else {
+          const timeout = <T,>(p: Promise<T>) =>
+            Promise.race([
+              p,
+              new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000)),
+            ])
+          await timeout(globalSDK.client.auth.remove({ providerID: "gpd" })).catch((e) =>
+            console.error("[gpd] auth.remove failed:", e),
+          )
         }
-        try {
-          const r = await globalSDK.client.global.dispose()
-          console.log("[gpd] global.dispose →", r)
-        } catch (e) {
-          console.error("[gpd] global.dispose failed:", e)
-        }
+        void globalSDK.client.global.dispose().catch((e) =>
+          console.error("[gpd] global.dispose failed:", e),
+        )
         localStorage.removeItem("gpd.key.saved")
-        console.log("[gpd] localStorage cleared (tos version preserved), reloading")
         window.location.reload()
       }}
       resetKeyLabel={() => language.t("sidebar.resetKey")}

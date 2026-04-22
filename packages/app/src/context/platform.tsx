@@ -99,6 +99,17 @@ export type Platform = {
    */
   readGpdKey?(): Promise<string | null>
 
+  /**
+   * Delete the `gpd` entry from `auth.json` synchronously on disk. Used
+   * by the "Change API Key" flow as an authoritative reset — calling
+   * the sidecar's HTTP `auth.remove` endpoint can hang if the sidecar
+   * is mid-dispose or wedged on another request, leaving a stale key
+   * in `auth.json` after reload and re-promoting the user past the
+   * welcome screen on provider.connected. Direct FS write is fast and
+   * cannot race the sidecar.
+   */
+  removeGpdKey?(): Promise<void>
+
   /** Webview zoom level (desktop only) */
   webviewZoom?: Accessor<number>
 
