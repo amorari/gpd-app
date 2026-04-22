@@ -21,9 +21,40 @@ jobs:
         with:
           ref: gh-pages
 
-      - name: Extract version from tag
+      - name: Resolve version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#gpd-desktop-v}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # For release:published events, GITHUB_REF_NAME is the tag
+          # (gpd-desktop-v1.2.3). For workflow_dispatch, GITHUB_REF_NAME
+          # is the branch (gpd) — not what we want. In that case query
+          # the GitHub API for the latest published gpd-desktop-v*
+          # release.
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG=$(gh api /repos/${{ github.repository }}/releases \
+              --jq '[.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith("gpd-desktop-v")))] | sort_by(.published_at) | reverse | .[0].tag_name // ""')
+            if [ -z "$TAG" ]; then
+              echo "::error::no published gpd-desktop-v* release found"
+              exit 1
+            fi
+          fi
+          VERSION="${TAG#gpd-desktop-v}"
+          # Guard against the empty-string case (no prefix match) that
+          # previously silently wrote `const VERSION = 'gpd'` into
+          # index.html.
+          case "$VERSION" in
+            ''|gpd|gpd-*)
+              echo "::error::refusing to update download page — resolved VERSION='$VERSION' is not a semver-shaped release (tag=$TAG)"
+              exit 1
+              ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "resolved VERSION=$VERSION (tag=$TAG)"
 
       - name: Update version in download page
         run: |
