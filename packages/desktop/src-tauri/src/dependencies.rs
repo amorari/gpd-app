@@ -124,3 +124,36 @@ pub fn linux_install_hint(tool: String) -> String {
         _ => "".to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::linux_install_hint;
+
+    #[test]
+    fn known_tools_return_distinguishing_package_names() {
+        assert!(linux_install_hint("git".into()).contains("git"));
+        assert!(linux_install_hint("python".into()).contains("python3"));
+        assert!(linux_install_hint("python-venv".into()).contains("python3-venv"));
+        assert!(linux_install_hint("latex".into()).contains("texlive"));
+        assert!(linux_install_hint("pdf-tools".into()).contains("poppler-utils"));
+    }
+
+    #[test]
+    fn tectonic_returns_docs_url_not_package() {
+        let hint = linux_install_hint("tectonic".into());
+        assert!(hint.contains("tectonic-typesetting.github.io"));
+        assert!(!hint.starts_with("sudo apt"));
+    }
+
+    #[test]
+    fn unknown_tool_returns_empty() {
+        assert_eq!(linux_install_hint("unknown".into()), "");
+        assert_eq!(linux_install_hint("".into()), "");
+    }
+
+    #[test]
+    fn is_case_sensitive() {
+        assert_eq!(linux_install_hint("GIT".into()), "");
+        assert_eq!(linux_install_hint("Python".into()), "");
+    }
+}
