@@ -14,8 +14,11 @@ function pick(value: string | null, fallback?: string, encode?: (value: string) 
 }
 
 function rewrite(request: Request, values: { directory?: string; workspace?: string }) {
-  if (request.method !== "GET" && request.method !== "HEAD") return request
-
+  // Copy the `x-opencode-*` headers into query params for ALL HTTP methods.
+  // Previously this only ran for GET/HEAD, which meant POST /session and
+  // DELETE /session?workspaceID=... silently ran under the caller's instance
+  // instead of the scoped workspace. The server-side middleware reads only
+  // query params, so the header alone does not route.
   const url = new URL(request.url)
   let changed = false
 

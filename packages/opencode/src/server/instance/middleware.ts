@@ -61,7 +61,11 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
     const url = new URL(c.req.url)
 
     const sessionWorkspaceID = await getSessionWorkspace(url)
-    const workspaceID = sessionWorkspaceID || url.searchParams.get("workspace")
+    // Defense in depth: the SDK copies x-opencode-workspace into ?workspace=
+    // for every method, but we also accept the bare header here so a client
+    // that skips the SDK interceptor still routes correctly.
+    const workspaceID =
+      sessionWorkspaceID || url.searchParams.get("workspace") || c.req.header("x-opencode-workspace") || null
 
     // If no workspace is provided we use the project
     if (!workspaceID) {
