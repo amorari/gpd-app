@@ -86,17 +86,26 @@ class AppState:
     def sidecar_pid(self) -> int | None:
         """Return the opencode-cli serve pid.
 
-        When this AppState launched GPD, prefer the sidecar whose parent is
-        our launched GPD process — avoids attaching to a stale unrelated
-        opencode-cli instance. Returns None when PPID lookup fails for all
-        pids (returning an unrelated sidecar is worse than failing loudly).
+        Preference order:
+        1. A sidecar whose PPID matches ``_launched_pid`` (the Popen PID).
+        2. A sidecar whose PPID matches *any* currently-running GPD process.
+           Needed after quit+relaunch when macOS ``open -a`` spawns a second
+           GPD process (PID B) and the sidecar is parented to B while
+           ``_launched_pid`` still holds the original Popen PID (A).
+        3. ``pids[0]`` — after ``wait_launched()`` confirmed the sidecar is
+           healthy, there is exactly one sidecar and it is ours.  Falling back
+           here avoids returning None when PPID tracking breaks entirely.
         """
         pids = _pgrep("opencode-cli.*serve")
         if not pids:
             return None
-        parent = self._launched_pid
-        if parent is None:
-            return pids[0]
+
+        # Collect the set of all live GPD process PIDs for step-2 matching.
+        gpd_pids = set(_pgrep(_PGREP_PATTERN))
+
+        # Step 1 + 2: check PPID of each sidecar candidate.
+        step1_match: int | None = None
+        step2_match: int | None = None
         for pid in pids:
             try:
                 out = subprocess.run(
@@ -106,13 +115,23 @@ class AppState:
                     check=False,
                 )
                 ppid_raw = out.stdout.strip()
-                if ppid_raw.isdigit() and int(ppid_raw) == parent:
-                    return pid
+                if not ppid_raw.isdigit():
+                    continue
+                ppid = int(ppid_raw)
+                if self._launched_pid is not None and ppid == self._launched_pid:
+                    step1_match = pid
+                    break  # Best possible match — stop searching.
+                if ppid in gpd_pids and step2_match is None:
+                    step2_match = pid
             except Exception:
                 continue
-        # PPID lookup failed for all pids — return None rather than an
-        # unrelated sidecar, so the caller can fail loudly.
-        return None
+
+        if step1_match is not None:
+            return step1_match
+        if step2_match is not None:
+            return step2_match
+        # Step 3: PPID matching failed entirely — return the only known sidecar.
+        return pids[0]
 
     def kill_stale(self) -> None:
         """Terminate any leftover GPD / opencode-cli processes."""
