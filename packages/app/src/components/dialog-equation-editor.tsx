@@ -36,6 +36,17 @@ export const DialogEquationEditor: Component<Props> = (props) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const MFE: any = ml.MathfieldElement ?? customElements.get("math-field")
       if (MFE && "soundsDirectory" in MFE) MFE.soundsDirectory = null
+      // Class-level default so every math-field created inherits `manual`.
+      // Belt-and-braces with the per-instance attribute set at mount time;
+      // some MathLive builds consult the class default before the element
+      // attribute is parsed.
+      if (MFE && "mathVirtualKeyboardPolicy" in MFE) {
+        MFE.mathVirtualKeyboardPolicy = "manual"
+      }
+      // Ensure any already-visible keyboard instance is hidden.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mvk: any = (window as any).mathVirtualKeyboard
+      if (mvk && typeof mvk.hide === "function") mvk.hide()
       setLoaded(true)
     } catch {
       setFailed(true)
@@ -112,6 +123,18 @@ export const DialogEquationEditor: Component<Props> = (props) => {
 
   return (
     <Dialog title={language.t("equation.dialog.title")} size="large">
+      {/* Hard backstop: if MathLive still injects the virtual keyboard host
+          container despite mathVirtualKeyboardPolicy="manual", hide it
+          globally. MathLive puts this host as a child of <body>, so target
+          all known host selectors across MathLive versions. */}
+      <style>{`.ML__keyboard,
+.ML__keyboard-container,
+.ML__virtual-keyboard,
+#mathlive-virtual-keyboard,
+[part="keyboard"],
+[part="container"].ML__keyboard,
+math-field::part(virtual-keyboard-toggle),
+math-field::part(menu-toggle) { display: none !important; visibility: hidden !important; pointer-events: none !important; }`}</style>
       <div
         ref={rootRef}
         role="group"

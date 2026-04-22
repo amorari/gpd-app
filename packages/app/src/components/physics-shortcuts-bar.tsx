@@ -9,6 +9,28 @@ interface Shortcut {
   tooltip: string
 }
 
+// MathLive's built-in matrix dialog caps at 5x5; we offer 2x2 through 10x10
+// as direct LaTeX inserts so physicists aren't stuck hand-typing larger
+// pmatrix blocks. Users who need N > 10 still type `\begin{pmatrix} … \end{pmatrix}`
+// at any size (LaTeX itself has no upper bound).
+function pmatrix(n: number): string {
+  const row = Array(n).fill("").join(" & ")
+  const rows = Array(n).fill(row).join(" \\\\ ")
+  return `\\begin{pmatrix} ${rows} \\end{pmatrix}`
+}
+const MATRIX_SHORTCUTS: ReadonlyArray<Shortcut> = [
+  {
+    label: "\\begin{pmatrix}\\end{pmatrix}",
+    insert: pmatrix(2),
+    tooltip: "2x2 matrix",
+  },
+  ...Array.from({ length: 8 }, (_, i) => i + 3).map((n) => ({
+    label: `${n}\\times ${n}`,
+    insert: pmatrix(n),
+    tooltip: `${n}x${n} matrix`,
+  })),
+]
+
 const PHYSICS_SHORTCUTS: ReadonlyArray<Shortcut> = [
   { label: "\\sum", insert: "\\sum_{i=}^{}", tooltip: "Summation" },
   { label: "\\int", insert: "\\int_{}^{}", tooltip: "Integral" },
@@ -21,22 +43,7 @@ const PHYSICS_SHORTCUTS: ReadonlyArray<Shortcut> = [
   { label: "\\vec{x}", insert: "\\vec{}", tooltip: "Vector" },
   { label: "\\hat{x}", insert: "\\hat{}", tooltip: "Unit vector" },
   { label: "\\langle|\\rangle", insert: "\\langle | \\rangle", tooltip: "Bra-ket" },
-  {
-    label: "\\begin{pmatrix}\\end{pmatrix}",
-    insert: "\\begin{pmatrix} & \\\\ & \\end{pmatrix}",
-    tooltip: "2x2 matrix",
-  },
-  {
-    label: "3\\times 3",
-    insert: "\\begin{pmatrix} & & \\\\ & & \\\\ & & \\end{pmatrix}",
-    tooltip: "3x3 matrix",
-  },
-  {
-    label: "4\\times 4",
-    insert:
-      "\\begin{pmatrix} & & & \\\\ & & & \\\\ & & & \\\\ & & & \\end{pmatrix}",
-    tooltip: "4x4 matrix",
-  },
+  ...MATRIX_SHORTCUTS,
   { label: "\\frac{}{}", insert: "\\frac{}{}", tooltip: "Fraction" },
   { label: "\\cdot", insert: "\\cdot", tooltip: "Dot product" },
   { label: "\\times", insert: "\\times", tooltip: "Cross product" },
