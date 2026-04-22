@@ -257,12 +257,14 @@ def test_workspace_list_initially_matches_status(http):
 @pytest.mark.flows
 def test_workspace_create_list_get_delete_roundtrip(http, git_project_dir):
     """Full workspace CRUD against a git project: create, list, get, delete."""
-    # Pre-state — capture ids so we can assert our new one is truly new.
-    before_ids = {w["id"] for w in http.list_workspaces()}
-
     workspace_id: str | None = None
     project_dir = str(git_project_dir)
+    # All list calls use directory= so the server routes to the same project
+    # instance as the create/delete calls (upstream middleware fix 20efc24ba).
     try:
+        # Pre-state — capture ids scoped to this project directory.
+        before_ids = {w["id"] for w in http.list_workspaces(directory=project_dir)}
+
         # Branch name the adaptor will try to check out. Must be valid git; a
         # new unique name avoids collision with any existing branch.
         branch = f"gpd-g33-{git_project_dir.name}"[:40]
@@ -284,14 +286,14 @@ def test_workspace_create_list_get_delete_roundtrip(http, git_project_dir):
         assert created["type"] == "worktree"
         assert "projectID" in created, f"Workspace.Info missing projectID: {created!r}"
 
-        # List must contain it.
-        after = http.list_workspaces()
+        # List must contain it — scope to the same project directory.
+        after = http.list_workspaces(directory=project_dir)
         assert any(w["id"] == workspace_id for w in after), (
             f"created workspace {workspace_id!r} not in list"
         )
 
-        # get_workspace resolves by id.
-        fetched = http.get_workspace(workspace_id)
+        # get_workspace resolves by id — scope to the same project directory.
+        fetched = http.get_workspace(workspace_id, directory=project_dir)
         assert fetched is not None
         assert fetched["id"] == workspace_id
         assert fetched["type"] == "worktree"
@@ -300,7 +302,7 @@ def test_workspace_create_list_get_delete_roundtrip(http, git_project_dir):
         removed = http.delete_workspace(workspace_id)
         assert removed is not None
         assert removed.get("id") == workspace_id
-        post_ids = {w["id"] for w in http.list_workspaces()}
+        post_ids = {w["id"] for w in http.list_workspaces(directory=project_dir)}
         assert workspace_id not in post_ids
         workspace_id = None  # cleaned up, don't re-delete in finally
     finally:

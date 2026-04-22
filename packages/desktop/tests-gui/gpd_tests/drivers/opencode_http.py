@@ -64,8 +64,8 @@ class HTTPClient:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    def _get(self, path: str) -> Any:
-        r = self._client.get(path)
+    def _get(self, path: str, params: dict | None = None) -> Any:
+        r = self._client.get(path, params=params)
         r.raise_for_status()
         return r.json()
 
@@ -404,9 +404,10 @@ class HTTPClient:
     # /experimental/workspace wrappers (Phase G3.3)
     # ------------------------------------------------------------------
 
-    def list_workspaces(self) -> list[dict[str, Any]]:
+    def list_workspaces(self, *, directory: str | None = None) -> list[dict[str, Any]]:
         """GET /experimental/workspace — workspaces for the current project."""
-        return self._get("/experimental/workspace")
+        params = {"directory": directory} if directory is not None else None
+        return self._get("/experimental/workspace", params=params)
 
     def create_workspace(
         self,
@@ -436,13 +437,14 @@ class HTTPClient:
         params = {"directory": directory} if directory is not None else None
         return self._post("/experimental/workspace", json=body, params=params)
 
-    def get_workspace(self, workspace_id: str) -> dict[str, Any] | None:
+    def get_workspace(self, workspace_id: str, *, directory: str | None = None) -> dict[str, Any] | None:
         """Return the Workspace.Info whose ``id`` matches, or ``None``.
 
         The sidecar has no per-id GET route; we filter :meth:`list_workspaces`
-        client-side.
+        client-side. Pass ``directory`` to scope the list to the right project
+        instance (required when the workspace was created with a directory param).
         """
-        for w in self.list_workspaces():
+        for w in self.list_workspaces(directory=directory):
             if w.get("id") == workspace_id:
                 return w
         return None

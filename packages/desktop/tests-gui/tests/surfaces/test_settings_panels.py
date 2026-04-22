@@ -200,8 +200,8 @@ def _activate_tab(dom: DOMProbe, value: str) -> bool:
 
 def _data_action_present(dom: DOMProbe, value: str) -> bool:
     """Return True iff ``[data-action="<value>"]`` exists in the DOM."""
-    selector = '[data-action="' + value.replace('"', '\\"') + '"]'
-    js = '(() => !!document.querySelector("' + selector + '"))()'
+    selector = json.dumps(f'[data-action="{value}"]')
+    js = f'(() => !!document.querySelector({selector}))()'
     try:
         return dom.eval_bool(js)
     except ProbeSkip as e:
@@ -210,8 +210,8 @@ def _data_action_present(dom: DOMProbe, value: str) -> bool:
 
 def _data_component_present(dom: DOMProbe, value: str) -> bool:
     """Return True iff ``[data-component="<value>"]`` exists in the DOM."""
-    selector = '[data-component="' + value.replace('"', '\\"') + '"]'
-    js = '(() => !!document.querySelector("' + selector + '"))()'
+    selector = json.dumps(f'[data-component="{value}"]')
+    js = f'(() => !!document.querySelector({selector}))()'
     try:
         return dom.eval_bool(js)
     except ProbeSkip as e:

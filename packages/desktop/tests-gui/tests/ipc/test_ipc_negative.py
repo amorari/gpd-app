@@ -36,6 +36,8 @@ _UNSAFE_FOR_NEGATIVE_SWEEP = {
     "install_tectonic",        # triggers tectonic bootstrap (multi-minute + network)
     "await_initialization",    # blocks on an events Channel that bogus args won't fulfill
     "compile_tex",             # spawns a tectonic subprocess that may take minutes
+    "quit_app",                # immediately quits GPD — would abort the entire test sweep
+    "read_gpd_key",            # reads sensitive credential; no-arg command that ignores extra fields
 }
 _COMMAND_NAMES = [
     c["name"] for c in (_CATALOG or [])
@@ -68,6 +70,11 @@ def test_command_rejects_bogus_arg_shape(mcp, cmd):
         # This is informational: we just want to confirm no crash/hang.
     except IPCError as e:
         msg = str(e).lower()
+        # Command exists in source catalog but not in the running binary (stale
+        # installed build vs. a newer source tree). Skip gracefully — this is a
+        # build-staleness signal, not a test failure.
+        if "not found" in msg:
+            pytest.skip(f"{cmd}: not in running binary (build may be older than source)")
         # The error should mention something about the argument or the
         # command shape — not a generic "crash" or "timeout".
         assert any(
