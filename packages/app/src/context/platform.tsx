@@ -88,6 +88,17 @@ export type Platform = {
   /** Exit the app immediately (desktop only; falls back to window.close on web). */
   quit?(): Promise<void>
 
+  /**
+   * Read the saved LiteLLM virtual key for the `gpd` provider out of
+   * `auth.json` (desktop only — the webview has no filesystem access).
+   * Returns `null` if no key is saved or the file is missing/corrupt.
+   *
+   * Used by the TOS version-bump gate so acceptance re-POST can reuse
+   * the user's already-saved key without caching it in localStorage
+   * (which has unverified cross-OS trust-envelope claims).
+   */
+  readGpdKey?(): Promise<string | null>
+
   /** Webview zoom level (desktop only) */
   webviewZoom?: Accessor<number>
 

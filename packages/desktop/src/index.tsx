@@ -377,6 +377,7 @@ const createPlatform = (): Platform => {
     readLicense: () => commands.readLicense(),
     readThirdPartyNotices: () => commands.readThirdPartyNotices(),
     quit: () => commands.quitApp(),
+    readGpdKey: () => commands.readGpdKey(),
 
     webviewZoom,
 

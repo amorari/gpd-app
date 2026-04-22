@@ -145,6 +145,16 @@ async def gpd_tos_accept(
     if not _HASH_HEX_RE.match(tos_text_sha256):
         raise HTTPException(400, detail="tos_text_sha256 must be 64 lowercase hex chars")
 
+    privacy_text_sha256 = (
+        request.query_params.get("privacy_text_sha256") or ""
+    ).strip().lower()
+    if not privacy_text_sha256:
+        raise HTTPException(400, detail="privacy_text_sha256 query param required")
+    if not _HASH_HEX_RE.match(privacy_text_sha256):
+        raise HTTPException(
+            400, detail="privacy_text_sha256 must be 64 lowercase hex chars"
+        )
+
     app_version = (request.query_params.get("app_version") or "").strip() or None
     if app_version and not _VERSION_RE.match(app_version):
         raise HTTPException(400, detail="app_version: invalid characters or length")
@@ -166,6 +176,7 @@ async def gpd_tos_accept(
             token_hash_suffix=token_hash_suffix,
             tos_version=tos_version,
             tos_text_sha256=tos_text_sha256,
+            privacy_text_sha256=privacy_text_sha256,
             viewed_in_full=viewed_in_full,
             app_version=app_version,
             user_agent=user_agent,

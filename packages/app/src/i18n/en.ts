@@ -9,10 +9,12 @@ export const dict = {
   "welcome.tos.title": "Terms of Service",
   "welcome.tos.intro":
     "Please review the terms below. You must agree to continue using GPD.",
-  "welcome.tos.checkbox":
-    "I have read and agree to the GPD Terms of Service and Privacy Policy.",
+  "welcome.tos.sectionTos": "Terms of Service",
+  "welcome.tos.sectionPrivacy": "Privacy Policy",
+  "welcome.tos.checkboxTos": "I have read and agree to the Terms of Service.",
+  "welcome.tos.checkboxPrivacy": "I have read and agree to the Privacy Policy.",
   "welcome.tos.scrollHint":
-    "Please scroll to the end of the terms to continue.",
+    "Please scroll to the end of each document to continue.",
   "welcome.tos.accept": "I Agree",
   "welcome.tos.back": "Back",
   "welcome.tos.cancel": "Quit",
@@ -21,6 +23,16 @@ export const dict = {
   "welcome.tos.upgradeTitle": "Updated Terms of Service",
   "welcome.tos.upgradeIntro":
     "GPD has updated its Terms of Service. Please review and agree to continue.",
+  "settings.account.revokeConsent.title": "Revoke consent",
+  "settings.account.revokeConsent.description":
+    "Withdraw your consent to the GPD Terms of Service and Privacy Policy. This signs you out of GPD and marks your acceptance records as revoked. A minimal audit record is retained per applicable law.",
+  "settings.account.revokeConsent.button": "Revoke consent",
+  "settings.account.revokeConsent.confirm":
+    "This signs you out of GPD and records a revocation. Continue?",
+  "settings.account.revokeConsent.success":
+    "Consent revoked. GPD will reload to the sign-in screen.",
+  "settings.account.revokeConsent.errorNoKey":
+    "No saved API key found. You can clear your sign-in from the Settings → Change API Key option.",
   "command.category.suggested": "Suggested",
   "command.category.view": "View",
   "command.category.project": "Project",

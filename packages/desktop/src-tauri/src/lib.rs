@@ -296,6 +296,66 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+/// Reads the saved LiteLLM virtual key for the `gpd` provider out of
+/// opencode's auth.json, returning `Some(key)` if present.
+///
+/// Resolves the same path opencode/xdg-basedir does:
+///   $XDG_DATA_HOME/opencode/auth.json
+///   ↳ else (unix) $HOME/.local/share/opencode/auth.json
+///   ↳ else (windows) %APPDATA%/opencode/auth.json
+///
+/// Used by the TOS version-bump gate so the webview can re-POST
+/// acceptance without stashing the raw key in WebKit localStorage —
+/// which has unverified cross-OS trust-envelope claims (agent review
+/// H3 / H16). auth.json's mode-0600 FS permissions are the only
+/// reliable boundary, and reading through this Tauri command keeps
+/// the key out of the WebView storage entirely.
+///
+/// Returns `Err(String)` only on unexpected IO errors; a missing or
+/// malformed file yields `Ok(None)` so the webview treats it as "no
+/// key saved" and falls back to the welcome screen.
+#[tauri::command]
+#[specta::specta]
+fn read_gpd_key() -> Result<Option<String>, String> {
+    let auth_path = opencode_data_dir()?.join("auth.json");
+    let bytes = match std::fs::read(&auth_path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("read auth.json: {e}")),
+    };
+    let json: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(_) => return Ok(None), // treat corrupt as absent, don't crash the gate
+    };
+    // Shape: { "gpd": { "type": "api", "key": "sk-..." } }
+    let key = json
+        .get("gpd")
+        .and_then(|g| g.get("key"))
+        .and_then(|k| k.as_str())
+        .map(|s| s.to_string());
+    Ok(key)
+}
+
+fn opencode_data_dir() -> Result<std::path::PathBuf, String> {
+    if let Ok(p) = std::env::var("XDG_DATA_HOME") {
+        return Ok(std::path::PathBuf::from(p).join("opencode"));
+    }
+    #[cfg(windows)]
+    {
+        let app = std::env::var("APPDATA")
+            .or_else(|_| std::env::var("LOCALAPPDATA"))
+            .map_err(|e| format!("APPDATA/LOCALAPPDATA unset: {e}"))?;
+        Ok(std::path::PathBuf::from(app).join("opencode"))
+    }
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var("HOME").map_err(|e| format!("HOME unset: {e}"))?;
+        Ok(std::path::PathBuf::from(home)
+            .join(".local/share")
+            .join("opencode"))
+    }
+}
+
 fn read_bundled_resource(app: &AppHandle, name: &str) -> Result<String, String> {
     let resolver = app.path();
     let path = resolver
@@ -438,6 +498,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             read_third_party_notices,
             read_license,
             quit_app,
+            read_gpd_key,
             cli::install_cli,
             await_initialization,
             server::get_default_server_url,

@@ -53,40 +53,56 @@ jobs:
             grep -nE "PLACEHOLDER|DO NOT SHIP" "$TOS" || true
             exit 1
           fi
-          # (c) TOS_TEXT_SHA256 constant must match actual TOS_TEXT hash.
-          # This is the client-side commitment that gets POSTed with every
-          # acceptance, so stale constants would mislead server-side audit.
-          SHIPPED_SHA=$(python3 - <<'PY'
+          # (c) TOS_TEXT_SHA256 + PRIVACY_TEXT_SHA256 constants must match
+          # their actual text hashes. These are the client-side commitments
+          # POSTed with every acceptance; stale constants would corrupt
+          # server-side audit records.
+          HASHES=$(python3 - <<'PY'
 import re, pathlib, hashlib
 src = pathlib.Path("packages/app/src/components/tos-content.tsx").read_text()
-m = re.search(r"export const TOS_TEXT = `([^`]+)`", src)
-if not m:
-    raise SystemExit("TOS_TEXT template literal not found")
-print(hashlib.sha256(m.group(1).encode("utf-8")).hexdigest())
+tos = re.search(r"export const TOS_TEXT = `([^`]+)`", src)
+priv = re.search(r"export const PRIVACY_TEXT = `([^`]+)`", src)
+if not tos or not priv:
+    raise SystemExit("TOS_TEXT / PRIVACY_TEXT template literal not found")
+print(hashlib.sha256(tos.group(1).encode("utf-8")).hexdigest())
+print(hashlib.sha256(priv.group(1).encode("utf-8")).hexdigest())
 PY
 )
-          CONST_SHA=$(grep -oP 'TOS_TEXT_SHA256 =\s*\n?\s*"\K[0-9a-f]{64}' packages/app/src/components/tos-content.tsx || echo "")
-          if [ -z "$CONST_SHA" ]; then
-            echo "::error::TOS_TEXT_SHA256 constant missing or malformed in tos-content.tsx"
+          SHIPPED_TOS_SHA=$(echo "$HASHES" | sed -n '1p')
+          SHIPPED_PRIV_SHA=$(echo "$HASHES" | sed -n '2p')
+          CONST_TOS_SHA=$(grep -oP 'TOS_TEXT_SHA256 =\s*\n?\s*"\K[0-9a-f]{64}' packages/app/src/components/tos-content.tsx || echo "")
+          CONST_PRIV_SHA=$(grep -oP 'PRIVACY_TEXT_SHA256 =\s*\n?\s*"\K[0-9a-f]{64}' packages/app/src/components/tos-content.tsx || echo "")
+          if [ -z "$CONST_TOS_SHA" ] || [ -z "$CONST_PRIV_SHA" ]; then
+            echo "::error::TOS_TEXT_SHA256 and/or PRIVACY_TEXT_SHA256 constants missing/malformed in tos-content.tsx"
             exit 1
           fi
-          if [ "$CONST_SHA" != "$SHIPPED_SHA" ]; then
-            echo "::error::TOS_TEXT_SHA256 constant ($CONST_SHA) is stale; actual text hashes to $SHIPPED_SHA. Update the constant and commit."
+          if [ "$CONST_TOS_SHA" != "$SHIPPED_TOS_SHA" ]; then
+            echo "::error::TOS_TEXT_SHA256 constant ($CONST_TOS_SHA) stale; actual text hashes to $SHIPPED_TOS_SHA. Update + commit."
+            exit 1
+          fi
+          if [ "$CONST_PRIV_SHA" != "$SHIPPED_PRIV_SHA" ]; then
+            echo "::error::PRIVACY_TEXT_SHA256 constant ($CONST_PRIV_SHA) stale; actual text hashes to $SHIPPED_PRIV_SHA. Update + commit."
             exit 1
           fi
 
-          # (d) canonical legal text must exist on disk with matching SHA
-          LEGAL=infra/legal/TOS-v${VER}.md
-          if ! test -f "$LEGAL"; then
-            echo "::error::Missing canonical legal text at $LEGAL. Commit the legal-reviewed markdown source so acceptance rows can be audited back to the exact terms."
-            exit 1
-          fi
-          LEGAL_SHA=$(python3 -c "import hashlib,pathlib; print(hashlib.sha256(pathlib.Path('$LEGAL').read_text().encode('utf-8')).hexdigest())")
-          if [ "$SHIPPED_SHA" != "$LEGAL_SHA" ]; then
-            echo "::error::TOS_TEXT SHA256 ($SHIPPED_SHA) does not match $LEGAL ($LEGAL_SHA). The user-shipped text and the canonical legal doc have diverged."
-            exit 1
-          fi
-          echo "✓ TOS v$VER passes placeholder + text-hash guard (sha=$SHIPPED_SHA)"
+          # (d) canonical legal texts must exist on disk with matching SHAs
+          for pair in "TOS:$SHIPPED_TOS_SHA" "PRIVACY:$SHIPPED_PRIV_SHA"; do
+            DOC="${pair%%:*}"
+            WANT_SHA="${pair##*:}"
+            LEGAL=infra/legal/${DOC}-v${VER}.md
+            if ! test -f "$LEGAL"; then
+              echo "::error::Missing canonical legal text at $LEGAL. Commit the legal-reviewed markdown so acceptance rows can be audited back to the exact terms."
+              exit 1
+            fi
+            GOT_SHA=$(python3 -c "import hashlib,pathlib; print(hashlib.sha256(pathlib.Path('$LEGAL').read_text().encode('utf-8')).hexdigest())")
+            if [ "$GOT_SHA" != "$WANT_SHA" ]; then
+              echo "::error::${DOC} SHA256 ($WANT_SHA) does not match $LEGAL ($GOT_SHA). User-shipped and legal-reviewed docs have diverged."
+              exit 1
+            fi
+          done
+          echo "✓ TOS v$VER passes placeholder + text-hash guards"
+          echo "    tos_text_sha256=$SHIPPED_TOS_SHA"
+          echo "    privacy_text_sha256=$SHIPPED_PRIV_SHA"
 
   resolve-version:
     needs: tos-guard

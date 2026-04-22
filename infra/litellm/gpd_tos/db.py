@@ -65,6 +65,7 @@ async def insert_acceptance(
     token_hash_suffix: str,
     tos_version: str,
     tos_text_sha256: str,
+    privacy_text_sha256: str,
     viewed_in_full: bool,
     app_version: Optional[str],
     user_agent: Optional[str],
@@ -87,16 +88,19 @@ async def insert_acceptance(
             """
             INSERT INTO gpd_tos_acceptance (
               user_id, token_hash_suffix, tos_version, tos_text_sha256,
-              viewed_in_full, app_version, user_agent, client_ip
+              privacy_text_sha256, viewed_in_full, app_version,
+              user_agent, client_ip
             ) VALUES (
               $1, $2, $3, $4,
-              $5, $6, $7, $8::inet
+              $5, $6, $7,
+              $8, $9::inet
             )
             """,
             user_id,
             token_hash_suffix,
             tos_version,
             tos_text_sha256,
+            privacy_text_sha256,
             viewed_in_full,
             app_version,
             user_agent,

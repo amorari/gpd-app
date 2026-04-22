@@ -4,6 +4,7 @@ import { usePlatform } from "@/context/platform"
 import { postTosAccept } from "@/lib/tos-accept"
 import {
   CURRENT_TOS_VERSION,
+  PRIVACY_TEXT_SHA256,
   TOS_ACCEPTED_VERSION_STORAGE_KEY,
   TOS_TEXT_SHA256,
 } from "./tos-content"
@@ -41,6 +42,7 @@ export function TosUpgradeGate(props: {
         key: props.apiKey,
         tosVersion: CURRENT_TOS_VERSION,
         tosTextSha256: TOS_TEXT_SHA256,
+        privacyTextSha256: PRIVACY_TEXT_SHA256,
         appVersion: platform.version,
         viewedInFull,
       })

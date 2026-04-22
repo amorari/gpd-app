@@ -92,32 +92,13 @@ export async function bootstrapGlobal(input: {
     () =>
       retry(() =>
         input.globalSDK.global.config.get().then((x) => {
-          console.log("[gpd-debug] bootstrap fast: config.get OK, keys=", x.data ? Object.keys(x.data) : null)
-          try {
-            input.setGlobalStore("config", x.data!)
-            console.log("[gpd-debug] bootstrap fast: setGlobalStore('config') OK")
-          } catch (err) {
-            console.error("[gpd-debug] bootstrap fast: setGlobalStore('config') THREW", err, (err as Error)?.stack)
-            throw err
-          }
+          input.setGlobalStore("config", x.data!)
         }),
       ),
     () =>
       retry(() =>
         input.globalSDK.provider.list().then((x) => {
-          console.log(
-            "[gpd-debug] bootstrap fast: provider.list OK, all=",
-            x.data?.all?.length,
-            "connected=",
-            x.data?.connected,
-          )
-          try {
-            input.setGlobalStore("provider", normalizeProviderList(x.data!))
-            console.log("[gpd-debug] bootstrap fast: setGlobalStore('provider') OK")
-          } catch (err) {
-            console.error("[gpd-debug] bootstrap fast: setGlobalStore('provider') THREW", err, (err as Error)?.stack)
-            throw err
-          }
+          input.setGlobalStore("provider", normalizeProviderList(x.data!))
         }),
       ),
   ]
@@ -126,38 +107,22 @@ export async function bootstrapGlobal(input: {
     () =>
       retry(() =>
         input.globalSDK.path.get().then((x) => {
-          console.log("[gpd-debug] bootstrap slow: path.get OK")
-          try {
-            input.setGlobalStore("path", x.data!)
-            console.log("[gpd-debug] bootstrap slow: setGlobalStore('path') OK")
-          } catch (err) {
-            console.error("[gpd-debug] bootstrap slow: setGlobalStore('path') THREW", err, (err as Error)?.stack)
-            throw err
-          }
+          input.setGlobalStore("path", x.data!)
         }),
       ),
     () =>
       retry(() =>
         input.globalSDK.project.list().then((x) => {
-          console.log("[gpd-debug] bootstrap slow: project.list OK, count=", x.data?.length)
           const projects = (x.data ?? [])
             .filter((p) => !!p?.id)
             .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
             .slice()
             .sort((a, b) => cmp(a.id, b.id))
-          try {
-            input.setGlobalStore("project", projects)
-            console.log("[gpd-debug] bootstrap slow: setGlobalStore('project') OK")
-          } catch (err) {
-            console.error("[gpd-debug] bootstrap slow: setGlobalStore('project') THREW", err, (err as Error)?.stack)
-            throw err
-          }
+          input.setGlobalStore("project", projects)
         }),
       ),
   ]
-  console.log("[gpd-debug] bootstrap: runAll(fast) start")
   await runAll(fast)
-  console.log("[gpd-debug] bootstrap: runAll(fast) done")
   // showErrors({
   //   errors: errors(await runAll(fast)),
   //   title: input.requestFailedTitle,
@@ -165,9 +130,7 @@ export async function bootstrapGlobal(input: {
   //   formatMoreCount: input.formatMoreCount,
   // })
   await waitForPaint()
-  console.log("[gpd-debug] bootstrap: runAll(slow) start")
   await runAll(slow)
-  console.log("[gpd-debug] bootstrap: runAll(slow) done")
   // showErrors({
   //   errors: errors(),
   //   title: input.requestFailedTitle,

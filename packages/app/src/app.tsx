@@ -48,10 +48,10 @@ import { ErrorPage } from "./pages/error"
 import { WelcomeScreen } from "./components/welcome-screen"
 import {
   CURRENT_TOS_VERSION,
-  KEY_CACHE_STORAGE_KEY,
   TOS_ACCEPTED_VERSION_STORAGE_KEY,
 } from "./components/tos-content"
 import { TosUpgradeGate } from "./components/tos-upgrade-gate"
+import { usePlatform } from "./context/platform"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
@@ -367,10 +367,6 @@ function SetupGate(props: ParentProps) {
       auth: { type: "api", key: apiKey },
     })
     localStorage.setItem("gpd.key.saved", "true")
-    // Cache the key so TosUpgradeGate can re-POST acceptance on version
-    // bumps without re-prompting. Same trust envelope as auth.json —
-    // see tos-content.tsx KEY_CACHE_STORAGE_KEY docs.
-    localStorage.setItem(KEY_CACHE_STORAGE_KEY, apiKey)
     setHasKey(true)
     await globalSDK.client.global.dispose()
   }
@@ -379,7 +375,6 @@ function SetupGate(props: ParentProps) {
   // Usage: type `gpd-reset-key` in the command palette or run in console
   ;(window as any).__GPD_RESET_KEY__ = () => {
     localStorage.removeItem("gpd.key.saved")
-    localStorage.removeItem(KEY_CACHE_STORAGE_KEY)
     localStorage.removeItem(TOS_ACCEPTED_VERSION_STORAGE_KEY)
     setHasKey(false)
   }
@@ -388,39 +383,52 @@ function SetupGate(props: ParentProps) {
   //
   // Shown when the user has a saved key but the cached accepted-version
   // is older than CURRENT_TOS_VERSION. Re-prompts without asking for the
-  // key again (we cached it in localStorage at sign-in time).
+  // key again (TosUpgradeGate reads the saved key from auth.json on-demand
+  // via platform.readGpdKey — no localStorage cache of the raw key).
   //
   // Seeded from localStorage so there's no render flash of the main IDE
   // before the gate kicks in.
+  const platform = usePlatform()
   const [tosAcceptedVersion, setTosAcceptedVersion] = createSignal<string | null>(
     localStorage.getItem(TOS_ACCEPTED_VERSION_STORAGE_KEY),
   )
   const tosUpToDate = () => tosAcceptedVersion() === CURRENT_TOS_VERSION
-  const cachedApiKey = () => localStorage.getItem(KEY_CACHE_STORAGE_KEY) ?? ""
+
+  // Lazy-load the key from auth.json when the gate actually needs it.
+  // On platforms without `readGpdKey` (web builds, if any) the resource
+  // resolves to null and the Show fallback below forces re-onboard.
+  const [keyResource] = createResource(
+    () => !tosUpToDate() && hasKey(),
+    async () => {
+      if (!platform.readGpdKey) return null
+      return (await platform.readGpdKey()) ?? null
+    },
+  )
+
+  // Key is saved (gpd.key.saved=true) but readGpdKey returned null —
+  // auth.json is missing / corrupt. Force re-onboard so the upgrade gate
+  // doesn't render without a key to re-POST.
+  createEffect(() => {
+    if (!hasKey()) return
+    if (tosUpToDate()) return
+    if (keyResource.loading) return
+    if (keyResource() != null) return
+    localStorage.removeItem("gpd.key.saved")
+    setHasKey(false)
+  })
 
   return (
     <Show when={hasKey()} fallback={<WelcomeScreen onComplete={handleApiKeySaved} />}>
       <Show
         when={tosUpToDate()}
         fallback={
-          <Show
-            when={cachedApiKey()}
-            fallback={
-              // Key is saved in auth.json but we don't have it cached in
-              // localStorage (user likely wiped WebKit state but kept
-              // auth.json). Force full re-onboard — clear the key-saved
-              // flag so WelcomeScreen renders.
-              (() => {
-                localStorage.removeItem("gpd.key.saved")
-                setHasKey(false)
-                return null
-              })() as unknown as JSX.Element
-            }
-          >
-            <TosUpgradeGate
-              apiKey={cachedApiKey()}
-              onAccepted={() => setTosAcceptedVersion(CURRENT_TOS_VERSION)}
-            />
+          <Show when={keyResource()}>
+            {(apiKey) => (
+              <TosUpgradeGate
+                apiKey={apiKey()}
+                onAccepted={() => setTosAcceptedVersion(CURRENT_TOS_VERSION)}
+              />
+            )}
           </Show>
         }
       >

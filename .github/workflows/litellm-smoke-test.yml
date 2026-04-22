@@ -81,9 +81,10 @@ jobs:
           # Any valid 64-hex; we don't verify the text hash matches
           # anything — this smoke just proves the endpoint accepts + stores.
           SHA=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+          PSHA=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
 
           HTTP=$(curl -sS -o /tmp/tos.json -w '%{http_code}' \
-            -X POST "$BASE/gpd/tos-accept?tos_version=smoke-ci&tos_text_sha256=$SHA&app_version=smoke-ci&viewed_in_full=1" \
+            -X POST "$BASE/gpd/tos-accept?tos_version=smoke-ci&tos_text_sha256=$SHA&privacy_text_sha256=$PSHA&app_version=smoke-ci&viewed_in_full=1" \
             -H "Authorization: Bearer $CANARY_KEY" \
             -H "User-Agent: gh-actions-smoke/1.0")
 
@@ -103,7 +104,7 @@ jobs:
 
           # Negative case: missing tos_version → 400
           NEG_HTTP=$(curl -sS -o /tmp/neg.json -w '%{http_code}' \
-            -X POST "$BASE/gpd/tos-accept?tos_text_sha256=$SHA" \
+            -X POST "$BASE/gpd/tos-accept?tos_text_sha256=$SHA&privacy_text_sha256=$PSHA" \
             -H "Authorization: Bearer $CANARY_KEY")
           if [ "$NEG_HTTP" != "400" ]; then
             echo "::error::expected 400 on missing tos_version, got $NEG_HTTP"

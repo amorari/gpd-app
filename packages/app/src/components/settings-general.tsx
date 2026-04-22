@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createResource, onMount, type JSX } from "solid-js"
+import { Component, Show, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -528,9 +528,57 @@ export const SettingsGeneral: Component = () => {
   )
 
   const AccountSection = () => {
+    const [revoking, setRevoking] = createSignal(false)
+    const [revokeError, setRevokeError] = createSignal<string | undefined>()
+
     const handleChangeApiKey = () => {
       localStorage.removeItem("gpd.key.saved")
       window.location.reload()
+    }
+
+    async function handleRevokeConsent() {
+      const confirmed = window.confirm(language.t("settings.account.revokeConsent.confirm"))
+      if (!confirmed) return
+      setRevokeError(undefined)
+      setRevoking(true)
+      try {
+        const key = platform.readGpdKey ? await platform.readGpdKey() : null
+        if (!key) {
+          throw new Error(language.t("settings.account.revokeConsent.errorNoKey"))
+        }
+        const res = await fetch(
+          "https://litellm-production-46bb.up.railway.app/gpd/tos-revoke",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${key}`,
+              "Content-Type": "application/json",
+            },
+            body: "{}",
+          },
+        )
+        if (!res.ok) {
+          let detail = ""
+          try {
+            const body = (await res.json()) as { detail?: string }
+            detail = body.detail ?? ""
+          } catch {
+            /* non-JSON */
+          }
+          throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ""}`)
+        }
+        // Clear local sign-in state. Server has a revocation row; operator
+        // runs `scripts/delete-user.ts --user-id=... --confirm` to
+        // pseudonymize identifying fields + purge GCS/BQ data.
+        localStorage.removeItem("gpd.key.saved")
+        localStorage.removeItem("gpd.tos.acceptedVersion")
+        window.alert(language.t("settings.account.revokeConsent.success"))
+        window.location.reload()
+      } catch (e) {
+        setRevokeError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setRevoking(false)
+      }
     }
 
     return (
@@ -550,6 +598,22 @@ export const SettingsGeneral: Component = () => {
               {language.t("sidebar.resetKey")}
             </Button>
           </SettingsRow>
+          <SettingsRow
+            title={language.t("settings.account.revokeConsent.title")}
+            description={language.t("settings.account.revokeConsent.description")}
+          >
+            <Button
+              size="small"
+              variant="secondary"
+              disabled={revoking()}
+              onClick={handleRevokeConsent}
+            >
+              {language.t("settings.account.revokeConsent.button")}
+            </Button>
+          </SettingsRow>
+          <Show when={revokeError()}>
+            <p class="px-4 py-2 text-13-regular text-text-danger">{revokeError()}</p>
+          </Show>
         </SettingsList>
       </div>
     )
