@@ -14,6 +14,7 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { Persist, persisted } from "@/utils/persist"
+import { workspaceKey } from "@/utils/workspace-key"
 import type { InitError } from "../pages/error"
 import { useGlobalSDK } from "./global-sdk"
 import { bootstrapDirectory, bootstrapGlobal, clearProviderRev } from "./global-sync/bootstrap"
@@ -300,7 +301,12 @@ function createGlobalSync() {
   }
 
   const unsub = globalSDK.event.listen((e) => {
-    const directory = e.name
+    // Canonicalize the event's directory tag so trailing-slash /
+    // backslash / repeated-separator variants route to the same
+    // child store the rest of the app uses. Without this, a `/repo/`
+    // event would miss the `/repo` cache entry that `ensureChild`
+    // normalized away. See utils/workspace-key.ts for the rules.
+    const directory = e.name === "global" ? e.name : workspaceKey(e.name)
     const event = e.details
     const recent = bootingRoot || Date.now() - bootedAt < 1500
 
