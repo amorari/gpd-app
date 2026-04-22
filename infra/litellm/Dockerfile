@@ -21,6 +21,13 @@
 # GHSA-53mr-6c8q-9789, GHSA-jjhc-v7c2-5hh6).
 FROM ghcr.io/berriai/litellm:v1.83.7-stable
 
+# asyncpg so gpd_tos.hook.ensure_schema() can (re-)create the custom
+# gpd_tos_acceptance table on every worker start. Necessary because
+# LiteLLM's bundled PrismaClient silently rolls DDL back on disconnect,
+# AND LiteLLM's startup `prisma migrate` step drops unmanaged tables.
+# Without this bootstrap, the table disappears on every redeploy.
+RUN pip install --no-cache-dir asyncpg==0.31.0
+
 # Our hook modules.
 #   gpd_log → POST /gpd/log (session-event ingest to GCS). See
 #             infra/litellm/gpd_log/README.md for architecture.
