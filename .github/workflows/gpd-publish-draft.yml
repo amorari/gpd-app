@@ -15,6 +15,12 @@ on:
 
 permissions:
   contents: write
+  # actions: write is required for the "Refresh download page" step to
+  # dispatch gpd-download-page.yml via the GITHUB_TOKEN. Without it,
+  # that step fails with HTTP 403 and download.gpd.psi.inc stays on
+  # the prior release while the in-app updater already sees the new
+  # one.
+  actions: write
 
 jobs:
   publish:
