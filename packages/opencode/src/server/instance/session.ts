@@ -26,6 +26,7 @@ import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
+import { NotFoundError } from "../../storage/db"
 
 const log = Log.create({ service: "server" })
 
@@ -483,7 +484,7 @@ export const SessionRoutes = lazy(() =>
       validator(
         "query",
         z.object({
-          messageID: SessionSummary.DiffInput.shape.messageID,
+          messageID: MessageID.zod,
         }),
       ),
       async (c) => {
@@ -1025,12 +1026,20 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionRevert.RevertInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        log.info("revert", c.req.valid("json"))
+        const body = c.req.valid("json")
+        log.info("revert", body)
+        const messages = await AppRuntime.runPromise(
+          Session.Service.use((svc) => svc.messages({ sessionID })),
+        )
+        const messageExists = messages.some((m) => m.info.id === body.messageID)
+        if (!messageExists) {
+          throw new NotFoundError({ message: `Message not found: ${body.messageID}` })
+        }
         const session = await AppRuntime.runPromise(
           SessionRevert.Service.use((svc) =>
             svc.revert({
               sessionID,
-              ...c.req.valid("json"),
+              ...body,
             }),
           ),
         )
