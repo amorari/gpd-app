@@ -66,3 +66,18 @@ jobs:
           fi
           gh release edit "$TAG" --draft=false $MARK_LATEST_ARG --repo "$REPO"
           echo "Published $TAG (id=$RELEASE_ID)"
+
+      - name: Refresh download page
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Draft-flip (`gh release edit --draft=false`) does NOT fire the
+          # `release:published` webhook — that event only fires when a
+          # release is created with draft=false. Without this dispatch,
+          # gpd-download-page.yml would never run for draft-flipped
+          # releases, and download.gpd.psi.inc would stay on the prior
+          # version while the updater already sees the new one.
+          gh workflow run gpd-download-page.yml --repo "$REPO" --ref gpd
+          echo "Dispatched gpd-download-page.yml"
