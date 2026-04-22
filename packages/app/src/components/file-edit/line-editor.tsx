@@ -5,6 +5,7 @@ import { bracketMatching, indentOnInput, syntaxHighlighting, defaultHighlightSty
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { useLanguage } from "@/context/language"
+import { SELECTORS } from "@/testing/selectors"
 import { detectLanguage, type EditorLanguage } from "./eligibility"
 
 type LanguageLoader = () => Promise<Extension>
@@ -106,6 +107,13 @@ export function LineEditor(props: LineEditorProps) {
         extensions: baseExtensions(),
       }),
     })
+    // Attach the E2E test-id to CodeMirror's actual contenteditable node
+    // (created as a child of hostEl during construction). Attaching to
+    // the outer wrapper div would point Playwright at an empty container
+    // rather than the editable surface. Per Decision 0.B
+    // (docs/E2E_SELECTORS.md) and the selector registry at
+    // packages/app/src/testing/selectors.ts.
+    view.contentDOM.setAttribute("data-testid", SELECTORS.FILE_EDIT_LINE_INPUT)
     view.focus()
     // Place cursor at end of line.
     const end = view.state.doc.length

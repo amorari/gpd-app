@@ -25,6 +25,10 @@ const LITERAL_TESTID = /(?<!\[)data-testid\s*=\s*["'`]([^"'`]+)["'`]/g
 const JSX_LITERAL_TESTID = /(?<!\[)data-testid\s*=\s*\{\s*["'`]([^"'`]+)["'`]\s*\}/g
 const SELECTORS_REF = /data-testid\s*=\s*\{\s*SELECTORS\.([A-Z0-9_]+)\s*\}/g
 const SELECTORS_SPREAD = /\.\.\.testId\(\s*SELECTORS\.([A-Z0-9_]+)\s*\)/g
+// Runtime DOM attachment used for elements created imperatively by
+// third-party libraries (e.g. CodeMirror's contentDOM).
+const SET_ATTRIBUTE_REF = /setAttribute\(\s*["'`]data-testid["'`]\s*,\s*SELECTORS\.([A-Z0-9_]+)\s*\)/g
+const SET_ATTRIBUTE_LITERAL = /setAttribute\(\s*["'`]data-testid["'`]\s*,\s*["'`]([^"'`]+)["'`]\s*\)/g
 
 // Files that own selector definitions or otherwise legitimately discuss
 // them in prose — skip during walk.
@@ -65,7 +69,7 @@ async function scan(): Promise<{ hits: Hit[]; errors: string[] }> {
   for (const file of files) {
     const src = await readFile(file, "utf8")
 
-    for (const re of [LITERAL_TESTID, JSX_LITERAL_TESTID]) {
+    for (const re of [LITERAL_TESTID, JSX_LITERAL_TESTID, SET_ATTRIBUTE_LITERAL]) {
       re.lastIndex = 0
       let m: RegExpExecArray | null
       while ((m = re.exec(src))) {
@@ -77,7 +81,7 @@ async function scan(): Promise<{ hits: Hit[]; errors: string[] }> {
       }
     }
 
-    for (const re of [SELECTORS_REF, SELECTORS_SPREAD]) {
+    for (const re of [SELECTORS_REF, SELECTORS_SPREAD, SET_ATTRIBUTE_REF]) {
       re.lastIndex = 0
       let m: RegExpExecArray | null
       while ((m = re.exec(src))) {
