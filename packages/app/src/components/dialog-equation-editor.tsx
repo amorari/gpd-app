@@ -78,7 +78,18 @@ export const DialogEquationEditor: Component<Props> = (props) => {
     field.mathVirtualKeyboardPolicy = "manual"
     containerRef.appendChild(field)
     mathField = field
-    requestAnimationFrame(() => field.focus())
+    requestAnimationFrame(() => {
+      field.focus()
+      // Strip the `data-tooltip` attribute on the menu/keyboard toggles as a
+      // JS backstop: some WebKit builds don't honor `::part()::after` for
+      // CSS-generated tooltip content, so the label still floats up and
+      // clips. Querying into the shadow DOM requires shadowRoot access.
+      const sr = (field as unknown as { shadowRoot?: ShadowRoot }).shadowRoot
+      if (sr) {
+        sr.querySelectorAll("[part=menu-toggle][data-tooltip], [part=virtual-keyboard-toggle][data-tooltip]")
+          .forEach((el) => el.removeAttribute("data-tooltip"))
+      }
+    })
   })
 
   onCleanup(() => {
@@ -129,7 +140,15 @@ export const DialogEquationEditor: Component<Props> = (props) => {
 #mathlive-virtual-keyboard,
 [part="keyboard"],
 [part="container"].ML__keyboard,
-math-field::part(virtual-keyboard-toggle) { display: none !important; visibility: hidden !important; pointer-events: none !important; }`}</style>
+math-field::part(virtual-keyboard-toggle) { display: none !important; visibility: hidden !important; pointer-events: none !important; }
+
+/* MathLive's Menu button puts a [data-tooltip]::after label positioned at
+   top: -100% — on the first row of math-field that's above the field's
+   own bounds and gets clipped by the Dialog header. Hide the tooltip
+   pseudo; the icon alone is clear enough and screen readers still get
+   the aria-label. */
+math-field::part(menu-toggle)::after,
+math-field::part(virtual-keyboard-toggle)::after { display: none !important; content: none !important; }`}</style>
       <div
         ref={rootRef}
         role="group"
