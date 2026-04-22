@@ -17,7 +17,7 @@ on:
           - pypi
           - npm
       allow_placeholder_tos:
-        description: "DEV ONLY: bypass the TOS placeholder guard. Paper trail only — every dispatch records who used this."
+        description: "DEV ONLY bypass TOS placeholder guard. Paper trail only; every dispatch records actor."
         required: false
         type: boolean
         default: false
@@ -66,17 +66,12 @@ jobs:
           # their actual text hashes. These are the client-side commitments
           # POSTed with every acceptance; stale constants would corrupt
           # server-side audit records.
-          HASHES=$(python3 - <<'PY'
-import re, pathlib, hashlib
-src = pathlib.Path("packages/app/src/components/tos-content.tsx").read_text()
-tos = re.search(r"export const TOS_TEXT = `([^`]+)`", src)
-priv = re.search(r"export const PRIVACY_TEXT = `([^`]+)`", src)
-if not tos or not priv:
-    raise SystemExit("TOS_TEXT / PRIVACY_TEXT template literal not found")
-print(hashlib.sha256(tos.group(1).encode("utf-8")).hexdigest())
-print(hashlib.sha256(priv.group(1).encode("utf-8")).hexdigest())
-PY
-)
+          #
+          # Hash computation lives in scripts/check-tos-hashes.py — flush-left
+          # heredocs inside YAML block scalars terminate the `run: |` block
+          # early, which caused GitHub to report "Workflow does not have
+          # 'workflow_dispatch' trigger" until the heredoc was removed.
+          HASHES=$(python3 scripts/check-tos-hashes.py)
           SHIPPED_TOS_SHA=$(echo "$HASHES" | sed -n '1p')
           SHIPPED_PRIV_SHA=$(echo "$HASHES" | sed -n '2p')
           CONST_TOS_SHA=$(grep -oP 'TOS_TEXT_SHA256 =\s*\n?\s*"\K[0-9a-f]{64}' packages/app/src/components/tos-content.tsx || echo "")

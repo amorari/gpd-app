@@ -23,9 +23,6 @@ export const dict = {
   "welcome.tos.upgradeTitle": "Updated Terms of Service",
   "welcome.tos.upgradeIntro":
     "GPD has updated its Terms of Service. Please review and agree to continue.",
-  "welcome.tos.firstTimeTitle": "Terms of Service",
-  "welcome.tos.firstTimeIntro":
-    "Please review and agree to continue using GPD.",
   "settings.account.revokeConsent.title": "Revoke consent",
   "settings.account.revokeConsent.description":
     "Withdraw your consent to the GPD Terms of Service and Privacy Policy. This signs you out of GPD and marks your acceptance records as revoked. A minimal audit record is retained per applicable law.",

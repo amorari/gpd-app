@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js"
+import { Show, createSignal } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { postTosAccept } from "@/lib/tos-accept"
@@ -84,25 +84,27 @@ export function TosUpgradeGate(props: {
   return (
     <div class="h-dvh w-screen flex items-center justify-center bg-background-base p-6 overflow-auto">
       <div class="flex flex-col items-center w-full max-w-2xl">
-        <h1
-          class="text-text-strong"
-          style={{
-            "font-size": "var(--font-size-x-large)",
-            "font-weight": "var(--font-weight-medium)",
-          }}
-        >
-          {language.t(props.isUpgrade ? "welcome.tos.upgradeTitle" : "welcome.tos.firstTimeTitle")}
-        </h1>
-        <p class="mt-1.5 text-14-regular text-text-weak">
-          {language.t(props.isUpgrade ? "welcome.tos.upgradeIntro" : "welcome.tos.firstTimeIntro")}
-        </p>
-        <div class="mt-6 w-full">
+        <Show when={props.isUpgrade}>
+          <h1
+            class="text-text-strong"
+            style={{
+              "font-size": "var(--font-size-x-large)",
+              "font-weight": "var(--font-weight-medium)",
+            }}
+          >
+            {language.t("welcome.tos.upgradeTitle")}
+          </h1>
+          <p class="mt-1.5 text-14-regular text-text-weak">
+            {language.t("welcome.tos.upgradeIntro")}
+          </p>
+        </Show>
+        <div classList={{ "w-full": true, "mt-6": !!props.isUpgrade }}>
           <TosSection
             onAccept={handleAccept}
             onCancel={handleCancel}
             submitting={submitting()}
             error={error()}
-            hideHeading
+            hideHeading={!!props.isUpgrade}
           />
         </div>
       </div>
