@@ -1119,7 +1119,11 @@ configure_gpd_runtime() {
     # an unreadable cwd (e.g. /root when script is run via sudo).
     if [[ -x "$GPD_VENV_DIR/bin/python" ]]; then
         log "Configuring GPD for OpenCode..."
-        if ! ( cd "$HOME" && "$GPD_VENV_DIR/bin/python" -m gpd.cli install opencode --global --skip-readiness-check ); then
+        # NB: the --skip-readiness-check flag was added to gpd.cli on `main`
+        # after the v1.1.0 tag — which is what $GPD_PACKAGE_VERSION pins to.
+        # Don't pass it here; bump the flag back in once get-physics-done
+        # cuts v1.2.0 or later.
+        if ! ( cd "$HOME" && "$GPD_VENV_DIR/bin/python" -m gpd.cli install opencode --global ); then
             warn "GPD runtime configuration failed. Run manually from your home dir:"
             warn "  cd ~ && ~/.gpd/venv/bin/gpd install opencode --global"
         fi

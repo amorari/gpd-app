@@ -1114,7 +1114,10 @@ function Invoke-GpdInstall {
         Write-Log "Configuring GPD for OpenCode runtime..."
         Push-Location $HOME
         try {
-            & $gpdExe install opencode --global --skip-readiness-check
+            # --skip-readiness-check was added to gpd.cli on main AFTER the
+            # v1.1.0 tag our installer pins to. Don't pass it; bump back in
+            # once get-physics-done cuts v1.2.0+.
+            & $gpdExe install opencode --global
             if ($LASTEXITCODE -ne 0) {
                 Write-Warn "GPD runtime configuration failed. Run manually from your home dir:"
                 Write-Warn "  cd ~ && ~\.gpd\venv\Scripts\gpd.exe install opencode --global"
