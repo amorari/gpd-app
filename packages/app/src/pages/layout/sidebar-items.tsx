@@ -251,6 +251,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                   icon="archive"
                   variant="ghost"
                   class="size-6 rounded-md"
+                  data-action="session-sidebar-archive"
                   aria-label={language.t("common.archive")}
                   onClick={(event) => {
                     event.preventDefault()
