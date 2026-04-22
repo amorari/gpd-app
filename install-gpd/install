@@ -82,8 +82,11 @@ Options:
     -v, --version <version> Install a specific OpenCode version
         --no-modify-path    Don't modify shell config files
         --skip-key          Skip PSI API key prompt
-        --no-export-key     Don't write GPD_API_KEY into your login profile
-                            (key still saved in ~/.gpd/config/litellm.env)
+        --export-key        Also write GPD_API_KEY into your login profile
+                            (off by default: the gpd wrapper sources the key
+                            from ~/.gpd/config/litellm.env; this flag is only
+                            needed if you launch opencode outside the wrapper
+                            from a login shell)
 
 Examples:
     curl -fsSL https://download.gpd.psi.inc/install | bash
@@ -95,7 +98,18 @@ EOF
 requested_version=""
 no_modify_path=false
 skip_key=false
-no_export_key=false
+# Off by default: the `gpd` wrapper at ~/.gpd/bin/gpd sources the key from
+# ~/.gpd/config/litellm.env (chmod 600 umask 077). The legacy login-profile
+# export is a third copy of the secret that dotfile-sync tools, backups, and
+# editor plugins can slurp, and nothing in the product requires it (Windows
+# installer never wrote it; the desktop sidecar reads auth.json; the CLI
+# wrapper sources litellm.env). Users who launch opencode directly outside
+# the wrapper from a login shell can opt back in with --export-key.
+export_key=false
+# Backward-compat alias: --no-export-key was the old flag when the export was
+# on by default. We keep parsing it as a no-op so existing install scripts
+# (docs, CI, emails) don't break. Logged below.
+no_export_key=true
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -106,7 +120,8 @@ while [[ $# -gt 0 ]]; do
             shift 2 ;;
         --no-modify-path) no_modify_path=true; shift ;;
         --skip-key)       skip_key=true; shift ;;
-        --no-export-key)  no_export_key=true; shift ;;
+        --export-key)     export_key=true; shift ;;
+        --no-export-key)  no_export_key=true; shift ;;  # legacy no-op (default)
         *)  warn "Unknown option: $1"; shift ;;
     esac
 done
@@ -953,10 +968,8 @@ EOF
         bash) [[ -f "$HOME/.bash_profile" ]] && profile="$HOME/.bash_profile" ;;
     esac
 
-    if [[ "$no_export_key" == true ]]; then
-        log "Skipping login-profile export (--no-export-key). Key remains in $env_file."
-    else
-        warn "Writing GPD_API_KEY into login profile; any tool that reads this file (dotfile sync, backup, editor plugins) may see your key. Use --no-export-key to skip."
+    if [[ "$export_key" == true ]]; then
+        warn "Writing GPD_API_KEY into login profile; any tool that reads this file (dotfile sync, backup, editor plugins) may see your key. Re-run without --export-key to skip."
         # Stash the intended export line + target file for the combined
         # rc-block writer (configure_path). Doing the actual write there
         # keeps us to one sentinel block per file so we don't have two
@@ -965,6 +978,8 @@ EOF
         # profile AND a PATH target).
         GPD_KEY_EXPORT_LINE="$(printf 'export GPD_API_KEY=%q' "$key")"
         GPD_KEY_EXPORT_FILE="$profile"
+    else
+        log "Login-profile GPD_API_KEY export disabled (default). Key lives in $env_file (chmod 600) and auth.json. The gpd wrapper sources litellm.env automatically; pass --export-key if you invoke opencode directly from a login shell."
     fi
 
     # Also write the key into opencode's auth.json so the GPD desktop app
