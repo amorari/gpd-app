@@ -24,10 +24,16 @@ import { TosSection } from "./tos-section"
  *          try again, but they can't use the app without agreeing.
  */
 export function TosUpgradeGate(props: {
-  /** LiteLLM virtual key fetched by SetupGate via the SDK auth API. */
+  /** LiteLLM virtual key read from auth.json via platform.readGpdKey().
+   *  Fetched on-demand, not cached in WebKit/WebView2 localStorage. */
   apiKey: string
   /** Called on successful server-side record. */
   onAccepted: () => void
+  /** True when user previously accepted a now-superseded TOS version; false
+   *  when they have an auth.json but never accepted any TOS (CLI-install
+   *  path, or the TOS system itself is new). Drives the title/intro copy —
+   *  "Updated" is misleading for users who have never agreed. */
+  isUpgrade?: boolean
 }) {
   const language = useLanguage()
   const platform = usePlatform()
@@ -85,10 +91,10 @@ export function TosUpgradeGate(props: {
             "font-weight": "var(--font-weight-medium)",
           }}
         >
-          {language.t("welcome.tos.upgradeTitle")}
+          {language.t(props.isUpgrade ? "welcome.tos.upgradeTitle" : "welcome.tos.firstTimeTitle")}
         </h1>
         <p class="mt-1.5 text-14-regular text-text-weak">
-          {language.t("welcome.tos.upgradeIntro")}
+          {language.t(props.isUpgrade ? "welcome.tos.upgradeIntro" : "welcome.tos.firstTimeIntro")}
         </p>
         <div class="mt-6 w-full">
           <TosSection
@@ -96,6 +102,7 @@ export function TosUpgradeGate(props: {
             onCancel={handleCancel}
             submitting={submitting()}
             error={error()}
+            hideHeading
           />
         </div>
       </div>

@@ -85,6 +85,10 @@ export function TosSection(props: {
   onCancel?: () => void | Promise<void>
   submitting?: boolean
   error?: string
+  /** Hide the internal "Terms of Service" heading + intro paragraph.
+   *  Callers that render their own heading (e.g. TosUpgradeGate) set this
+   *  to avoid the duplicate "Terms of Service" title shown in the UI. */
+  hideHeading?: boolean
 }) {
   const language = useLanguage()
   const [agreedTos, setAgreedTos] = createSignal(false)
@@ -102,18 +106,20 @@ export function TosSection(props: {
 
   return (
     <div class="flex flex-col items-center w-full max-w-2xl">
-      <h2
-        class="text-text-strong"
-        style={{
-          "font-size": "var(--font-size-x-large)",
-          "font-weight": "var(--font-weight-medium)",
-        }}
-      >
-        {language.t("welcome.tos.title")}
-      </h2>
-      <p class="mt-1.5 text-14-regular text-text-weak">
-        {language.t("welcome.tos.intro")}
-      </p>
+      <Show when={!props.hideHeading}>
+        <h2
+          class="text-text-strong"
+          style={{
+            "font-size": "var(--font-size-x-large)",
+            "font-weight": "var(--font-weight-medium)",
+          }}
+        >
+          {language.t("welcome.tos.title")}
+        </h2>
+        <p class="mt-1.5 text-14-regular text-text-weak">
+          {language.t("welcome.tos.intro")}
+        </p>
+      </Show>
 
       <div class="mt-6 w-full flex flex-col gap-5">
         <ScrollingTextBlock

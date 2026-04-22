@@ -16,6 +16,11 @@ on:
           - github
           - pypi
           - npm
+      allow_placeholder_tos:
+        description: "DEV ONLY: bypass the TOS placeholder guard. Paper trail only — every dispatch records who used this."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -30,6 +35,10 @@ jobs:
       - name: Fail if TOS text or version is placeholder
         run: |
           set -euo pipefail
+          if [ "${{ inputs.allow_placeholder_tos }}" = "true" ]; then
+            echo "::warning::TOS placeholder guard BYPASSED by ${{ github.actor }}. For dev / internal distribution only. Do NOT ship this build to external users."
+            exit 0
+          fi
           TOS=packages/app/src/components/tos-content.tsx
           if ! test -f "$TOS"; then
             echo "::error::$TOS missing — cannot release without TOS content"

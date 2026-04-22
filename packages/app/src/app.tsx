@@ -426,6 +426,7 @@ function SetupGate(props: ParentProps) {
             {(apiKey) => (
               <TosUpgradeGate
                 apiKey={apiKey()}
+                isUpgrade={!!tosAcceptedVersion()}
                 onAccepted={() => setTosAcceptedVersion(CURRENT_TOS_VERSION)}
               />
             )}
