@@ -146,9 +146,30 @@ class AppState:
                 )
 
     def launch(self) -> None:
-        """Launch GPD frontmost so the webview is active and MCP responds."""
-        args = ["open", "-a", APP_PATH]
-        subprocess.run(args, check=True, timeout=30)
+        """Launch GPD as a detached process and record the exact PID.
+
+        Using open -a can produce a late second process when it silently
+        succeeds exit-code-wise but lags behind a Popen fallback, creating
+        two GPD instances whose PPIDs confuse sidecar_pid(). Launching via
+        Popen directly avoids the race and gives us proc.pid immediately.
+        """
+        binary = Path(APP_PATH) / "Contents" / "MacOS" / "GPD"
+        if not binary.exists():
+            binary_dir = Path(APP_PATH) / "Contents" / "MacOS"
+            candidates = [
+                f for f in binary_dir.iterdir()
+                if f.is_file() and f.name != "opencode-cli"
+            ]
+            if not candidates:
+                raise RuntimeError(f"No binary found in {binary_dir}")
+            binary = candidates[0]
+        proc = subprocess.Popen(
+            [str(binary)],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self._launched_pid = proc.pid
         timeout_s = 10.0
         ok = wait_until(lambda: self.is_running(), timeout_s=timeout_s)
         if not ok:
@@ -158,7 +179,14 @@ class AppState:
                 f"GPD failed to launch within {timeout_s}s "
                 f"(matching pids: {pids_str})"
             )
-        self._launched_pid = self.gpd_pid()
+        # Bring the app to the foreground so the webview is active.
+        # open -a on an already-running app activates the existing window
+        # without spawning a second process — safe to call here.
+        subprocess.run(
+            ["open", "-a", APP_PATH],
+            capture_output=True,
+            check=False,
+        )
 
     def quit(self) -> None:
         subprocess.run(

@@ -59,7 +59,9 @@ def _schemes_registered_for_gpd() -> set[str] | None:
             schemes = [s.strip() for s in schemes_text.split(",")]
             if "gpd" in schemes:
                 bundle_ids.add(current_bundle)
-    return bundle_ids if bundle_ids else None
+    # Return the set (possibly empty) so callers can distinguish "lsregister
+    # available but nothing registered" from "lsregister unavailable" (None).
+    return bundle_ids
 
 
 def _scheme_ambiguity() -> str | None:
@@ -80,8 +82,13 @@ def _scheme_ambiguity() -> str | None:
             "macOS dispatch is non-deterministic here. Run against a "
             "single registered bundle id."
         )
+    if registered_bundles is not None and len(registered_bundles) == 0:
+        return (
+            "gpd:// URL scheme is not registered for this build; "
+            "deep link dispatch requires a notarized or app-store install."
+        )
     if registered_bundles is not None:
-        # lsregister gave a definitive answer (0 or 1 claimant) — no need
+        # lsregister gave a definitive answer (exactly 1 claimant) — no need
         # for the fallback heuristic.
         return None
 

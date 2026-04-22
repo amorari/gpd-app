@@ -77,6 +77,38 @@ def paths_for_tier(tier: int) -> list[Path]:
     return paths
 
 
+def _launch_binary(app_path: str, name: str) -> None:
+    """Launch the GPD binary directly as a detached process.
+
+    Used as a fallback when ``open -g -a`` succeeds exit-code-wise but fails
+    to produce a visible process (common in subprocess/CI environments without
+    a full macOS GUI session).
+    """
+    import os as _os
+    # The Tauri main binary is always "GPD" regardless of the .app bundle name.
+    # Debug: "GPD Dev.app/Contents/MacOS/GPD"
+    # Release: "GPD.app/Contents/MacOS/GPD"
+    binary = Path(app_path) / "Contents" / "MacOS" / "GPD"
+    if not binary.exists():
+        # Fallback: any non-sidecar file in MacOS/
+        binary_dir = Path(app_path) / "Contents" / "MacOS"
+        candidates = [
+            f for f in binary_dir.iterdir()
+            if f.is_file() and f.name != "opencode-cli"
+        ]
+        if not candidates:
+            raise RuntimeError(
+                f"No binary found in {binary_dir}; cannot launch GPD"
+            )
+        binary = candidates[0]
+    subprocess.Popen(
+        [str(binary)],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def stop_gpd() -> None:
     name = _app_name()
     subprocess.run(
@@ -111,33 +143,24 @@ def stop_gpd() -> None:
 
 
 def start_gpd() -> None:
-    # -g = background, so resets don't steal focus from the developer.
-    # Honor GPD_APP_PATH for in-tree dev builds.
-    app_path = os.environ.get("GPD_APP_PATH", "/Applications/GPD.app")
+    from scripts._bundle import _auto_detect_app_path
+    app_path = _auto_detect_app_path()
     name = _app_name()
-    result = subprocess.run(
-        ["open", "-g", "-a", app_path],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"'open -g -a {app_path}' failed (exit {result.returncode}): "
-            f"{result.stderr.strip()}"
-        )
-
-    # macOS pgrep -f silently fails on paths with spaces; use _ps_pids.
-    # Match on MacOS/ directory prefix — debug binary is "GPD", not "GPD Dev".
     binary_pattern = re.escape(f"{name}.app/Contents/MacOS/")
-    launched = False
-    for _ in range(50):
+
+    # Launch via binary directly — open -a can silently succeed exit-code-wise
+    # while lagging behind, causing a second GPD instance to appear later and
+    # confusing PPID-based sidecar detection.
+    _launch_binary(app_path, name)
+
+    # Confirm the process is present.
+    confirmed = False
+    for _ in range(30):
         if _ps_pids(binary_pattern):
-            launched = True
+            confirmed = True
             break
         time.sleep(0.2)
-    if not launched:
+    if not confirmed:
         raise RuntimeError(
             f"GPD process did not appear after launch "
             f"(pattern: {binary_pattern!r})"
