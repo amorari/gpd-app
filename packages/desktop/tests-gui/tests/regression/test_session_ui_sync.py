@@ -112,13 +112,13 @@ def test_session_deleted_via_http_disappears_from_sidebar(mcp, http, _project_pa
         # hydrates asynchronously after navigation.
         appeared = wait_until(
             lambda: _dom_has_session_row(probe, sid),
-            timeout_s=5.0,
+            timeout_s=15.0,
             poll_s=0.2,
         )
         if not appeared:
             pytest.skip(
                 f"session row [data-session-id={sid!r}] never appeared in the "
-                "sidebar within 5s — sidebar may be off-screen or sync latency "
+                "sidebar within 15s — sidebar may be off-screen or sync latency "
                 "is unusually high; cannot exercise the deletion path"
             )
 

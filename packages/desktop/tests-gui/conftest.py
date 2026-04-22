@@ -203,7 +203,7 @@ def seed_onboarding_state(request):
     if os.environ.get("GPD_TEST_SEED_ONBOARDING") != "1":
         yield
         return
-    key = os.environ.get("GPD_TEST_ANTHROPIC_KEY")
+    key = os.environ.get("GPD_TEST_ANTHROPIC_KEY") or os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         yield
         return

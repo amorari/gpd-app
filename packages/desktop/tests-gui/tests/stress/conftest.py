@@ -12,7 +12,7 @@ def anthropic_key() -> str:
 
     Tests marked @pytest.mark.real_backend depend on this.
     """
-    key = os.environ.get("GPD_TEST_ANTHROPIC_KEY")
+    key = os.environ.get("GPD_TEST_ANTHROPIC_KEY") or os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         pytest.skip(
             "GPD_TEST_ANTHROPIC_KEY not set; skipping real-backend flow"

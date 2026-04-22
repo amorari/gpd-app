@@ -28,7 +28,6 @@ import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { sanitizeProject } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
-import { workspaceKey } from "@/pages/layout/helpers"
 
 type GlobalStore = {
   ready: boolean

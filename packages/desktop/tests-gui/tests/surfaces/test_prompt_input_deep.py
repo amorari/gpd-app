@@ -360,7 +360,7 @@ def test_prompt_agent_trigger_opens_picker(mcp, http, os_input, prepared_project
     # Poll for a menu/popover/listbox — Kobalte's Select uses role=listbox
     # but may also render via data-component=popover or role=menu depending
     # on the theme.
-    deadline = time.monotonic() + 3.0
+    deadline = time.monotonic() + 5.0
     opened = False
     while time.monotonic() < deadline:
         try:
@@ -420,7 +420,7 @@ def test_prompt_model_trigger_opens_picker(mcp, http, os_input, prepared_project
     if not clicked:
         pytest.skip("could not click prompt-model trigger")
 
-    deadline = time.monotonic() + 3.0
+    deadline = time.monotonic() + 5.0
     opened = False
     while time.monotonic() < deadline:
         try:

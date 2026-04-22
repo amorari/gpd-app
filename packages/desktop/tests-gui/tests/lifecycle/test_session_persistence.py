@@ -14,7 +14,7 @@ def test_session_survives_quit_relaunch(http, app_state):
     # tests/flows/conftest.py and isn't visible from tests/lifecycle/.
     # Keeping the check inline avoids duplicating the fixture here and keeps
     # tests/lifecycle/conftest.py truly minimal (per plan task D1, step 2).
-    if not os.environ.get("GPD_TEST_ANTHROPIC_KEY"):
+    if not (os.environ.get("GPD_TEST_ANTHROPIC_KEY") or os.environ.get("ANTHROPIC_API_KEY")):
         pytest.skip("GPD_TEST_ANTHROPIC_KEY not set; skipping real-backend lifecycle")
 
     ses = http.create_session()

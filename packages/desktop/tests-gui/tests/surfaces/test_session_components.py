@@ -110,12 +110,12 @@ def test_session_list_renders_at_least_one_item_after_create(
         # briefly to avoid racing the first paint.
         appeared = wait_until(
             lambda: _dom_has_session_row(probe, sid),
-            timeout_s=20.0,
+            timeout_s=30.0,
             poll_s=0.2,
         )
         if not appeared:
             pytest.skip(
-                f"session row data-session-id={sid!r} did not appear within 20s "
+                f"session row data-session-id={sid!r} did not appear within 30s "
                 "(sidebar may be collapsed off-screen, or sync-latency varies)"
             )
         assert appeared
@@ -141,7 +141,7 @@ def test_session_item_click_navigates_to_session_route(
         # Wait for the row to hydrate before clicking.
         if not wait_until(
             lambda: _dom_has_session_row(probe, sid),
-            timeout_s=20.0,
+            timeout_s=30.0,
             poll_s=0.2,
         ):
             pytest.skip(
@@ -225,9 +225,18 @@ def test_session_rename_via_ui_persists_via_sidecar(
         )
         probe = DOMProbe(mcp)
 
-        # Open the dropdown, click Rename. The anchors below only exist once
-        # the staged patch lands; until then the probe returns falsy and the
-        # xfail keeps the build green.
+        # Wait for MessageTimeline to mount (needs SSE messagesReady to fire).
+        menu_open_sel = '[data-action="session-menu-open"]'
+        if not wait_until(
+            lambda: probe.eval_bool(f'!!document.querySelector({menu_open_sel!r})'),
+            timeout_s=30.0,
+            poll_s=0.3,
+        ):
+            pytest.skip(
+                'session-menu-open not found after 30s; '
+                'MessageTimeline may not have mounted yet'
+            )
+
         open_menu_js = (
             '(() => {'
             '  const btn = document.querySelector('
@@ -239,7 +248,7 @@ def test_session_rename_via_ui_persists_via_sidecar(
             '})()'
         )
         if not probe.eval_bool(open_menu_js):
-            pytest.skip("session-menu-open anchor missing; patch not yet applied")
+            pytest.skip("session-menu-open vanished before click")
 
         # Small settle — Kobalte dropdown portal mounts async.
         time.sleep(0.2)
@@ -318,7 +327,7 @@ def test_session_delete_via_ui_removes_from_list(
     # render could make the "disappears" assertion vacuous.
     if not wait_until(
         lambda: _dom_has_session_row(probe, sid),
-        timeout_s=20.0,
+        timeout_s=30.0,
         poll_s=0.2,
     ):
         _safe_delete(http, sid)

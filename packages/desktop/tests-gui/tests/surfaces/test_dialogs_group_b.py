@@ -133,13 +133,13 @@ def test_dialog_connect_provider_has_stable_anchor(mcp):
 
 
 @pytest.mark.surfaces
-@pytest.mark.xfail(
+@pytest.mark.skip(
     reason=(
-        "pending G5-dialog-custom-provider-data-actions.patch — custom-provider "
-        "dialog has no data-component anchor on root and no data-action on "
-        "submit/add-model/add-header/back controls"
-    ),
-    strict=False,
+        "Custom BYOE provider removed upstream (feat(providers): remove Custom "
+        "BYOE provider entry points). The dialog-custom-provider.tsx component "
+        "no longer exists. Remove this test or replace when a new custom provider "
+        "flow is added."
+    )
 )
 def test_dialog_custom_provider_has_stable_anchor(mcp):
     """Assert the custom-provider dialog exposes its contract anchors.

@@ -101,6 +101,18 @@ def test_dialog_select_model_opens_reads_models_and_closes(
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
     probe = DOMProbe(mcp)
 
+    # Exit shell mode so model/agent controls are visible.
+    try:
+        mcp.execute_js(
+            '(() => {'
+            '  const cmd = window.__OPENCODE__?.commands?.get?.("prompt.mode.normal");'
+            '  if (cmd) { cmd.execute?.(); return "ok"; } return "noop";'
+            '})()'
+        )
+        time.sleep(0.1)
+    except Exception:
+        pass
+
     # Pre-flight: trigger present?
     try:
         present = probe.eval_bool(
@@ -255,6 +267,18 @@ def test_dialog_select_provider_opens_and_closes(
     """
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
     probe = DOMProbe(mcp)
+
+    # Exit shell mode so model/agent controls are visible.
+    try:
+        mcp.execute_js(
+            '(() => {'
+            '  const cmd = window.__OPENCODE__?.commands?.get?.("prompt.mode.normal");'
+            '  if (cmd) { cmd.execute?.(); return "ok"; } return "noop";'
+            '})()'
+        )
+        time.sleep(0.1)
+    except Exception:
+        pass
 
     # Pre-flight: ensure the prompt-model trigger is present (we open the
     # provider-connect icon via the model popover).

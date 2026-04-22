@@ -255,27 +255,25 @@ def test_workspace_list_initially_matches_status(http):
 
 
 @pytest.mark.flows
-def test_workspace_create_list_get_delete_roundtrip(http, tmp_path):
-    """Full workspace CRUD against the current project: create, list, get, delete."""
+def test_workspace_create_list_get_delete_roundtrip(http, git_project_dir):
+    """Full workspace CRUD against a git project: create, list, get, delete."""
     # Pre-state — capture ids so we can assert our new one is truly new.
     before_ids = {w["id"] for w in http.list_workspaces()}
 
     workspace_id: str | None = None
+    project_dir = str(git_project_dir)
     try:
         # Branch name the adaptor will try to check out. Must be valid git; a
         # new unique name avoids collision with any existing branch.
-        branch = f"gpd-g33-{tmp_path.name}"[:40]
+        branch = f"gpd-g33-{git_project_dir.name}"[:40]
         try:
-            created = http.create_workspace(type="worktree", branch=branch)
+            created = http.create_workspace(
+                type="worktree", branch=branch, directory=project_dir
+            )
         except httpx.HTTPStatusError as e:
-            # The worktree adaptor requires the current project to be a git
-            # worktree. On a non-git scratch dir this creation path 4xxs.
-            # Skip in that scenario; the other workspace tests still exercise
-            # the GET routes.
             if e.response.status_code in (400, 409, 500):
                 pytest.skip(
-                    f"workspace create rejected ({e.response.status_code}); "
-                    "likely non-git current project: "
+                    f"workspace create rejected ({e.response.status_code}): "
                     f"{e.response.text[:200]}"
                 )
             raise

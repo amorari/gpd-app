@@ -22,7 +22,7 @@ def dom(mcp) -> DOMProbe:
 @pytest.fixture
 def anthropic_key() -> str:
     """Return the test-mode Anthropic key; skip if absent."""
-    key = os.environ.get("GPD_TEST_ANTHROPIC_KEY")
+    key = os.environ.get("GPD_TEST_ANTHROPIC_KEY") or os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         pytest.skip(
             "GPD_TEST_ANTHROPIC_KEY not set; skipping real-backend flow"

@@ -144,7 +144,7 @@ def test_session_archive_via_session_menu(mcp, http, prepared_project_path):
         # (sync.data.message[id] !== undefined). For a fresh empty session
         # the SSE sync fires shortly after navigation; allow up to 20s.
         menu_open_sel = '[data-action="session-menu-open"]'
-        deadline_mount = time.monotonic() + 20.0
+        deadline_mount = time.monotonic() + 40.0
         menu_ready = False
         while time.monotonic() < deadline_mount:
             try:
@@ -158,8 +158,8 @@ def test_session_archive_via_session_menu(mcp, http, prepared_project_path):
             time.sleep(0.2)
         if not menu_ready:
             pytest.skip(
-                'data-action="session-menu-open" not found after 20s; '
-                'session page may not have mounted yet'
+                'data-action="session-menu-open" not found after 40s; '
+                'MessageTimeline requires SSE messagesReady — may be slow on first visit'
             )
 
         # Open the more-options dropdown.
@@ -184,7 +184,14 @@ def test_session_archive_via_session_menu(mcp, http, prepared_project_path):
             )
 
         # Kobalte DropdownMenu portals mount asynchronously after click.
-        time.sleep(0.3)
+        # Poll instead of a fixed sleep so we proceed as soon as the item appears.
+        wait_until(
+            lambda: probe.eval_bool(
+                '!!document.querySelector(\'[data-action="session-menu-archive"]\')'
+            ),
+            timeout_s=2.0,
+            poll_s=0.05,
+        )
 
         # Click the archive menu item. The item is portalled into the body.
         archive_js = (

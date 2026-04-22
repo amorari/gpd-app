@@ -10,7 +10,16 @@ const parseUrl = (input: string) => {
   }
 }
 
-const parseAnySchemeUrl = (input: string) => {
+const APP_SCHEMES = ["gpd://", "opencode://"]
+
+/**
+ * Accepts both `gpd://` and `opencode://` URLs. Use for helpers that
+ * the Tauri desktop app can legitimately invoke via its own registered
+ * scheme. For helpers that must be pinned to a single scheme, use the
+ * private `parseUrl` above.
+ */
+const parseAppSchemeUrl = (input: string) => {
+  if (!APP_SCHEMES.some((s) => input.startsWith(s))) return
   if (typeof URL.canParse === "function" && !URL.canParse(input)) return
   try {
     return new URL(input)
@@ -45,17 +54,30 @@ export const collectOpenProjectDeepLinks = (urls: string[]) =>
 export const collectNewSessionDeepLinks = (urls: string[]) =>
   urls.map(parseNewSessionDeepLink).filter((link): link is { directory: string; prompt?: string } => !!link)
 
+/**
+ * Parse a `gpd://session/<sessionID>` or `opencode://session/<sessionID>`
+ * deep link. Returns `undefined` for any scheme not on the app allowlist.
+ */
 export const parseSessionDeepLink = (input: string) => {
-  const url = parseAnySchemeUrl(input)
+  const url = parseAppSchemeUrl(input)
   if (!url) return
   if (url.hostname !== "session") return
-  const id = url.pathname.replace(/^\/+/, "")
+  const id = url.pathname.replace(/^\/+/, "").replace(/\/+$/, "")
   if (!id) return
   return id
 }
 
 export const collectSessionDeepLinks = (urls: string[]) =>
   urls.map(parseSessionDeepLink).filter((id): id is string => !!id)
+
+/**
+ * When multiple session deep links arrive in a batch, only the LAST one
+ * should determine the final navigation.
+ */
+export const lastSessionDeepLink = (urls: string[]): string | undefined => {
+  const ids = collectSessionDeepLinks(urls)
+  return ids.length ? ids[ids.length - 1] : undefined
+}
 
 type OpenCodeWindow = Window & {
   __OPENCODE__?: {

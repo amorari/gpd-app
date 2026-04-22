@@ -415,12 +415,16 @@ class HTTPClient:
         branch: str | None = None,
         extra: Any = None,
         id: str | None = None,
+        directory: str | None = None,
     ) -> dict[str, Any]:
         """POST /experimental/workspace — create a workspace in the current project.
 
         Body is ``Workspace.CreateInput`` minus ``projectID`` (the server
         attaches the current project id). ``type`` must match a registered
         adaptor name (e.g. ``"worktree"``); invalid types return 400.
+
+        Pass ``directory`` to route the request to a specific project instance
+        (required when the sidecar's default project is not a git repo).
         """
         body: dict[str, Any] = {"type": type}
         if id is not None:
@@ -429,7 +433,8 @@ class HTTPClient:
         # Always include them; the server's Zod schema expects nullable fields.
         body["branch"] = branch
         body["extra"] = extra
-        return self._post("/experimental/workspace", json=body)
+        params = {"directory": directory} if directory is not None else None
+        return self._post("/experimental/workspace", json=body, params=params)
 
     def get_workspace(self, workspace_id: str) -> dict[str, Any] | None:
         """Return the Workspace.Info whose ``id`` matches, or ``None``.
