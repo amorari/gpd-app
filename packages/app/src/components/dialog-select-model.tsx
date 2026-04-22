@@ -175,6 +175,7 @@ export function ModelSelectorPopover(props: {
                     class="size-6"
                     aria-label={language.t("command.provider.connect")}
                     onClick={handleConnectProvider}
+                    data-action="provider-connect"
                   />
                 </Tooltip>
                 <Tooltip placement="top" value={language.t("dialog.model.manage")}>

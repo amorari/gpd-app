@@ -80,6 +80,7 @@ export const DialogOpenOrCreateProject: Component<DialogOpenOrCreateProjectProps
             <button
               type="button"
               class="flex items-center gap-4 rounded-lg border border-border-weaker-base hover:border-border-weak-base bg-surface-raised-base hover:bg-surface-raised-stronger-base transition-colors px-4 py-3 text-left"
+              data-action="openorcreate-existing"
               onClick={() => {
                 dialog.close()
                 props.onOpenExisting()
@@ -96,6 +97,7 @@ export const DialogOpenOrCreateProject: Component<DialogOpenOrCreateProjectProps
             <button
               type="button"
               class="flex items-center gap-4 rounded-lg border border-border-weaker-base hover:border-border-weak-base bg-surface-raised-base hover:bg-surface-raised-stronger-base transition-colors px-4 py-3 text-left"
+              data-action="openorcreate-create"
               onClick={() => setMode("create")}
             >
               <Icon name="plus" size="large" class="text-text-weak shrink-0" />
@@ -119,13 +121,14 @@ export const DialogOpenOrCreateProject: Component<DialogOpenOrCreateProjectProps
             value={name()}
             onChange={(v) => setName(v)}
             autofocus
+            data-action="openorcreate-name-input"
           />
           <div class="flex flex-col gap-1">
             <div class="text-12-medium text-text-weak">
               {language.t("home.combinedPicker.create.parentLabel")}
             </div>
             <div class="flex items-center gap-2">
-              <Button variant="ghost" size="normal" onClick={pickParent}>
+              <Button variant="ghost" size="normal" onClick={pickParent} data-action="openorcreate-parent-button">
                 <Icon name="folder-add-left" size="small" />
                 {language.t("home.combinedPicker.create.chooseParent")}
               </Button>
@@ -151,6 +154,7 @@ export const DialogOpenOrCreateProject: Component<DialogOpenOrCreateProjectProps
               size="normal"
               disabled={busy() || !name().trim() || !parent()}
               onClick={submitCreate}
+              data-action="openorcreate-submit"
             >
               {busy() ? language.t("home.combinedPicker.create.creating") : language.t("home.combinedPicker.create.submit")}
             </Button>

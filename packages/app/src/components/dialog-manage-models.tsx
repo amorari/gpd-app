@@ -38,6 +38,7 @@ export const DialogManageModels: Component = () => {
         </Button>
       }
     >
+      <div data-component="dialog-manage-models">
       <List
         search={{ placeholder: language.t("dialog.model.search.placeholder"), autofocus: true }}
         emptyMessage={language.t("dialog.model.empty")}
@@ -60,6 +61,8 @@ export const DialogManageModels: Component = () => {
                   checked={providerVisible(provider.id)}
                   onChange={(checked) => setProviderVisibility(provider.id, checked)}
                   hideLabel
+                  data-action="manage-provider-toggle"
+                  data-provider-id={provider.id}
                 >
                   {provider.name}
                 </Switch>
@@ -91,11 +94,15 @@ export const DialogManageModels: Component = () => {
                 onChange={(checked) => {
                   local.model.setVisibility({ modelID: i.id, providerID: i.provider.id }, checked)
                 }}
+                data-action="manage-model-toggle"
+                data-model-id={i.id}
+                data-provider-id={i.provider.id}
               />
             </div>
           </div>
         )}
       </List>
+      </div>
     </Dialog>
   )
 }
