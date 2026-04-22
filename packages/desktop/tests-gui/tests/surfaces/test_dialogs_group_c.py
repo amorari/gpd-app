@@ -66,6 +66,7 @@ def prepared_project_path(tmp_path_factory) -> str:
     import subprocess
 
     p = tmp_path_factory.mktemp("gpd_proj_dialogs_c")
+    p = p.resolve()
     (p / "README.md").write_text("# dialogs group C test project\n")
     subprocess.run(["git", "init", str(p)], check=True, capture_output=True)
     subprocess.run(

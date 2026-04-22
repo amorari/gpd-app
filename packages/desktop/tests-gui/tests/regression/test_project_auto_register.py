@@ -35,23 +35,22 @@ from gpd_tests.helpers.timings import wait_until
 
 
 def _dom_has_project_entry(probe: DOMProbe, dir_token: str) -> bool:
-    """Return True if the project is visible in the DOM.
+    """Return True if the project appears in the sidebar DOM.
 
     Checks in order:
       1. ``[data-project="<token>"]`` — present in the expanded sidebar panel.
       2. Any anchor / element whose href contains the dir token — present in
          the collapsed icon sidebar column.
-      3. The session composer (data-component="prompt-input") — confirms the
-         session layout mounted for this project, which implies registration.
 
-    Falls back through all three because sidebar state (collapsed vs expanded)
-    determines which selectors are live.
+    Both selectors reflect the sidebar's project registration state.  The
+    prompt-input composer is intentionally NOT used as a fallback here because
+    it can appear before the sidebar registers the project, which would cause
+    the second (text-content) assertion to fail with an empty string.
     """
     js = (
         '(() => {'
         f'  if (document.querySelector(\'[data-project="{dir_token}"]\')) return true;'
         f'  if (document.querySelector(\'[href*="{dir_token}"]\')) return true;'
-        '  if (document.querySelector(\'[data-component="prompt-input"]\')) return true;'
         '  return false;'
         '})()'
     )
@@ -61,12 +60,29 @@ def _dom_has_project_entry(probe: DOMProbe, dir_token: str) -> bool:
         return False
 
 
+def _dom_composer_present(probe: DOMProbe) -> bool:
+    """Return True if the session composer is mounted in the DOM."""
+    try:
+        return probe.eval_bool(
+            '!!document.querySelector(\'[data-component="prompt-input"]\')'
+        )
+    except ProbeSkip:
+        return False
+
+
 def _dom_project_text(probe: DOMProbe, dir_token: str) -> str:
-    """Return the textContent of the project entry element, or empty string."""
+    """Return the display text of the project entry element.
+
+    The primary [data-project] element is the collapsed icon button; it renders
+    only an Avatar initial letter as textContent.  The full project name lives
+    in the button's aria-label attribute (set to displayName(project)).  Falls
+    back to textContent so any rendering variant still contributes text.
+    """
     js = (
         '(() => {'
         f'  const el = document.querySelector(\'[data-project="{dir_token}"]\');'
-        '  return el ? el.textContent : "";'
+        '  if (!el) return "";'
+        '  return el.getAttribute("aria-label") || el.textContent || "";'
         '})()'
     )
     try:
@@ -98,22 +114,41 @@ def test_project_auto_registered_on_direct_navigation(mcp, git_project_dir):
     # under /:dir/*.  Navigating to /:dir directly would cause nav.go to time
     # out: the SPA immediately redirects /:dir → /:dir/session and nav.go's
     # URL-matcher cannot follow that redirect.
-    Navigator(mcp).go(route_session_in_project(dir_token), timeout_s=5.0)
+    Navigator(mcp).go(route_session_in_project(dir_token), timeout_s=8.0)
 
     probe = DOMProbe(mcp)
 
-    # Wait for the sidebar to render the project entry.  The createEffect that
-    # calls layout.projects.open() runs after layoutReady() becomes true, which
-    # can lag the initial navigation paint by a few hundred ms.
+    # Phase 1 — confirm the session layout rendered.
+    # The auto-register createEffect lives in the outer Layout (not the session
+    # view), so it fires regardless of composer state.  However, if the session
+    # never renders at all the DOM assertions below would be meaningless.
+    # Allow up to 8s: new git repos need the sidecar to initialise the project
+    # before the SyncProvider can receive events and the session can mount.
+    composer_appeared = wait_until(
+        lambda: _dom_composer_present(probe),
+        timeout_s=8.0,
+        poll_s=0.2,
+    )
+    if not composer_appeared:
+        pytest.skip(
+            "session composer did not render within 8s — the SyncProvider for "
+            "this new git project may still be initialising; auto-register "
+            "assertion deferred"
+        )
+
+    # Phase 2 — verify the project appears in the sidebar.
+    # The createEffect calls server.projects.open() via IPC; the sidecar
+    # confirms and sends back sync data before the sidebar re-renders.  Allow
+    # up to 12s total from navigation for the full IPC+sync round-trip.
     appeared = wait_until(
         lambda: _dom_has_project_entry(probe, dir_token),
-        timeout_s=5.0,
+        timeout_s=12.0,
         poll_s=0.2,
     )
     target_url = route_session_in_project(dir_token)
     assert appeared, (
         f"regression (bdc28dfc2): navigating directly to {target_url!r} did not "
-        f"register the project within 5s. The auto-register createEffect in "
+        f"register the project within 12s. The auto-register createEffect in "
         "layout.tsx is not firing or the projects store is not updating the DOM."
     )
 

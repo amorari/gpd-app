@@ -195,6 +195,7 @@ def test_fork_dialog_opens_with_message_list(http, mcp, os_input, anthropic_key)
 def _temp_project(tmp_path_factory) -> str:
     """A real on-disk directory GPD will treat as a project."""
     p = tmp_path_factory.mktemp("gpd_del_proj_test")
+    p = p.resolve()
     (p / "README.md").write_text("# delete project test\n")
     return str(p)
 

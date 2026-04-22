@@ -1,6 +1,7 @@
 """Phase 3 flow: gpd://session/<id> deep link resolves to the session route."""
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -126,10 +127,42 @@ def _scheme_ambiguity() -> str | None:
     return None
 
 
+def _try_register_dev_build() -> None:
+    """Attempt to register the dev build URL scheme via lsregister -f.
+
+    Idempotent: lsregister -f on an already-registered bundle is a no-op.
+    This enables the deep-link test to self-register on first run without
+    requiring a separate `lsregister` step in the developer setup docs.
+    """
+    lsr_path = Path(_LSREGISTER)
+    if not lsr_path.exists():
+        return
+    app_path = os.environ.get("GPD_APP_PATH")
+    if not app_path:
+        debug_app = (
+            Path(__file__).parents[4]
+            / "src-tauri" / "target" / "debug" / "bundle" / "macos" / "GPD Dev.app"
+        )
+        if debug_app.exists():
+            app_path = str(debug_app)
+    if not app_path:
+        return
+    try:
+        subprocess.run(
+            [str(lsr_path), "-f", app_path],
+            capture_output=True, check=False, timeout=10.0,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+
+
 @pytest.fixture(autouse=True)
 def _skip_on_scheme_ambiguity():
     """Skip this module's tests before any expensive fixture setup when
     gpd:// dispatch would be non-deterministic."""
+    # Attempt to register the dev build so "not registered" doesn't skip
+    # needlessly on the first run after a fresh build.
+    _try_register_dev_build()
     reason = _scheme_ambiguity()
     if reason:
         pytest.skip(reason)

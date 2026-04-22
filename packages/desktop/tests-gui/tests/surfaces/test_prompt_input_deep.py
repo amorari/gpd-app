@@ -15,6 +15,7 @@ leak into later tests.
 """
 from __future__ import annotations
 
+import subprocess
 import time
 
 import pytest
@@ -29,18 +30,79 @@ from gpd_tests.helpers.navigator import (
 
 @pytest.fixture
 def prepared_project_path(tmp_path_factory) -> str:
-    """On-disk directory that GPD will treat as a project."""
+    """On-disk git repo that GPD will treat as a project."""
     p = tmp_path_factory.mktemp("gpd_proj_prompt_deep")
+    # Resolve symlinks: on macOS /var → /private/var; the sidecar normalises
+    # paths to their canonical form so we must use the same form throughout.
+    p = p.resolve()
     (p / "README.md").write_text("# test project\n")
+    subprocess.run(["git", "init", str(p)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(p), "commit", "--allow-empty", "-m", "init"],
+        check=True, capture_output=True,
+    )
     return str(p)
 
 
-def _session_route(path: str) -> str:
-    return route_session_in_project(encode_dir_token(path))
+_JS_FALSY = {"false", "null", "undefined", "nan", "0", ""}
 
 
-def _goto_session(mcp, path: str) -> None:
-    Navigator(mcp).go(_session_route(path), timeout_s=5.0)
+def _exit_shell_mode(mcp) -> None:
+    """Exit shell mode via JS command, falling back to Cmd+Shift+E.
+
+    New sessions created via HTTP may start in shell mode, hiding model/
+    agent/variant/skills controls wrapped in <Show when={mode !== "shell"}>.
+    """
+    # Fast path: invoke the registered command via the window global.
+    try:
+        mcp.execute_js(
+            '(() => {'
+            '  const cmd = window.__OPENCODE__?.commands?.get?.("prompt.mode.normal");'
+            '  if (cmd) { cmd.execute?.(); return "ok"; } return "noop";'
+            '})()'
+        )
+        time.sleep(0.05)
+    except Exception:
+        pass
+
+    # Verify; if still in shell mode send key sequence.
+    try:
+        raw = str(mcp.execute_js(
+            '!!document.querySelector("[data-action=\\"prompt-model\\"]")'
+        ) or "").strip().lower()
+        if raw not in _JS_FALSY:
+            return  # model control is visible — not in shell mode
+    except Exception:
+        return
+
+    # Slow path: Cmd+Shift+E (key code 14) via osascript.
+    from gpd_tests.pages.app_state import _APP_NAME
+    subprocess.run(
+        ["osascript", "-e",
+         f'tell application "System Events" to tell process "{_APP_NAME}" '
+         "to key code 14 using {command down, shift down}"],
+        capture_output=True, check=False, timeout=3.0,
+    )
+    time.sleep(0.15)
+
+
+def _goto_session(mcp, http, path: str) -> str:
+    """Create a session via HTTP and navigate to the specific session page.
+
+    Returns the session id so callers can clean up if needed.
+    Navigating to /<dir>/session/<id> (not the list) ensures model/agent/
+    skills controls are visible in the composer. Shell mode is exited
+    after navigation so controls hidden by <Show when={mode !== "shell"}>
+    become available.
+    """
+    ses = http.create_session(directory=path)
+    sid = ses["id"]
+    Navigator(mcp).go(
+        route_session_in_project(encode_dir_token(path), sid),
+        timeout_s=8.0,
+    )
+    _exit_shell_mode(mcp)
+    return sid
 
 
 def _dismiss_any_overlay(probe: DOMProbe, os_input) -> None:
@@ -86,9 +148,15 @@ def _focus_editor(probe: DOMProbe) -> bool:
 
 
 def _submit_disabled(probe: DOMProbe) -> bool | None:
-    """True / False / None(unknown-skip) for whether every submit button is disabled."""
+    """True / False / None(buttons not mounted or bridge unavailable).
+
+    Returns None when the submit button is absent so callers can distinguish
+    "button missing" from "button present but enabled".  Uses probe.eval()
+    instead of eval_bool() because the MCP bridge serialises JS null as the
+    string "null", which eval_bool() would convert to False rather than None.
+    """
     try:
-        return probe.eval_bool(
+        raw = probe.eval(
             '(() => {'
             '  const btns = Array.from(document.querySelectorAll('
             '    "button[data-action=\\"prompt-submit\\"][type=\\"submit\\"]"'
@@ -101,6 +169,13 @@ def _submit_disabled(probe: DOMProbe) -> bool | None:
         )
     except ProbeSkip:
         return None
+    if raw is None or (isinstance(raw, str) and raw.strip().lower() == "null"):
+        return None
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.strip().lower() not in {"false", "0", ""}
+    return bool(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -108,13 +183,13 @@ def _submit_disabled(probe: DOMProbe) -> bool | None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.surfaces
-def test_prompt_submit_disabled_on_empty(mcp, prepared_project_path):
+def test_prompt_submit_disabled_on_empty(mcp, http, prepared_project_path):
     """Cross-ref of test_session.test_send_button_disabled_on_empty_input.
 
     Kept here so the deep suite is self-contained and the invariant is
     verified before the enabling/typing test below.
     """
-    _goto_session(mcp, prepared_project_path)
+    _goto_session(mcp, http, prepared_project_path)
     probe = DOMProbe(mcp)
     # Poll until the button is confirmed disabled (or timeout). Breaking on
     # the first non-None value races the initial render frame where the button
@@ -137,9 +212,9 @@ def test_prompt_submit_disabled_on_empty(mcp, prepared_project_path):
 
 @pytest.mark.surfaces
 @pytest.mark.steals_focus
-def test_prompt_submit_enabled_after_typing(mcp, ax, os_input, prepared_project_path):
+def test_prompt_submit_enabled_after_typing(mcp, http, ax, os_input, prepared_project_path):
     """Type a single char via os_input; submit should flip enabled → True."""
-    _goto_session(mcp, prepared_project_path)
+    _goto_session(mcp, http, prepared_project_path)
     probe = DOMProbe(mcp)
 
     disabled_before = _submit_disabled(probe)
@@ -192,7 +267,7 @@ def test_prompt_submit_enabled_after_typing(mcp, ax, os_input, prepared_project_
 # ---------------------------------------------------------------------------
 
 @pytest.mark.surfaces
-def test_prompt_attach_button_present_and_reachable(mcp, os_input, prepared_project_path):
+def test_prompt_attach_button_present_and_reachable(mcp, http, os_input, prepared_project_path):
     """The attach button exists and is clickable.
 
     Clicking it triggers a native file picker; we do NOT click it from
@@ -202,7 +277,7 @@ def test_prompt_attach_button_present_and_reachable(mcp, os_input, prepared_proj
     it by dispatching a click via execute_js, then immediately pressing
     Escape to dismiss any file chooser that surfaces.
     """
-    _goto_session(mcp, prepared_project_path)
+    _goto_session(mcp, http, prepared_project_path)
     probe = DOMProbe(mcp)
     try:
         present = probe.eval_bool(
@@ -251,8 +326,8 @@ def test_prompt_attach_button_present_and_reachable(mcp, os_input, prepared_proj
 # ---------------------------------------------------------------------------
 
 @pytest.mark.surfaces
-def test_prompt_agent_trigger_opens_picker(mcp, os_input, prepared_project_path):
-    _goto_session(mcp, prepared_project_path)
+def test_prompt_agent_trigger_opens_picker(mcp, http, os_input, prepared_project_path):
+    _goto_session(mcp, http, prepared_project_path)
     probe = DOMProbe(mcp)
     try:
         present = probe.eval_bool(
@@ -315,8 +390,8 @@ def test_prompt_agent_trigger_opens_picker(mcp, os_input, prepared_project_path)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.surfaces
-def test_prompt_model_trigger_opens_picker(mcp, os_input, prepared_project_path):
-    _goto_session(mcp, prepared_project_path)
+def test_prompt_model_trigger_opens_picker(mcp, http, os_input, prepared_project_path):
+    _goto_session(mcp, http, prepared_project_path)
     probe = DOMProbe(mcp)
     try:
         present = probe.eval_bool(
@@ -376,13 +451,13 @@ def test_prompt_model_trigger_opens_picker(mcp, os_input, prepared_project_path)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.surfaces
-def test_prompt_model_variant_trigger_presence(mcp, prepared_project_path):
+def test_prompt_model_variant_trigger_presence(mcp, http, prepared_project_path):
     """The variant trigger is always rendered in normal mode (per component
     source), but its list may be just ``["default"]`` for providers without
     variants. We only assert reachability — a click would cycle variants and
     mutate persisted state which is out of scope for a presence probe.
     """
-    _goto_session(mcp, prepared_project_path)
+    _goto_session(mcp, http, prepared_project_path)
     probe = DOMProbe(mcp)
     try:
         reachable = probe.eval_bool(
@@ -410,13 +485,13 @@ def test_prompt_model_variant_trigger_presence(mcp, prepared_project_path):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.surfaces
-def test_prompt_gpd_skills_trigger_presence(mcp, prepared_project_path):
+def test_prompt_gpd_skills_trigger_presence(mcp, http, prepared_project_path):
     """The GPD skills button is always rendered in normal mode. Clicking it
     triggers a dynamic import of DialogGpdSkills — we skip the click because
     the async import + dialog stack would add flake without exercising a
     distinct data-action.
     """
-    _goto_session(mcp, prepared_project_path)
+    _goto_session(mcp, http, prepared_project_path)
     probe = DOMProbe(mcp)
     try:
         reachable = probe.eval_bool(

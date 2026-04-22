@@ -68,6 +68,9 @@ def prepared_project_path(tmp_path_factory) -> str:
       (non-git projects cannot enable workspaces).
     """
     p = tmp_path_factory.mktemp("gpd_sidebar_actions")
+    # Resolve symlinks: on macOS /var → /private/var; the sidecar normalises
+    # paths to their canonical form so we must use the same form throughout.
+    p = p.resolve()
     (p / "README.md").write_text("# test project\n")
     subprocess.run(["git", "init", str(p)], check=True, capture_output=True)
     subprocess.run(["git", "add", "."], cwd=str(p), check=True, capture_output=True)
@@ -125,8 +128,39 @@ def test_session_archive_via_session_menu(mcp, http, prepared_project_path):
 
     try:
         nav = Navigator(mcp)
+        # Navigate home then session list to register the project in the
+        # sidecar and prime the SSE session-list sync before going to the
+        # specific session URL. Without this warmup, messagesReady() can
+        # be slow to become true on first visit to a brand-new project.
+        nav.go(route_home(), timeout_s=5.0)
+        time.sleep(0.5)
+        nav.go(list_route, timeout_s=8.0)
+        time.sleep(1.0)
         nav.go(session_route, timeout_s=8.0)
         probe = DOMProbe(mcp)
+
+        # Wait for the session-menu-open anchor to mount.
+        # MessageTimeline renders only after messagesReady() is true
+        # (sync.data.message[id] !== undefined). For a fresh empty session
+        # the SSE sync fires shortly after navigation; allow up to 20s.
+        menu_open_sel = '[data-action="session-menu-open"]'
+        deadline_mount = time.monotonic() + 20.0
+        menu_ready = False
+        while time.monotonic() < deadline_mount:
+            try:
+                menu_ready = probe.eval_bool(
+                    f'!!document.querySelector({menu_open_sel!r})'
+                )
+            except ProbeSkip as e:
+                pytest.skip(f"execute_js unavailable ({e})")
+            if menu_ready:
+                break
+            time.sleep(0.2)
+        if not menu_ready:
+            pytest.skip(
+                'data-action="session-menu-open" not found after 20s; '
+                'session page may not have mounted yet'
+            )
 
         # Open the more-options dropdown.
         open_js = (
@@ -263,57 +297,100 @@ def test_project_workspaces_toggle(mcp, http, prepared_project_path):
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable ({e})")
 
-        # Open the project-menu DropdownMenu.
+        toggle_sel = '[data-action="project-workspaces-toggle"]'
+        # Open the project-menu DropdownMenu, poll for the toggle to appear
+        # AND be enabled. Retry up to 5× (2s apart) because the sidecar may
+        # not deliver vcs:"git" to the frontend store before the first open.
         open_menu_js = (
             '(() => {'
             f'  const btn = document.querySelector({project_menu_sel!r});'
             '  if (!btn) return "missing";'
+            '  btn.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, cancelable: true}));'
+            '  btn.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, cancelable: true}));'
             '  btn.click();'
             '  return "clicked";'
             '})()'
         )
-        try:
-            open_result = probe.eval(open_menu_js)
-        except ProbeSkip as e:
-            pytest.skip(f"execute_js unavailable ({e})")
-
-        if str(open_result).strip('"') == "missing":
-            pytest.skip("data-action=\"project-menu\" disappeared before click")
-
-        # Allow portal to mount.
-        time.sleep(0.3)
-
-        # Click the workspaces toggle item.
-        toggle_sel = '[data-action="project-workspaces-toggle"]'
         toggle_js = (
             '(() => {'
             f'  const item = document.querySelector({toggle_sel!r});'
             '  if (!item) return "missing";'
             '  if (item.dataset.disabled === "" || item.getAttribute("aria-disabled") === "true")'
             '    return "disabled";'
-            '  item.click();'
+            # Kobalte DropdownMenu.Item fires onSelect via its onPointerUp handler
+            # (not onClick).  Dispatch the full pointer sequence so the handler fires.
+            '  const opts = {bubbles: true, cancelable: true, button: 0, isPrimary: true, pointerType: "mouse"};'
+            '  item.dispatchEvent(new PointerEvent("pointerdown", {...opts, buttons: 1}));'
+            '  item.dispatchEvent(new PointerEvent("pointerup",   {...opts, buttons: 0}));'
             '  return "clicked";'
             '})()'
         )
-        try:
-            toggle_result = probe.eval(toggle_js)
-        except ProbeSkip as e:
-            pytest.skip(f"execute_js unavailable ({e})")
+        dismiss_js = (
+            'document.dispatchEvent(new KeyboardEvent("keydown",'
+            ' {key: "Escape", bubbles: true, cancelable: true}))'
+        )
 
-        toggle_str = str(toggle_result).strip('"')
+        toggle_str = "missing"
+        for attempt in range(5):
+            # Open the menu.
+            try:
+                open_result = probe.eval(open_menu_js)
+            except ProbeSkip as e:
+                pytest.skip(f"execute_js unavailable ({e})")
+
+            if str(open_result).strip('"') == "missing":
+                pytest.skip("data-action=\"project-menu\" disappeared before click")
+
+            # Poll for portal to mount with toggle item present.
+            found_deadline = time.monotonic() + 3.0
+            toggle_in_dom = False
+            while time.monotonic() < found_deadline:
+                try:
+                    toggle_in_dom = probe.eval_bool(
+                        f'!!document.querySelector({toggle_sel!r})'
+                    )
+                except ProbeSkip as e:
+                    pytest.skip(f"execute_js unavailable ({e})")
+                if toggle_in_dom:
+                    break
+                time.sleep(0.1)
+
+            if not toggle_in_dom:
+                pytest.skip(
+                    "data-action=\"project-workspaces-toggle\" not found in open menu; "
+                    "the portal may not have mounted"
+                )
+
+            try:
+                toggle_result = probe.eval(toggle_js)
+            except ProbeSkip as e:
+                pytest.skip(f"execute_js unavailable ({e})")
+
+            toggle_str = str(toggle_result).strip('"')
+            if toggle_str != "disabled":
+                break
+
+            # Dismiss the menu and wait for the sidecar vcs detection to
+            # propagate via SSE before retrying.
+            try:
+                probe.eval(dismiss_js)
+            except ProbeSkip:
+                pass
+            time.sleep(2.0)
+
         if toggle_str == "missing":
             pytest.skip(
-                "data-action=\"project-workspaces-toggle\" not found in open menu; "
-                "the portal may not have mounted"
+                "data-action=\"project-workspaces-toggle\" disappeared after polling; "
+                "portal unmounted unexpectedly"
             )
         if toggle_str == "disabled":
             pytest.skip(
-                "project-workspaces-toggle is disabled for this project "
-                "(non-git project cannot enable workspaces)"
+                "project-workspaces-toggle is still disabled after 5 retries; "
+                "sidecar did not detect the project as a git repo in time"
             )
 
         # Allow the toggle mutation (store update + re-render) to settle.
-        time.sleep(0.5)
+        time.sleep(2.0)
 
         # Assert the DOM changed from the pre-toggle state.
         try:

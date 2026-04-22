@@ -16,6 +16,7 @@ import glob
 import json
 import os
 import socket
+import time as _time
 import uuid
 from typing import Any
 
@@ -68,11 +69,16 @@ class MCPClient:
             req["authToken"] = self._auth
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(self._timeout)
+        deadline = _time.monotonic() + self._timeout
         try:
             sock.connect(self._path)
             sock.sendall((json.dumps(req) + "\n").encode())
             buf = b""
             while b"\n" not in buf:
+                remaining = deadline - _time.monotonic()
+                if remaining <= 0:
+                    raise socket.timeout("overall deadline exceeded")
+                sock.settimeout(min(remaining, self._timeout))
                 chunk = sock.recv(65536)
                 if not chunk:
                     break

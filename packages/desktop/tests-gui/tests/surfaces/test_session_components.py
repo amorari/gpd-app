@@ -24,6 +24,7 @@ shape of the assertion is exercised.
 """
 from __future__ import annotations
 
+import subprocess
 import time
 import uuid
 
@@ -33,6 +34,7 @@ from gpd_tests.helpers.dom_probe import DOMProbe, ProbeSkip
 from gpd_tests.helpers.navigator import (
     Navigator,
     encode_dir_token,
+    route_home,
     route_session_in_project,
 )
 from gpd_tests.helpers.timings import wait_until
@@ -44,12 +46,33 @@ from gpd_tests.helpers.timings import wait_until
 @pytest.fixture
 def prepared_project_path(tmp_path_factory) -> str:
     p = tmp_path_factory.mktemp("gpd_proj_session_components")
+    # Resolve symlinks: on macOS /var → /private/var; the sidecar normalises
+    # paths to their canonical form so we must use the same form throughout.
+    p = p.resolve()
     (p / "README.md").write_text("# test project\n")
+    subprocess.run(["git", "init", str(p)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(p), "commit", "--allow-empty", "-m", "init"],
+        check=True, capture_output=True,
+    )
     return str(p)
 
 
 def _session_list_route(path: str) -> str:
     return route_session_in_project(encode_dir_token(path))
+
+
+def _goto_session_list(mcp, path: str) -> None:
+    """Navigate home first, then to the session list for the project.
+
+    The home navigation triggers a global sync that registers the project
+    in the sidecar and primes the SSE session-list stream, which is required
+    for session rows to appear in the sidebar within a reasonable timeout.
+    """
+    nav = Navigator(mcp)
+    nav.go(route_home(), timeout_s=5.0)
+    time.sleep(0.5)
+    nav.go(_session_list_route(path), timeout_s=8.0)
 
 
 def _safe_delete(http, sid: str) -> None:
@@ -81,18 +104,18 @@ def test_session_list_renders_at_least_one_item_after_create(
     sid = ses.get("id")
     assert sid, f"create_session returned no id: {ses!r}"
     try:
-        Navigator(mcp).go(_session_list_route(prepared_project_path), timeout_s=5.0)
+        _goto_session_list(mcp, prepared_project_path)
         probe = DOMProbe(mcp)
         # Session rows are streamed into the DOM via a syncing store; poll
         # briefly to avoid racing the first paint.
         appeared = wait_until(
             lambda: _dom_has_session_row(probe, sid),
-            timeout_s=5.0,
+            timeout_s=20.0,
             poll_s=0.2,
         )
         if not appeared:
             pytest.skip(
-                f"session row data-session-id={sid!r} did not appear within 5s "
+                f"session row data-session-id={sid!r} did not appear within 20s "
                 "(sidebar may be collapsed off-screen, or sync-latency varies)"
             )
         assert appeared
@@ -112,14 +135,13 @@ def test_session_item_click_navigates_to_session_route(
     sid = ses.get("id")
     assert sid, f"create_session returned no id: {ses!r}"
     try:
-        nav = Navigator(mcp)
-        nav.go(_session_list_route(prepared_project_path), timeout_s=5.0)
+        _goto_session_list(mcp, prepared_project_path)
         probe = DOMProbe(mcp)
 
         # Wait for the row to hydrate before clicking.
         if not wait_until(
             lambda: _dom_has_session_row(probe, sid),
-            timeout_s=5.0,
+            timeout_s=20.0,
             poll_s=0.2,
         ):
             pytest.skip(
@@ -289,14 +311,14 @@ def test_session_delete_via_ui_removes_from_list(
     sid = ses.get("id")
     assert sid, f"create_session returned no id: {ses!r}"
 
-    Navigator(mcp).go(_session_list_route(prepared_project_path), timeout_s=5.0)
+    _goto_session_list(mcp, prepared_project_path)
     probe = DOMProbe(mcp)
 
     # Wait for the row to exist before we delete it; otherwise an asynchronous
     # render could make the "disappears" assertion vacuous.
     if not wait_until(
         lambda: _dom_has_session_row(probe, sid),
-        timeout_s=5.0,
+        timeout_s=20.0,
         poll_s=0.2,
     ):
         _safe_delete(http, sid)
@@ -312,7 +334,7 @@ def test_session_delete_via_ui_removes_from_list(
     def _row_gone() -> bool:
         return not _dom_has_session_row(probe, sid)
 
-    disappeared = wait_until(_row_gone, timeout_s=10.0, poll_s=0.2)
+    disappeared = wait_until(_row_gone, timeout_s=30.0, poll_s=0.2)
     assert disappeared, (
         f"session row [data-session-id={sid!r}] still present in DOM after "
         "DELETE /session/:sid"

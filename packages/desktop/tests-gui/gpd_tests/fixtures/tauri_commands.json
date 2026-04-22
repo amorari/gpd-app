@@ -2,7 +2,7 @@
   {
     "name": "install_cli",
     "file": "cli.rs",
-    "line": 129,
+    "line": 152,
     "signature": "pub fn install_cli(app: tauri::AppHandle) -> Result<String, String>",
     "async": false
   },
@@ -37,70 +37,70 @@
   {
     "name": "kill_sidecar",
     "file": "lib.rs",
-    "line": 77,
+    "line": 78,
     "signature": "fn kill_sidecar(app: AppHandle)",
     "async": false
   },
   {
     "name": "await_initialization",
     "file": "lib.rs",
-    "line": 100,
+    "line": 110,
     "signature": "async fn await_initialization(\n    state: State<'_, SidecarReady>,\n    init_state: State<'_, InitState>,\n    events: Channel<InitStep>,\n) -> Result<ServerReadyData, String>",
     "async": true
   },
   {
     "name": "check_app_exists",
     "file": "lib.rs",
-    "line": 137,
+    "line": 147,
     "signature": "fn check_app_exists(app_name: &str) -> bool",
     "async": false
   },
   {
     "name": "resolve_app_path",
     "file": "lib.rs",
-    "line": 156,
+    "line": 166,
     "signature": "fn resolve_app_path(app_name: &str) -> Option<String>",
     "async": false
   },
   {
     "name": "open_path",
     "file": "lib.rs",
-    "line": 172,
+    "line": 182,
     "signature": "fn open_path(_app: AppHandle, path: String, app_name: Option<String>) -> Result<(), String>",
     "async": false
   },
   {
     "name": "get_display_backend",
     "file": "lib.rs",
-    "line": 235,
+    "line": 245,
     "signature": "fn get_display_backend() -> Option<LinuxDisplayBackend>",
     "async": false
   },
   {
     "name": "set_display_backend",
     "file": "lib.rs",
-    "line": 252,
+    "line": 262,
     "signature": "fn set_display_backend(_app: AppHandle, _backend: LinuxDisplayBackend) -> Result<(), String>",
     "async": false
   },
   {
     "name": "read_third_party_notices",
     "file": "lib.rs",
-    "line": 276,
+    "line": 286,
     "signature": "fn read_third_party_notices(app: AppHandle) -> Result<String, String>",
     "async": false
   },
   {
     "name": "read_license",
     "file": "lib.rs",
-    "line": 283,
+    "line": 293,
     "signature": "fn read_license(app: AppHandle) -> Result<String, String>",
     "async": false
   },
   {
     "name": "wsl_path",
     "file": "lib.rs",
-    "line": 298,
+    "line": 308,
     "signature": "fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String>",
     "async": false
   },

@@ -13,6 +13,7 @@ from gpd_tests.helpers.navigator import (
 def prepared_project_path(tmp_path_factory) -> str:
     """Create an on-disk directory that GPD will treat as a project."""
     p = tmp_path_factory.mktemp("gpd_proj")
+    p = p.resolve()
     (p / "README.md").write_text("# test project\n")
     return str(p)
 

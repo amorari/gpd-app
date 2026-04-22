@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 
 import pytest
 
@@ -256,6 +257,13 @@ def test_multi_setting_persistence_across_quit_relaunch(http, mcp, app_state):
         )
 
         # --- 4. Destructive: quit + relaunch ----------------------------
+        #
+        # WebKit's localStorage.setItem() flushes to the SQLite WAL
+        # asynchronously (~500ms after the JS call returns). Without a
+        # brief wait here, the quit races the WAL write and the values
+        # are lost on restart. 1.5 s is comfortably past the observed
+        # ~500 ms flush window measured on macOS.
+        time.sleep(1.5)
 
         app_state.quit()
         app_state.wait_quit(timeout_s=15)

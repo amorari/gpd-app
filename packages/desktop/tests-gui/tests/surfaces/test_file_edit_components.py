@@ -74,6 +74,7 @@ def prepared_project_path(tmp_path_factory) -> str:
     Only touches ``tmp_path_factory`` — no user files.
     """
     p = tmp_path_factory.mktemp("gpd_proj_file_edit")
+    p = p.resolve()
     (p / "README.md").write_text("# file-edit test project\n")
     (p / _FIXTURE_FILENAME).write_text(_INITIAL_CONTENTS)
     return str(p)

@@ -136,6 +136,14 @@ def pytest_configure(config):
         raise pytest.UsageError(
             "This suite is single-instance only; pytest-xdist would corrupt state."
         )
+    # Set GPD_APP_PATH to the debug build so harness_selftest can resolve it.
+    if not os.environ.get("GPD_APP_PATH"):
+        debug_app = (
+            Path(__file__).parent.parent
+            / "src-tauri" / "target" / "debug" / "bundle" / "macos" / "GPD Dev.app"
+        )
+        if debug_app.exists():
+            os.environ["GPD_APP_PATH"] = str(debug_app)
 
 
 def _auth_json_path() -> Path:
@@ -280,8 +288,68 @@ def _dismiss_native_dialogs() -> None:
     _time.sleep(0.3)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _webview_server():
+    """Serve the built frontend on http://localhost:1420 for the test session.
+
+    The debug Tauri binary loads the webview from devUrl (http://localhost:1420)
+    rather than embedded assets. This fixture starts a minimal static HTTP
+    server on that port so the webview can load the frontend and register the
+    tauri-plugin-mcp guest-js execute-js listener. Without it, execute_js
+    always times out and the webview never responds.
+
+    Skipped (server not started) if port 1420 is already bound — the developer
+    already has their own dev server running and we should not compete with it.
+    """
+    import socket
+    import threading
+    import http.server
+
+    dist_dir = Path(__file__).parent.parent / "dist"
+    if not dist_dir.exists():
+        # Dist not built — skip silently; tests that need execute_js will
+        # still fail, but that's expected and not this fixture's fault.
+        yield
+        return
+
+    # Check if something is already listening on 1420.
+    sock_probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock_probe.settimeout(0.5)
+    already_bound = sock_probe.connect_ex(("127.0.0.1", 1420)) == 0
+    sock_probe.close()
+    if already_bound:
+        yield
+        return
+
+    class _SPAHandler(http.server.SimpleHTTPRequestHandler):
+        """Serve static files; fall back to index.html for SPA routes."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(dist_dir), **kwargs)
+
+        def log_message(self, *_args):
+            pass  # silence request logging
+
+        def do_GET(self):
+            # Serve the file if it exists; otherwise serve index.html so the
+            # SolidJS router can handle client-side navigation.
+            path = dist_dir / self.path.lstrip("/").split("?")[0]
+            if not path.exists() or path.is_dir():
+                self.path = "/index.html"
+            super().do_GET()
+
+    server = http.server.HTTPServer(("127.0.0.1", 1420), _SPAHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        server.shutdown()
+        thread.join(timeout=5.0)
+
+
 @pytest.fixture(scope="session")
-def app_state():
+def app_state(_webview_server):
     global _session_app_state
     from gpd_tests.pages.app_state import AppState
 
@@ -443,6 +511,40 @@ def pytest_runtest_setup(item):
             )
         except Exception:
             pass  # best-effort; never block a test over an activate failure
+
+    # Exit shell mode if active so model/agent/skills controls are visible.
+    # Shell mode hides these controls (prompt-input.tsx:1554) and causes
+    # surfaces tests to skip with "composer in shell mode?".
+    if "surfaces" in markers:
+        try:
+            from gpd_tests.drivers.mcp import MCPClient
+            _mcp_tmp = MCPClient(timeout_s=3.0)
+            # Fast path: try to exit via the JS command system.
+            _mcp_tmp.execute_js(
+                '(() => { const cmd = window.__OPENCODE__?.commands?.get?.("prompt.mode.normal"); '
+                'if (cmd) cmd.execute?.(); })()'
+            )
+            # Slow path: send Cmd+Shift+E if prompt-model is still absent,
+            # which indicates the JS path didn't work (window.__OPENCODE__ not
+            # exposed) or the app is genuinely in shell mode.
+            import time as _time_b
+            _time_b.sleep(0.05)
+            _raw = str(_mcp_tmp.execute_js(
+                '!!document.querySelector("[data-action=\\"prompt-model\\"]")'
+            ) or "").strip().lower()
+            in_shell = _raw in ("false", "null", "undefined", "nan", "0", "")
+            if in_shell:
+                from gpd_tests.pages.app_state import _APP_NAME
+                import subprocess as _sp_b
+                _sp_b.run(
+                    ["osascript", "-e",
+                     f'tell application "System Events" to tell process "{_APP_NAME}" '
+                     'to key code 14 using {{command down, shift down}}'],
+                    capture_output=True, check=False, timeout=3.0,
+                )
+                _time_b.sleep(0.1)
+        except Exception:
+            pass
 
     # Tier/fresh_app reset.
 

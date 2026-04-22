@@ -46,7 +46,9 @@ APP_PATH = _default_app_path()
 # name — debug builds ship `GPD Dev.app/Contents/MacOS/GPD` (no " Dev"). Match
 # on the MacOS/ directory prefix so we don't have to replicate Tauri's naming.
 _APP_NAME = Path(APP_PATH).stem
-_PGREP_PATTERN = f"{_APP_NAME}.app/Contents/MacOS/"
+# Include the binary name so we match only the GPD main process and not the
+# opencode-cli sidecar (which also lives under Contents/MacOS/).
+_PGREP_PATTERN = f"{_APP_NAME}.app/Contents/MacOS/GPD"
 
 
 def _pgrep(pattern: str) -> list[int]:
@@ -226,9 +228,9 @@ class AppState:
         self._launched_pid = self.gpd_pid()
 
     def wait_launched(self, *, timeout_s: float = 20.0) -> None:
-        from gpd_tests.drivers.mcp import MCPClient
+        from gpd_tests.drivers.mcp import MCPClient, MCPError, MCPTimeout
 
-        def _ready() -> bool:
+        def _mcp_ready() -> bool:
             if not self.is_running():
                 return False
             try:
@@ -250,7 +252,7 @@ class AppState:
                     return True
                 return False
 
-        ok = wait_until(_ready, timeout_s=timeout_s)
+        ok = wait_until(_mcp_ready, timeout_s=timeout_s)
         if not ok:
             raise TimeoutError(
                 "GPD did not reach a running+socket state in time"
@@ -258,6 +260,90 @@ class AppState:
         # Rebind parent-PID tracking so sidecar_pid() matches the live tree
         # after restart/reset/manual relaunch.
         self.refresh_launched_pid()
+
+        # Wait for the opencode-cli sidecar to start.  The MCP socket being
+        # available only means the Tauri host is ready; the sidecar spawns
+        # asynchronously and may lag by several seconds on first launch.
+        # Tests that call http.rediscover() after a relaunch need sidecar_pid()
+        # to return a live PID, so we gate here rather than forcing every test
+        # to implement its own wait.
+        sidecar_ok = wait_until(
+            lambda: self.sidecar_pid() is not None,
+            timeout_s=15.0,
+        )
+        if not sidecar_ok:
+            raise TimeoutError(
+                "opencode-cli sidecar did not start within 15s of GPD launch"
+            )
+
+        # Wait for the webview JS bridge to be STABLY responsive.
+        # MCP ping only proves the socket listener is up; execute_js routes
+        # through the webview which mounts asynchronously.  On a cold start,
+        # the webview has a brief transient window (during SolidJS hydration)
+        # where execute_js succeeds for 1-2 calls then times out again.
+        # Requiring 3 consecutive successes filters out that transient state
+        # and ensures tests never trigger execute_js before it is truly ready.
+        #
+        # Recovery: if the bridge is dead because the webview was left at
+        # tauri://localhost/ from a previous run (cross-protocol navigation
+        # breaks Tauri IPC bridge injection in cfg(dev) mode), a one-time
+        # redirect to the devUrl (http://localhost:1420) restores the bridge
+        # immediately without a full GPD restart.
+        _consecutive_ok = [0]
+        _bridge_recovery_attempted = [False]
+        _bridge_fail_count = [0]
+        _RECOVERY_AFTER_FAILURES = 10  # ~20s at poll_s=2.0
+
+        def _js_bridge_ready() -> bool:
+            try:
+                MCPClient(timeout_s=3.0).execute_js("null")
+                _consecutive_ok[0] += 1
+                return _consecutive_ok[0] >= 3
+            except (FileNotFoundError, ConnectionRefusedError):
+                _consecutive_ok[0] = 0
+                _bridge_fail_count[0] += 1
+            except MCPTimeout:
+                _consecutive_ok[0] = 0
+                _bridge_fail_count[0] += 1
+            except MCPError as e:
+                msg = str(e).lower()
+                if "timeout" in msg:
+                    _consecutive_ok[0] = 0
+                    _bridge_fail_count[0] += 1
+                else:
+                    # Non-timeout MCPError (e.g. auth): bridge replied — count it.
+                    _consecutive_ok[0] += 1
+                    return _consecutive_ok[0] >= 3
+            except Exception:
+                _consecutive_ok[0] = 0
+                _bridge_fail_count[0] += 1
+
+            # After repeated failures, try once to redirect to the devUrl.
+            # This recovers from a stale tauri://localhost/ state left by a
+            # prior test run (navigating back to http://localhost:1420 re-injects
+            # the Tauri IPC bridge initialization scripts which are per-origin).
+            if (
+                not _bridge_recovery_attempted[0]
+                and _bridge_fail_count[0] >= _RECOVERY_AFTER_FAILURES
+            ):
+                _bridge_recovery_attempted[0] = True
+                try:
+                    # Only redirect if the webview is currently at tauri://.
+                    current = MCPClient(timeout_s=2.0).current_url()
+                    if current.startswith("tauri://"):
+                        MCPClient(timeout_s=5.0).navigate("http://localhost:1420")
+                except Exception:
+                    pass
+                _consecutive_ok[0] = 0  # reset counter after recovery attempt
+
+            return False
+
+        js_ok = wait_until(_js_bridge_ready, timeout_s=60.0, poll_s=2.0)
+        if not js_ok:
+            raise TimeoutError(
+                "GPD webview JS bridge (execute_js) did not reach stable "
+                "responsiveness within 60s of launch"
+            )
 
     def wait_quit(self, *, timeout_s: float = 10.0) -> None:
         ok = wait_until(lambda: not self.is_running(), timeout_s=timeout_s)

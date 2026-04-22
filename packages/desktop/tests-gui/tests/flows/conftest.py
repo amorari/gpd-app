@@ -18,7 +18,7 @@ def scratch_project_dir(tmp_path_factory) -> Path:
     sidecar's `directory` filter scopes `GET /session?directory=...` cleanly.
     """
     root = tmp_path_factory.mktemp(f"gpd-flow-{uuid.uuid4().hex[:8]}")
-    return root
+    return root.resolve()
 
 
 @pytest.fixture

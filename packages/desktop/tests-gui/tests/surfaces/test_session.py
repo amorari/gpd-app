@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from gpd_tests.helpers.dom_probe import DOMProbe, ProbeSkip
@@ -13,6 +15,7 @@ from gpd_tests.helpers.selectors import TEXT_PROMPT_PLACEHOLDER
 def prepared_project_path(tmp_path_factory) -> str:
     """Create an on-disk directory that GPD will treat as a project."""
     p = tmp_path_factory.mktemp("gpd_proj_session")
+    p = p.resolve()
     (p / "README.md").write_text("# test project\n")
     return str(p)
 
@@ -52,18 +55,39 @@ def test_composer_placeholder_present(mcp, prepared_project_path):
 def test_send_button_disabled_on_empty_input(mcp, prepared_project_path):
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
     probe = DOMProbe(mcp)
-    try:
-        disabled = probe.eval_bool(
-            '(() => {'
-            '  const btns = Array.from(document.querySelectorAll('
-            '    "button[data-action=\\"prompt-submit\\"][type=\\"submit\\"]"'
-            '  ));'
-            '  if (btns.length === 0) return false;'
-            '  return btns.every('
-            '    b => b.disabled || b.getAttribute("aria-disabled") === "true"'
-            '  );'
-            '})()'
-        )
-    except ProbeSkip as e:
-        pytest.skip(f"execute_js unavailable ({e})")
+    # Poll until the button is found and confirmed disabled (or timeout).
+    # JS returns null (→ Python "null" string) when the button isn't mounted
+    # yet; eval() is used instead of eval_bool() so we can distinguish that
+    # case from "button present but enabled" (which would be false).
+    deadline = time.monotonic() + 5.0
+    disabled = None
+    while time.monotonic() < deadline:
+        try:
+            raw = probe.eval(
+                '(() => {'
+                '  const btns = Array.from(document.querySelectorAll('
+                '    "button[data-action=\\"prompt-submit\\"][type=\\"submit\\"]"'
+                '  ));'
+                '  if (btns.length === 0) return null;'
+                '  return btns.every('
+                '    b => b.disabled || b.getAttribute("aria-disabled") === "true"'
+                '  );'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable ({e})")
+        if raw is None or (isinstance(raw, str) and raw.strip().lower() == "null"):
+            time.sleep(0.15)
+            continue
+        if isinstance(raw, bool):
+            disabled = raw
+        elif isinstance(raw, str):
+            disabled = raw.strip().lower() not in {"false", "0", ""}
+        else:
+            disabled = bool(raw)
+        if disabled:
+            break
+        time.sleep(0.15)
+    if disabled is None:
+        pytest.skip("prompt-submit button not mounted within 5s")
     assert disabled, "send button not disabled on empty composer"

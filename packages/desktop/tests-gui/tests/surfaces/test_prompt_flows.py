@@ -42,6 +42,7 @@ from gpd_tests.helpers.navigator import (
 def prepared_project_path(tmp_path_factory) -> str:
     """On-disk directory that GPD will treat as a project."""
     p = tmp_path_factory.mktemp("gpd_proj_prompt_flows")
+    p = p.resolve()
     (p / "README.md").write_text("# prompt flow test project\n")
     return str(p)
 
@@ -290,17 +291,24 @@ def test_slash_command_popover(mcp, http, prepared_project_path):
     sid = _goto_session(mcp, http, prepared_project_path)
     probe = DOMProbe(mcp)
     try:
-        # Verify the editor is present before doing anything.
-        try:
-            present = probe.eval_bool(
-                '(() => !!document.querySelector('
-                '"[data-component=\\"prompt-input\\"][contenteditable]"'
-                '))()'
-            )
-        except ProbeSkip as e:
-            pytest.skip(f"execute_js unavailable ({e})")
+        # Wait for the editor to mount after navigation. nav.go() resolves on
+        # URL match; the prompt-input component may still be rendering.
+        deadline_mount = time.monotonic() + 5.0
+        present = False
+        while time.monotonic() < deadline_mount:
+            try:
+                present = probe.eval_bool(
+                    '(() => !!document.querySelector('
+                    '"[data-component=\\"prompt-input\\"][contenteditable]"'
+                    '))()'
+                )
+            except ProbeSkip as e:
+                pytest.skip(f"execute_js unavailable ({e})")
+            if present:
+                break
+            time.sleep(0.2)
         if not present:
-            pytest.skip("prompt-input editor not found in DOM")
+            pytest.skip("prompt-input editor not found in DOM after 5s")
 
         if not _focus_editor(probe):
             pytest.skip("could not focus prompt-input editor")
@@ -310,7 +318,7 @@ def test_slash_command_popover(mcp, http, prepared_project_path):
             pytest.skip("could not inject text into prompt-input editor")
 
         # Poll until at least one slash-command item appears.
-        opened = _poll(_slash_popover_visible, timeout_s=3.0, poll_s=0.1)
+        opened = _poll(lambda: _slash_popover_visible(probe), timeout_s=3.0, poll_s=0.1)
 
         if opened is None:
             # execute_js became unavailable mid-test.
@@ -376,16 +384,23 @@ def test_at_mention_popover(mcp, http, prepared_project_path):
     sid = _goto_session(mcp, http, prepared_project_path)
     probe = DOMProbe(mcp)
     try:
-        try:
-            present = probe.eval_bool(
-                '(() => !!document.querySelector('
-                '"[data-component=\\"prompt-input\\"][contenteditable]"'
-                '))()'
-            )
-        except ProbeSkip as e:
-            pytest.skip(f"execute_js unavailable ({e})")
+        # Wait for the editor to mount after navigation.
+        deadline_mount = time.monotonic() + 5.0
+        present = False
+        while time.monotonic() < deadline_mount:
+            try:
+                present = probe.eval_bool(
+                    '(() => !!document.querySelector('
+                    '"[data-component=\\"prompt-input\\"][contenteditable]"'
+                    '))()'
+                )
+            except ProbeSkip as e:
+                pytest.skip(f"execute_js unavailable ({e})")
+            if present:
+                break
+            time.sleep(0.2)
         if not present:
-            pytest.skip("prompt-input editor not found in DOM")
+            pytest.skip("prompt-input editor not found in DOM after 5s")
 
         if not _focus_editor(probe):
             pytest.skip("could not focus prompt-input editor")
@@ -396,7 +411,7 @@ def test_at_mention_popover(mcp, http, prepared_project_path):
             pytest.skip("could not inject '@' into prompt-input editor")
 
         # Poll until the at-popover container appears.
-        opened = _poll(_at_popover_visible, timeout_s=3.0, poll_s=0.1)
+        opened = _poll(lambda: _at_popover_visible(probe), timeout_s=3.0, poll_s=0.1)
 
         if opened is None:
             _clear_editor(probe)

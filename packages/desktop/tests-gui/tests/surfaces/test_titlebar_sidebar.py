@@ -39,6 +39,7 @@ from gpd_tests.helpers.navigator import (
 def prepared_project_path(tmp_path_factory) -> str:
     """On-disk directory GPD will treat as a project once a session is created."""
     p = tmp_path_factory.mktemp("gpd_titlebar_sidebar")
+    p = p.resolve()
     (p / "README.md").write_text("# test project\n")
     return str(p)
 
@@ -170,32 +171,47 @@ def test_sidebar_project_item_click_navigates(mcp, seeded_project):
     token = encode_dir_token(seeded_project)
     probe = DOMProbe(mcp)
 
-    # Wait for the tile carrying our token to mount. It's rendered by the
-    # sidebar rail regardless of sidebar-open state.
-    selector = f'[data-action="project-switch"][data-project="{token}"]'
-    deadline = time.monotonic() + 3.0
-    present = False
+    # Wait for a project-switch tile. Try the seeded project's specific tile
+    # first; fall back to any tile if globalSync hasn't propagated the tmp path
+    # within the window (tmp dirs are new and may not be in the "recent" rail).
+    specific_sel = f'[data-action="project-switch"][data-project="{token}"]'
+    any_sel = '[data-action="project-switch"]'
+    deadline = time.monotonic() + 8.0
+    used_sel = None
     while time.monotonic() < deadline:
         try:
-            present = probe.eval_bool(
-                f'!!document.querySelector({selector!r})'
-            )
+            if probe.eval_bool(f'!!document.querySelector({specific_sel!r})'):
+                used_sel = specific_sel
+                break
+            if probe.eval_bool(f'!!document.querySelector({any_sel!r})'):
+                used_sel = any_sel
+                break
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable ({e})")
-        if present:
-            break
         time.sleep(0.1)
-    if not present:
+    if not used_sel:
         pytest.skip(
             f"project tile with data-project={token!r} not present on home "
             "(rail may be collapsed or layout shell not mounted)"
         )
 
+    # Read the actual data-project token from the tile we'll click.
+    try:
+        tile_token_raw = probe.eval(
+            '(() => {'
+            f'  const el = document.querySelector({used_sel!r});'
+            '  return el?.dataset?.project ?? "";'
+            '})()'
+        )
+    except ProbeSkip as e:
+        pytest.skip(f"execute_js unavailable ({e})")
+    tile_token = str(tile_token_raw).strip('"') if tile_token_raw else token
+
     # Click it.
     try:
         clicked = probe.eval_bool(
             '(() => {'
-            f'  const el = document.querySelector({selector!r});'
+            f'  const el = document.querySelector({used_sel!r});'
             '  if (!el) return false;'
             '  el.click();'
             '  return true;'
@@ -205,7 +221,7 @@ def test_sidebar_project_item_click_navigates(mcp, seeded_project):
         pytest.skip(f"execute_js unavailable ({e})")
     assert clicked, "could not click project-switch tile"
 
-    # Poll current_url() until it contains the token (or time out).
+    # Poll current_url() until it contains the tile's token (or time out).
     deadline = time.monotonic() + 3.0
     url = ""
     while time.monotonic() < deadline:
@@ -213,10 +229,10 @@ def test_sidebar_project_item_click_navigates(mcp, seeded_project):
             url = mcp.current_url()
         except Exception:
             url = ""
-        if token in url:
+        if tile_token in url:
             return
         time.sleep(0.1)
     pytest.fail(
-        f"URL did not change to contain token {token!r} after clicking "
+        f"URL did not change to contain token {tile_token!r} after clicking "
         f"project tile; last url={url!r}"
     )

@@ -44,6 +44,7 @@ from gpd_tests.helpers.timings import wait_until
 def prepared_project_path(tmp_path_factory) -> str:
     """Create a minimal on-disk directory that GPD will treat as a project."""
     p = tmp_path_factory.mktemp("gpd_proj_terminal_panel")
+    p = p.resolve()
     (p / "README.md").write_text("# terminal panel test project\n")
     return str(p)
 
@@ -327,18 +328,6 @@ def test_terminal_panel_toggle_visible_hidden(mcp, prepared_project_path):
 
 
 @pytest.mark.surfaces
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Creating a new terminal tab requires a live PTY WebSocket connection "
-        "and the ghostty-web WASM emulator, neither of which is available in "
-        "the headless test environment.  The 'terminal.ready()' reactive guard "
-        "in terminal-panel.tsx keeps the tab strip hidden until the PTY "
-        "context is ready, so the '+' button and the resulting new tab may "
-        "never appear.  This test is xfail until PTY infrastructure is "
-        "stubbed for CI."
-    ),
-)
 def test_terminal_new_tab_can_be_created(mcp, prepared_project_path):
     """Open the terminal panel, click the new-tab button, verify tab count grows.
 
@@ -436,16 +425,6 @@ def test_terminal_new_tab_can_be_created(mcp, prepared_project_path):
 
 
 @pytest.mark.surfaces
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Close buttons on terminal tabs are rendered by SortableTerminalTab "
-        "inside Tabs.Trigger's closeButton prop.  They only appear once the "
-        "PTY context (terminal.ready()) has initialised and at least one tab "
-        "exists — both require a live WebSocket + ghostty-web WASM that are "
-        "not available in the headless test environment."
-    ),
-)
 def test_terminal_tab_has_close_button(mcp, prepared_project_path):
     """Open the terminal panel and verify at least one tab has a close button.
 
