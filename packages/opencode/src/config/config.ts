@@ -1085,12 +1085,20 @@ export namespace Config {
   export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
 
   function globalConfigFile() {
-    const candidates = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
-      path.join(Global.Path.config, file),
-    )
+    // Prefer OPENCODE_CONFIG_DIR when set (Decision 0.A — Option B in
+    // docs/CONFIG_ARCHITECTURE.md). This makes PATCH /global/config
+    // write to the GPD-managed directory (~/.config/gpd/opencode.json)
+    // instead of the OpenCode default (~/.config/opencode/). Pair with
+    // the loadGlobal extension below so writes and reads agree.
+    const fileNames = ["opencode.jsonc", "opencode.json", "config.json"]
+    const dirs: string[] = []
+    if (Flag.OPENCODE_CONFIG_DIR) dirs.push(Flag.OPENCODE_CONFIG_DIR)
+    dirs.push(Global.Path.config)
+    const candidates = dirs.flatMap((dir) => fileNames.map((file) => path.join(dir, file)))
     for (const file of candidates) {
       if (existsSync(file)) return file
     }
+    // No existing file — prefer writing under OPENCODE_CONFIG_DIR if set.
     return candidates[0]
   }
 
@@ -1237,12 +1245,28 @@ export namespace Config {
       })
 
       const loadGlobal = Effect.fnUntraced(function* () {
+        // Base tier: ~/.config/opencode (OpenCode default).
         let result: Info = pipe(
           {},
           mergeDeep(yield* loadFile(path.join(Global.Path.config, "config.json"))),
           mergeDeep(yield* loadFile(path.join(Global.Path.config, "opencode.json"))),
           mergeDeep(yield* loadFile(path.join(Global.Path.config, "opencode.jsonc"))),
         )
+
+        // Overlay tier: OPENCODE_CONFIG_DIR (GPD-managed, e.g. ~/.config/gpd).
+        // Promoted to a first-class global tier per Decision 0.A
+        // (docs/CONFIG_ARCHITECTURE.md) so that PATCH /global/config can
+        // round-trip through the GPD directory. Without this overlay,
+        // globalConfigFile() now writes to $OPENCODE_CONFIG_DIR but
+        // getGlobal would never read it back.
+        if (Flag.OPENCODE_CONFIG_DIR && Flag.OPENCODE_CONFIG_DIR !== Global.Path.config) {
+          result = pipe(
+            result,
+            mergeDeep(yield* loadFile(path.join(Flag.OPENCODE_CONFIG_DIR, "config.json"))),
+            mergeDeep(yield* loadFile(path.join(Flag.OPENCODE_CONFIG_DIR, "opencode.json"))),
+            mergeDeep(yield* loadFile(path.join(Flag.OPENCODE_CONFIG_DIR, "opencode.jsonc"))),
+          )
+        }
 
         const legacy = path.join(Global.Path.config, "config")
         if (existsSync(legacy)) {

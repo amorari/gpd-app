@@ -57,7 +57,13 @@ pub fn build_config_json() -> String {
     // See comment in inject_provider_config() about why there's no
     // "env" field on the gpd provider — opencode falls back to
     // auth.json (populated by the installer) when env is absent.
-    format!(r#"{{"provider":{{"gpd":{{"name":"GPD (PSI)","api":"{url}","models":{{"claude-opus-4-6":{{"name":"Claude Opus 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":131072}}}},"claude-sonnet-4-6":{{"name":"Claude Sonnet 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":65536}}}},"claude-haiku-4-5":{{"name":"Claude Haiku 4.5","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":200000,"output":65536}}}},"gpt-5.4":{{"name":"GPT-5.4","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-mini":{{"name":"GPT-5.4 mini","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-nano":{{"name":"GPT-5.4 nano","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-pro":{{"name":"GPT-5.4 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.3-codex":{{"name":"GPT-5.3 Codex","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1":{{"name":"GPT-4.1","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1-mini":{{"name":"GPT-4.1 mini","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"o4-mini":{{"name":"o4-mini (reasoning)","tool_call":true,"reasoning":true,"temperature":true,{mt},"limit":{{"context":200000,"output":100000}}}},"gemini-3.1-pro-preview":{{"name":"Gemini 3.1 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{mg},"limit":{{"context":1000000,"output":65536}}}},"gemini-3-flash-preview":{{"name":"Gemini 3 Flash","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{mg},"limit":{{"context":1000000,"output":65536}}}},"gemini-3.1-flash-lite-preview":{{"name":"Gemini 3.1 Flash-Lite","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":65536}}}}}}}}}},"model":"gpd/claude-sonnet-4-6","enabled_providers":["gpd"],"mcp":{mcp}}}"#,
+    // NOTE: no top-level "model" key here. The default model lives in
+    // $OPENCODE_CONFIG_DIR/opencode.json (written by inject_provider_config
+    // on first install). The env-var tier used to include "model" too,
+    // which overrode the user's saved model on every launch because env
+    // tier wins over the global-file tier. See Decision 0.A
+    // (docs/CONFIG_ARCHITECTURE.md) and Task 3.1.
+    format!(r#"{{"provider":{{"gpd":{{"name":"GPD (PSI)","api":"{url}","models":{{"claude-opus-4-6":{{"name":"Claude Opus 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":131072}}}},"claude-sonnet-4-6":{{"name":"Claude Sonnet 4.6","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":65536}}}},"claude-haiku-4-5":{{"name":"Claude Haiku 4.5","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":200000,"output":65536}}}},"gpt-5.4":{{"name":"GPT-5.4","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-mini":{{"name":"GPT-5.4 mini","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-nano":{{"name":"GPT-5.4 nano","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.4-pro":{{"name":"GPT-5.4 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1050000,"output":131072}}}},"gpt-5.3-codex":{{"name":"GPT-5.3 Codex","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1":{{"name":"GPT-4.1","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"gpt-4.1-mini":{{"name":"GPT-4.1 mini","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":32768}}}},"o4-mini":{{"name":"o4-mini (reasoning)","tool_call":true,"reasoning":true,"temperature":true,{mt},"limit":{{"context":200000,"output":100000}}}},"gemini-3.1-pro-preview":{{"name":"Gemini 3.1 Pro","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{mg},"limit":{{"context":1000000,"output":65536}}}},"gemini-3-flash-preview":{{"name":"Gemini 3 Flash","tool_call":true,"reasoning":true,"attachment":true,"temperature":true,{mg},"limit":{{"context":1000000,"output":65536}}}},"gemini-3.1-flash-lite-preview":{{"name":"Gemini 3.1 Flash-Lite","tool_call":true,"attachment":true,"temperature":true,{m},"limit":{{"context":1000000,"output":65536}}}}}}}}}},"enabled_providers":["gpd"],"mcp":{mcp}}}"#,
         url = LITELLM_URL,
         mcp = mcp_servers,
     )
@@ -480,8 +486,15 @@ fn inject_provider_config(config: &Path) -> Result<(), String> {
             }));
         }
 
-        // Set default model
-        obj.insert("model".to_string(), serde_json::json!("gpd/claude-sonnet-4-6"));
+        // Default model — only on FIRST install. If a model is already
+        // persisted (e.g. the user changed it in Settings), preserve it.
+        // Previously we unconditionally stomped the user's choice on
+        // every run_first_setup() call, which includes repair paths
+        // (repair_gpd_venv, marker-missing re-entry at lib.rs:520-529).
+        // See Task 3.1 / Decision 0.A in docs/CONFIG_ARCHITECTURE.md.
+        if !obj.contains_key("model") {
+            obj.insert("model".to_string(), serde_json::json!("gpd/claude-sonnet-4-6"));
+        }
 
         // Only show GPD provider
         obj.insert("enabled_providers".to_string(), serde_json::json!(["gpd"]));
@@ -534,7 +547,10 @@ mod tests {
         // Verify top-level structure
         let obj = parsed.as_object().expect("config should be an object");
         assert!(obj.contains_key("provider"), "missing 'provider' key");
-        assert!(obj.contains_key("model"), "missing 'model' key");
+        // "model" is deliberately ABSENT — see Task 3.1 / Decision 0.A.
+        // OPENCODE_CONFIG_CONTENT is env-tier; if it set "model" it would
+        // override the user's saved model on every launch.
+        assert!(!obj.contains_key("model"), "'model' must not be in env-tier config");
         assert!(obj.contains_key("enabled_providers"), "missing 'enabled_providers' key");
         assert!(obj.contains_key("mcp"), "missing 'mcp' key");
     }
