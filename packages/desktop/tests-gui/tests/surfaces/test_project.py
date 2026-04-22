@@ -2,6 +2,7 @@ import pytest
 
 from gpd_tests.helpers.navigator import (
     Navigator,
+    _adapt_url_for_dev,
     encode_dir_token,
     route_home,
     route_project,
@@ -31,7 +32,10 @@ def test_project_route_navigation_back_to_home_works(mcp, prepared_project_path)
     nav = Navigator(mcp)
     nav.go(route_project(prepared_project_path), timeout_s=5.0)
     nav.go(route_home(), timeout_s=5.0)
-    assert mcp.current_url() == route_home()
+    actual = mcp.current_url()
+    # Navigator adapts tauri:// to http://localhost:1420 in dev builds;
+    # accept either URL as "home".
+    assert actual == _adapt_url_for_dev(actual, route_home())
 
 
 @pytest.mark.surfaces

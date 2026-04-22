@@ -1,14 +1,17 @@
 import pytest
 
 from gpd_tests.helpers.dom_probe import DOMProbe, ProbeSkip
-from gpd_tests.helpers.navigator import Navigator, route_home
+from gpd_tests.helpers.navigator import Navigator, _adapt_url_for_dev, route_home
 from gpd_tests.helpers.selectors import SIDEBAR_NEW_SESSION
 
 
 @pytest.mark.surfaces
 def test_home_route_reachable(mcp):
     Navigator(mcp).go(route_home(), timeout_s=5.0)
-    assert mcp.current_url() == route_home()
+    actual = mcp.current_url()
+    # Navigator adapts tauri:// to http://localhost:1420 in dev builds;
+    # accept either URL as "home".
+    assert actual == _adapt_url_for_dev(actual, route_home())
 
 
 @pytest.mark.surfaces

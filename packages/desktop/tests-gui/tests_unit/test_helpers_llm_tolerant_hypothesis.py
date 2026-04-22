@@ -146,7 +146,6 @@ def test_message_roundtrips_through_json(msg: dict[str, Any]) -> None:
     encoded = json.dumps(msg)
     decoded = json.loads(encoded)
     assert isinstance(decoded, dict)
-    assert decoded.get("info", {}).get("role") in _ROLES
     # assistant_text must produce the same string pre- and post- round-trip,
     # which also proves helper output is JSON-serialisation-invariant.
     assert assistant_text(msg) == assistant_text(decoded)

@@ -6,6 +6,7 @@ interacts with a real GPD install.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -121,20 +122,22 @@ def test_sidecar_pid_picks_child_of_launched_pid(monkeypatch):
 
 
 @pytest.mark.unit
-def test_sidecar_pid_returns_none_when_ppid_lookup_fails_for_all(monkeypatch):
+def test_sidecar_pid_falls_back_to_first_pid_when_ppid_lookup_fails_for_all(monkeypatch):
+    # Step 3 fallback: when PPID matching fails for all candidates, sidecar_pid()
+    # returns pids[0] rather than None so callers always get a live PID.
     ps_out = "5001 opencode-cli --print-logs serve\n5002 opencode-cli --print-logs serve\n"
 
     def run(argv, *a, **kw):
         if "-ax" in argv:
             return _cp(ps_out, 0)
         if argv[0] == "ps":
-            return _cp("\n", 0)  # non-digit ppid output
+            return _cp("\n", 0)  # non-digit ppid output → no PPID match possible
         return _cp("", 0)
 
     monkeypatch.setattr(mod.subprocess, "run", run)
     s = mod.AppState()
     s._launched_pid = 9999
-    assert s.sidecar_pid() is None
+    assert s.sidecar_pid() == 5001
 
 
 @pytest.mark.unit
@@ -280,13 +283,21 @@ def test_launch_always_foreground(monkeypatch):
     """launch() uses `open -a` without -g so the webview is always active."""
     calls: list[list[str]] = []
 
+    mock_proc = MagicMock()
+    mock_proc.pid = 8080
+
     def run(argv, *a, **kw):
         calls.append(list(argv))
         if argv[0] == "ps":
             return _ps_with_pids(8080)
         return _cp("", 0)
 
+    def popen(argv, *a, **kw):
+        calls.append(list(argv))
+        return mock_proc
+
     monkeypatch.setattr(mod.subprocess, "run", run)
+    monkeypatch.setattr(mod.subprocess, "Popen", popen)
     monkeypatch.setattr(mod, "wait_until", lambda pred, **kw: True)
     s = mod.AppState()
     s.launch()
@@ -305,7 +316,10 @@ def test_launch_times_out_when_not_running(monkeypatch):
             return _cp("1 /sbin/launchd\n", 0)  # no matching pids
         return _cp("", 0)
 
+    mock_proc = MagicMock()
+    mock_proc.pid = 9999
     monkeypatch.setattr(mod.subprocess, "run", run)
+    monkeypatch.setattr(mod.subprocess, "Popen", lambda *a, **kw: mock_proc)
     monkeypatch.setattr(mod, "wait_until", lambda pred, **kw: False)
     with pytest.raises(RuntimeError, match=r"GPD failed to launch within"):
         mod.AppState().launch()
@@ -318,7 +332,10 @@ def test_launch_timeout_message_includes_stale_pids(monkeypatch):
             return _ps_with_pids(77, 88)  # pids exist but predicate stub lies
         return _cp("", 0)
 
+    mock_proc = MagicMock()
+    mock_proc.pid = 9999
     monkeypatch.setattr(mod.subprocess, "run", run)
+    monkeypatch.setattr(mod.subprocess, "Popen", lambda *a, **kw: mock_proc)
     monkeypatch.setattr(mod, "wait_until", lambda pred, **kw: False)
     with pytest.raises(RuntimeError) as exc_info:
         mod.AppState().launch()
@@ -403,16 +420,23 @@ def test_wait_launched_success_rebinds_pid(monkeypatch):
 
 @pytest.mark.unit
 def test_wait_launched_ready_predicate_paths(monkeypatch, tmp_path):
-    """Exercise the internal ``_ready`` predicate through its three branches:
+    """Exercise the internal ``_mcp_ready`` predicate through its branches:
     not-running, socket-missing, socket-present+ping-ok, and auth-error→ready.
+
+    wait_launched() now calls wait_until three times:
+      0: _mcp_ready   — polls for MCP socket + ping readiness
+      1: sidecar_pid  — polls for opencode-cli sidecar
+      2: _js_bridge_ready — polls for execute_js stability
+
+    We capture all predicates in a list and test index 0 (_mcp_ready).
     """
     import gpd_tests.drivers.mcp as mcp_mod
 
-    # Capture the predicate passed to wait_until so we can drive it.
-    captured: dict[str, callable] = {}
+    # Capture every predicate passed to wait_until (called 3 times).
+    captured: list = []
 
     def wait_stub(pred, **kw):
-        captured["pred"] = pred
+        captured.append(pred)
         return True
 
     monkeypatch.setattr(mod, "wait_until", wait_stub)
@@ -442,13 +466,18 @@ def test_wait_launched_ready_predicate_paths(monkeypatch, tmp_path):
                 return None
             raise RuntimeError(_PingClient.behavior)
 
+        def execute_js(self, *a, **kw):
+            raise RuntimeError("execute_js stubbed — not needed for _mcp_ready tests")
+
     monkeypatch.setattr(mcp_mod, "MCPClient", _PingClient)
 
     s = mod.AppState()
-    # Kick off wait_launched to capture the predicate (wait_until is stubbed
+    # Kick off wait_launched to capture all predicates (wait_until stubbed
     # True so this completes immediately; refresh_launched_pid then runs).
     s.wait_launched(timeout_s=0.01)
-    pred = captured["pred"]
+    # Index 0 = _mcp_ready (MCP socket + ping readiness predicate).
+    assert len(captured) >= 1, "wait_launched must call wait_until at least once"
+    pred = captured[0]
 
     # 1) Not running → False.
     running_flag["v"] = False
