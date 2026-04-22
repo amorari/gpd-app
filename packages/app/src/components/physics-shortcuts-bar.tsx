@@ -26,6 +26,17 @@ const PHYSICS_SHORTCUTS: ReadonlyArray<Shortcut> = [
     insert: "\\begin{pmatrix} & \\\\ & \\end{pmatrix}",
     tooltip: "2x2 matrix",
   },
+  {
+    label: "3\\times 3",
+    insert: "\\begin{pmatrix} & & \\\\ & & \\\\ & & \\end{pmatrix}",
+    tooltip: "3x3 matrix",
+  },
+  {
+    label: "4\\times 4",
+    insert:
+      "\\begin{pmatrix} & & & \\\\ & & & \\\\ & & & \\\\ & & & \\end{pmatrix}",
+    tooltip: "4x4 matrix",
+  },
   { label: "\\frac{}{}", insert: "\\frac{}{}", tooltip: "Fraction" },
   { label: "\\cdot", insert: "\\cdot", tooltip: "Dot product" },
   { label: "\\times", insert: "\\times", tooltip: "Cross product" },

@@ -9,6 +9,7 @@ interface MathfieldElement extends HTMLElement {
   getValue: (format?: string) => string
   setValue: (value: string) => void
   insert: (latex: string, options?: Record<string, unknown>) => void
+  mathVirtualKeyboardPolicy?: "auto" | "manual" | "sandboxed"
 }
 
 interface Props {
@@ -59,6 +60,15 @@ export const DialogEquationEditor: Component<Props> = (props) => {
     field.style.width = "100%"
     field.style.minHeight = "56px"
     field.style.fontSize = "18px"
+    // Suppress MathLive's built-in virtual keyboard + floating context menu.
+    // The desktop app has a physical keyboard + our PhysicsShortcutsBar; the
+    // virtual keyboard (a) steals focus from the math-field when users tap
+    // its keys, (b) caps matrix insertion at 5×5 in its menu dialog, and
+    // (c) its hamburger Menu button overflows the Dialog container. Users
+    // who want larger matrices can type `\begin{pmatrix} … \end{pmatrix}`
+    // directly at any size.
+    field.setAttribute("math-virtual-keyboard-policy", "manual")
+    field.mathVirtualKeyboardPolicy = "manual"
     containerRef.appendChild(field)
     mathField = field
     requestAnimationFrame(() => field.focus())
