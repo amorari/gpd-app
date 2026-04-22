@@ -1,6 +1,6 @@
 # E2E Selector Strategy (Decision 0.B)
 
-**Status:** DRAFT — default pick. User veto window open until Task 1.4 scaffolding lands.
+**Status:** LANDED — registry + CI uniqueness check at commit `c52b3d23f4`, CodeMirror `contentDOM` attachment at `80f7aaadb9`.
 **Decided:** 2026-04-22
 **Decided by:** claude
 **Supersedes:** parts of PR #10, PR #12, PR #23 premise

@@ -231,6 +231,8 @@ Then add the model to `gpd_setup.rs:provider_config_json()` in the fork so the d
 
 **Why it works:** The GPD provider definition is injected via `OPENCODE_CONFIG_CONTENT` env var when the OpenCode sidecar starts. This means `"gpd"` exists in OpenCode's provider database BEFORE the professor enters their key. When `auth.set` stores the key, the provider system finds the matching database entry and connects it.
 
+**Config precedence (Decision 0.A, see `docs/CONFIG_ARCHITECTURE.md`):** the loader reads `~/.config/opencode/*` (OpenCode default base), then overlays `$OPENCODE_CONFIG_DIR/opencode.json` (GPD-managed, normally `~/.gpd/opencode.json`), then applies `OPENCODE_CONFIG_CONTENT` (env-tier defaults for managed fields only — MCP paths, `enabled_providers`, `permission`), then project-local `config.json`. The env-tier no longer includes `model`, so user model changes persist across restarts + venv repair via the `$OPENCODE_CONFIG_DIR` file. `inject_provider_config` guards against overwriting an existing model in that file on first-run and repair paths.
+
 **Resetting the key:** Command palette (Cmd+K) → "Change GPD API Key", or pencil icon in sidebar. Both clear `localStorage("gpd.key.saved")` and reload.
 
 **Important: Tauri WebView localStorage** persists in `~/Library/WebKit/inc.psi.gpd*/` (macOS). Deleting the `.app` does NOT clear it. Full wipe requires:

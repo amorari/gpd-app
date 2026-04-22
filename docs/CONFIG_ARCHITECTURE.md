@@ -1,6 +1,6 @@
 # Config Persistence Architecture (Decision 0.A)
 
-**Status:** DRAFT — default pick. User veto window open until Phase 1 Task 1.2+ begins.
+**Status:** LANDED — Option B implemented at commit `d1945f9cfc`.
 **Decided:** 2026-04-22
 **Decided by:** claude
 **Supersedes:** parts of PR #14, PR #22 premise

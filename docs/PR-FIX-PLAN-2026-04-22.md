@@ -13,6 +13,13 @@ Companion to `docs/PR-REVIEW-2026-04-22.md`. Reorganizes the 13-PR bug list into
 - Per-task prereq: if the task touches files in `app.tsx`, `layout.tsx`, `global-sync.tsx`, `settings-general.tsx`, `tos-*.tsx`, `welcome-screen.tsx`, or any file in `infra/litellm/gpd_tos/` or `packages/app/src/lib/tos-accept.ts` — rebase onto current `gpd` HEAD before coding. TOS work landed after the reviewed PRs were authored; the diffs will need manual merge.
 - Owner for all tasks until reassignment: Claude (`cameron@psi.inc` as committer).
 
+**Execution outcome (2026-04-22, end of session):**
+- 17 commits shipped on `gpd`.
+- Tasks 0.A / 0.B / 0.C: all LANDED.
+- Tasks 1.1 / 1.2 / 1.3 / 1.4 / 2.1 / 2.3 / 2.4 / 2.5 / 3.1 / 3.2 / 3.4 / 3.5 / 3.6 / 4.1 / 4.2: all LANDED.
+- Task 1.5 (Rust supervisor refactor): DEFERRED after 10-agent adversarial review; telemetry-driven reactivation pending.
+- Task 1.5a (gpd-logger graceful-shutdown flush): LANDED at commit `db2d53a6cd` as the extraction of the only concrete user-facing value from the Task 1.5 scope.
+
 ---
 
 ## Phase 0 — Architecture decisions

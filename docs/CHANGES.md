@@ -1,5 +1,52 @@
 # GPD Desktop App — Changes Log
 
+## PR-Review Root-Cause Fix Batch (2026-04-22)
+
+**Date:** 2026-04-22
+**Context:** 13 PRs (#10-#23) authored by @amorari reviewed via three passes
+(prior reviewer, parallel Claude deep-review, Codex adversarial). 12 of 13
+observations re-landed as root-cause fixes at the correct architectural
+layer; 1 (sidecar supervisor refactor) deferred pending production crash
+telemetry. Full review at `docs/PR-REVIEW-2026-04-22.md`; fix plan at
+`docs/PR-FIX-PLAN-2026-04-22.md`.
+
+**Commits (17 on gpd since 388a4c87a0):**
+- `71b0fc52d9` — `Config.updateGlobal` now awaits `invalidate(true)`; `update` taps errors before dying
+- `33bb17a455` — markdown + deps Rust tests covering the real XSS / dangerous-URL surface
+- `a021309667` — Decision 0.A: `OPENCODE_CONFIG_DIR` promoted to first-class global tier
+- `ef31cb34a8` — Decision 0.B: hybrid ARIA-first + `data-testid` registry
+- `a61b29e5a0` — Decision 0.C: single sidecar supervisor task (design only; implementation deferred)
+- `492b5ec675` — installer drops default login-profile `GPD_API_KEY` export; `--export-key` opt-in
+- `20efc24ba4` — SDK + middleware workspace/directory routing on all HTTP methods
+- `618c48cb9d` — DELETE /session SSE routes by session.directory + orphan-workspace emits `session.deleted`
+- `5fbc28980d` — path canonicalization helpers (`canonicalize_project_path` Tauri command + `canonicalizeAndReject`)
+- `9c52508bc6` — service-layer NotFoundError throws for permission/question/revert (404 via middleware)
+- `c52b3d23f4` — typed selector registry at `packages/app/src/testing/selectors.ts` + CI uniqueness check
+- `0bbb10eb72` — workspace key canonicalization at child-store boundaries + SSE event routing
+- `d1945f9cfc` — `loadGlobal` reads `$OPENCODE_CONFIG_DIR`; `inject_provider_config` preserves user model
+- `5c63233f6f` — `waitForPaint` visibility-gated + 500ms safety ceiling (stops hidden-window boot hang)
+- `3d13a13651` — session deep-link parser with `gpd://`/`opencode://` scheme allowlist + batch-last helper
+- `80f7aaadb9` — CodeMirror `contentDOM` testid attachment (not the empty shell div)
+- `db2d53a6cd` — **Task 1.5a: gpd-logger graceful-shutdown flush** (see below)
+
+## Task 1.5a: GPD logger graceful-shutdown flush
+
+**Date:** 2026-04-22
+**Supersedes:** Task 1.5 (full Rust sidecar supervisor — deferred).
+
+**Changes:**
+- `packages/opencode/src/sink/http-writer.ts` — `GpdLogHttp.post` gains optional `{ signal?: AbortSignal }` threaded into `fetch`. AbortError routes to existing network-catch → spill.
+- `packages/opencode/src/sink/gpd-logger.ts` — new `drainState(cache)` materialises pending per-session queues and POSTs in bounded parallel (concurrency 8); 1500ms budget via `OPENCODE_GPD_SHUTDOWN_TIMEOUT_MS`. Extends `Effect.addFinalizer` to drain before `Scope.close`. Adds `drainPending` to the `Interface` for in-command callers.
+- `packages/opencode/src/index.ts` — SIGTERM (Unix only) / SIGINT handlers call `AppRuntime.dispose()` under a 2s hard wall-clock.
+- `packages/opencode/test/sink/http-writer-abort.test.ts` — 3 tests locking AbortSignal wiring: happy-path `{ kind: "ok" }`, mid-flight abort → spill in <1s, pre-aborted signal → immediate spill.
+
+**Bugs fixed:**
+- 1s-debounce in-memory queue silently dropped on process exit (documented at `docs/LOGGING.md:28`) — root cause: no SIGTERM handler + finalizer cleared state without flushing. Graceful exit now drains to LiteLLM or disk.
+
+**Deferred:** full Rust sidecar supervisor — 10-agent adversarial review concluded the refactor is ~600-800 LOC against a failure mode we have no telemetry for, while the flush handler alone captures the only concrete user-facing value. Rust-side SIGTERM-to-sidecar still TODO; will land with the supervisor when production crash data justifies it.
+
+**Rebuilds triggered:** no (TypeScript-only)
+
 ## Pre-Iteration: Immediate Branding Fixes
 **Date:** 2026-04-17
 **Changes:**
