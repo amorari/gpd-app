@@ -543,13 +543,82 @@ install_gpd_deb() {
     die ".deb install completed but /usr/bin/opencode-cli not found"
 }
 
-install_opencode() {
-    local dest="$GPD_BIN_DIR/opencode"
-
-    if [[ -x "$dest" ]]; then
-        success "OpenCode CLI already installed"
+# Install the GPD desktop app on macOS via the .dmg from /releases/latest.
+# Non-fatal: if the .dmg can't be fetched (draft release, network, etc.),
+# warn and move on so the CLI still installs.
+install_gpd_dmg() {
+    # Idempotency: skip if already present.
+    if [[ -d "/Applications/GPD.app" ]]; then
+        success "GPD desktop app already installed at /Applications/GPD.app"
         return 0
     fi
+
+    # Upstream asset arch suffixes differ from our internal arch label.
+    local dmg_arch
+    case "$arch" in
+        arm64) dmg_arch="aarch64" ;;
+        x64)   dmg_arch="x64" ;;
+        *)     warn "GPD desktop app not published for darwin-${arch}; skipping."; return 0 ;;
+    esac
+
+    # Discover tag via the /releases/latest redirect (no API rate limit).
+    # Same pattern as install_gpd_deb.
+    local tag
+    tag="$(curl -fsSLI --max-time 10 "https://github.com/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/latest" 2>/dev/null \
+        | grep -i '^location:' | tail -1 | grep -oE 'tag/[^ ]*' | sed 's|tag/||' | tr -d '\r\n')" || true
+
+    if [[ -z "$tag" ]]; then
+        warn "Couldn't discover GPD release tag — skipping desktop app (install the .dmg manually from the Releases page)."
+        return 0
+    fi
+
+    local ver="${tag#*-v}"
+    if [[ ! "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+        warn "Couldn't parse version from tag '$tag' — skipping desktop app."
+        return 0
+    fi
+
+    local asset="GPD_${ver}_${dmg_arch}.dmg"
+    local dmg_url="https://github.com/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/download/${tag}/${asset}"
+
+    if ! url_exists "$dmg_url"; then
+        warn "GPD .dmg not found at $dmg_url — skipping desktop app."
+        return 0
+    fi
+
+    local tmp_dir dmg_file mount_point
+    tmp_dir="$(mktemp -d)"
+    dmg_file="$tmp_dir/$asset"
+    trap "hdiutil detach '$mount_point' -quiet 2>/dev/null || true; rm -rf '$tmp_dir'" RETURN
+
+    download "$dmg_url" "$dmg_file"
+    log "Mounting disk image..."
+    # -mountrandom gives us a unique mountpoint under /tmp so we never
+    # collide with a previously-mounted GPD volume.
+    mount_point="$(hdiutil attach "$dmg_file" -nobrowse -quiet -mountrandom /tmp | awk 'END{print $NF}')"
+    if [[ -z "$mount_point" || ! -d "$mount_point" ]]; then
+        die "hdiutil attach failed — disk image may be corrupt. Re-run the installer."
+    fi
+
+    log "Copying GPD.app to /Applications..."
+    # ditto preserves resource forks, symlinks, and extended attributes
+    # more faithfully than cp -R on HFS+ / APFS.
+    if ! ditto "$mount_point/GPD.app" "/Applications/GPD.app"; then
+        die "Failed to copy GPD.app to /Applications (check disk space + permissions)."
+    fi
+
+    # Strip Gatekeeper quarantine so the user isn't blocked with a
+    # "developer cannot be verified" dialog on first launch. The chain of
+    # trust here is already "user ran our curl|bash from our URL"; asking
+    # them to open System Settings for every install is bad UX.
+    # When we ship a notarized .dmg, this line becomes redundant.
+    xattr -dr com.apple.quarantine "/Applications/GPD.app" 2>/dev/null || true
+
+    success "GPD desktop app installed at /Applications/GPD.app"
+}
+
+install_opencode() {
+    local dest="$GPD_BIN_DIR/opencode"
 
     # On Debian/Ubuntu (dpkg + sudo), the .deb is the primary install path
     # and a failure is fatal. On other Linux (no dpkg), fall back to the
@@ -559,41 +628,53 @@ install_opencode() {
         return 0
     fi
 
-    local asset
-    asset="$(opencode_asset_name)"
-    local gpd_url="https://github.com/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/latest/download/${asset}"
-    local fallback_url="https://github.com/${OPENCODE_FALLBACK_ORG}/${OPENCODE_FALLBACK_REPO}/releases/latest/download/${asset}"
-
-    local url=""
-    if [[ -n "$requested_version" ]]; then
-        url="https://github.com/${OPENCODE_FALLBACK_ORG}/${OPENCODE_FALLBACK_REPO}/releases/download/v${requested_version}/${asset}"
-    elif url_exists "$gpd_url"; then
-        url="$gpd_url"
-    elif url_exists "$fallback_url"; then
-        url="$fallback_url"
+    # Install standalone CLI if not already present.
+    if [[ -x "$dest" ]]; then
+        success "OpenCode CLI already installed"
     else
-        die "Could not find OpenCode CLI binary for ${os}/${arch}."
+        local asset
+        asset="$(opencode_asset_name)"
+        local gpd_url="https://github.com/${OPENCODE_ORG}/${OPENCODE_REPO}/releases/latest/download/${asset}"
+        local fallback_url="https://github.com/${OPENCODE_FALLBACK_ORG}/${OPENCODE_FALLBACK_REPO}/releases/latest/download/${asset}"
+
+        local url=""
+        if [[ -n "$requested_version" ]]; then
+            url="https://github.com/${OPENCODE_FALLBACK_ORG}/${OPENCODE_FALLBACK_REPO}/releases/download/v${requested_version}/${asset}"
+        elif url_exists "$gpd_url"; then
+            url="$gpd_url"
+        elif url_exists "$fallback_url"; then
+            url="$fallback_url"
+        else
+            die "Could not find OpenCode CLI binary for ${os}/${arch}."
+        fi
+
+        local tmp_dir
+        tmp_dir="$(mktemp -d)"
+        local archive="$tmp_dir/$asset"
+        download "$url" "$archive"
+
+        log "Extracting OpenCode CLI..."
+        case "$asset" in
+            *.tar.gz) tar -xzf "$archive" -C "$tmp_dir" ;;
+            *.zip)    unzip -qo "$archive" -d "$tmp_dir" ;;
+        esac
+
+        local binary
+        binary="$(find "$tmp_dir" -name 'opencode' -type f -not -path "$archive" | head -1)"
+        [[ -n "$binary" ]] || { rm -rf "$tmp_dir"; die "Could not find opencode binary in archive"; }
+
+        mv "$binary" "$dest"
+        chmod +x "$dest"
+        rm -rf "$tmp_dir"
+        success "OpenCode CLI installed"
     fi
 
-    local tmp_dir
-    tmp_dir="$(mktemp -d)"
-    local archive="$tmp_dir/$asset"
-    download "$url" "$archive"
-
-    log "Extracting OpenCode CLI..."
-    case "$asset" in
-        *.tar.gz) tar -xzf "$archive" -C "$tmp_dir" ;;
-        *.zip)    unzip -qo "$archive" -d "$tmp_dir" ;;
-    esac
-
-    local binary
-    binary="$(find "$tmp_dir" -name 'opencode' -type f -not -path "$archive" | head -1)"
-    [[ -n "$binary" ]] || { rm -rf "$tmp_dir"; die "Could not find opencode binary in archive"; }
-
-    mv "$binary" "$dest"
-    chmod +x "$dest"
-    rm -rf "$tmp_dir"
-    success "OpenCode CLI installed (standalone, no desktop app)"
+    # On macOS, also install the GPD desktop app from the .dmg. The CLI
+    # alone is not what users expect — the README promises /Applications/
+    # GPD.app on macOS, and without this call it was never being installed.
+    if [[ "$os" == "darwin" ]]; then
+        install_gpd_dmg
+    fi
 }
 
 # ── Step 2: Python ────────────────────────────────────────────────────────
