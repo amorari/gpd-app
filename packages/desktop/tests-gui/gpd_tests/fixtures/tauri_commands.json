@@ -98,9 +98,23 @@
     "async": false
   },
   {
+    "name": "quit_app",
+    "file": "lib.rs",
+    "line": 304,
+    "signature": "fn quit_app(app: AppHandle)",
+    "async": false
+  },
+  {
+    "name": "read_gpd_key",
+    "file": "lib.rs",
+    "line": 328,
+    "signature": "fn read_gpd_key() -> Result<Option<String>, String>",
+    "async": false
+  },
+  {
     "name": "wsl_path",
     "file": "lib.rs",
-    "line": 308,
+    "line": 379,
     "signature": "fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String>",
     "async": false
   },
@@ -123,6 +137,13 @@
     "file": "project_fs.rs",
     "line": 53,
     "signature": "pub fn check_project_accessible(path: String) -> Result<String, String>",
+    "async": false
+  },
+  {
+    "name": "canonicalize_project_path",
+    "file": "project_fs.rs",
+    "line": 90,
+    "signature": "pub fn canonicalize_project_path(path: String) -> Result<String, String>",
     "async": false
   },
   {
