@@ -18,7 +18,7 @@ Run with `GPD_TEST_ANTHROPIC_KEY=<key> uv run pytest -m "real_backend" -v` to ex
 
 ```bash
 cd packages/desktop/tests-gui
-uv sync
+uv sync --extra dev
 brew install cliclick
 # Grant Accessibility permission to your terminal in System Settings → Privacy & Security → Accessibility
 ```
