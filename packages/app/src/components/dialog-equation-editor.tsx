@@ -71,13 +71,9 @@ export const DialogEquationEditor: Component<Props> = (props) => {
     field.style.width = "100%"
     field.style.minHeight = "56px"
     field.style.fontSize = "18px"
-    // Suppress MathLive's built-in virtual keyboard + floating context menu.
-    // The desktop app has a physical keyboard + our PhysicsShortcutsBar; the
-    // virtual keyboard (a) steals focus from the math-field when users tap
-    // its keys, (b) caps matrix insertion at 5×5 in its menu dialog, and
-    // (c) its hamburger Menu button overflows the Dialog container. Users
-    // who want larger matrices can type `\begin{pmatrix} … \end{pmatrix}`
-    // directly at any size.
+    // Suppress MathLive's built-in virtual keyboard (steals focus, overflows
+    // the Dialog). Desktop users have a physical keyboard + PhysicsShortcutsBar.
+    // The context Menu stays — see menuItems override below.
     field.setAttribute("math-virtual-keyboard-policy", "manual")
     field.mathVirtualKeyboardPolicy = "manual"
     containerRef.appendChild(field)
@@ -123,18 +119,17 @@ export const DialogEquationEditor: Component<Props> = (props) => {
 
   return (
     <Dialog title={language.t("equation.dialog.title")} size="large">
-      {/* Hard backstop: if MathLive still injects the virtual keyboard host
-          container despite mathVirtualKeyboardPolicy="manual", hide it
-          globally. MathLive puts this host as a child of <body>, so target
-          all known host selectors across MathLive versions. */}
+      {/* Hard backstop: MathLive auto-injects the virtual keyboard overlay
+          despite mathVirtualKeyboardPolicy="manual". Hide the keyboard host
+          + its in-field toggle, but keep the Menu toggle visible so users
+          can access the context menu (Insert Matrix, Cut/Copy/Paste, etc.). */}
       <style>{`.ML__keyboard,
 .ML__keyboard-container,
 .ML__virtual-keyboard,
 #mathlive-virtual-keyboard,
 [part="keyboard"],
 [part="container"].ML__keyboard,
-math-field::part(virtual-keyboard-toggle),
-math-field::part(menu-toggle) { display: none !important; visibility: hidden !important; pointer-events: none !important; }`}</style>
+math-field::part(virtual-keyboard-toggle) { display: none !important; visibility: hidden !important; pointer-events: none !important; }`}</style>
       <div
         ref={rootRef}
         role="group"
