@@ -548,6 +548,32 @@ client shutdown and when OpenCode deletes a session; (2) add a derived
 view `session_status` that joins "last event ts" + "close event" + a
 staleness threshold.
 
+### Graceful shutdown flush
+
+SIGTERM / SIGINT / normal Scope close trigger a drain of the in-memory
+queue before the process exits. `packages/opencode/src/sink/gpd-logger.ts`
+ships a `drainState(cache)` that materialises every pending
+sessionID into a POST payload (best-effort root + skipped session_init
+for not-yet-initialized sessions — Instance context is unavailable at
+finalization time), then fires `GpdLogHttp.post` in bounded parallel
+(concurrency 8). An `AbortController` enforces an overall budget
+(`OPENCODE_GPD_SHUTDOWN_TIMEOUT_MS`, default 1500 ms); on abort the
+writer's existing network-catch at `http-writer.ts:85-89` spills the
+body to disk, so events land somewhere — network OR next-boot replay.
+
+Entry points:
+- `packages/opencode/src/index.ts` registers SIGTERM (Unix only) and
+  SIGINT handlers that call `AppRuntime.dispose()` under a 2 s hard
+  wall-clock, triggering the ManagedRuntime finalizer chain.
+- The logger's own `Effect.addFinalizer` runs `drainState(cache)`
+  before `Scope.close`, covering graceful yargs-driven shutdowns too.
+
+Windows: `SIGTERM` is never delivered on Windows (Node documents it as
+a no-op). `SIGINT` works only with an attached console. Abrupt
+TerminateProcess / End Task kills still drop the in-memory tail —
+matches behavior before Task 1.5a. Events that made it to disk via
+the 1 s debounced flush or the drain spill path replay on next boot.
+
 ---
 
 ## Future work / reactivation points

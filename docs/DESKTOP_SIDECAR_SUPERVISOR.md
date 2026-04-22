@@ -1,6 +1,6 @@
 # Sidecar Supervisor Architecture (Decision 0.C)
 
-**Status:** DRAFT — default pick. User veto window open until Task 1.5 implementation starts.
+**Status:** DESIGN APPROVED — Rust supervisor DEFERRED pending production crash telemetry (see adversarial review summary at end of `docs/PR-REVIEW-2026-04-22.md`). Sidecar-side logger flush contract LANDED at commit `db2d53a6cd` (Task 1.5a).
 **Decided:** 2026-04-22
 **Decided by:** claude
 **Supersedes:** PR #15 entirely
@@ -141,24 +141,35 @@ Rust emits the event via `app.emit("sidecar-state", ...)` whenever `state_rx` ch
 7. Caller awaits ack before returning to Tauri runtime.
 ```
 
-### gpd-logger shutdown contract
+### gpd-logger shutdown contract — LANDED (Task 1.5a)
 
-SIGTERM alone doesn't fix the flush-loss window — the sidecar needs a signal handler that synchronously drains pending log events before exit.
+The sidecar-side half of this contract shipped as Task 1.5a. See
+`docs/LOGGING.md § "Graceful shutdown flush"` for the runtime
+behavior. Summary:
 
-**Sidecar side (`packages/opencode/src/`):**
+- SIGTERM (Unix) / SIGINT (Unix always, Windows when console attached)
+  handlers at `packages/opencode/src/index.ts` call
+  `AppRuntime.dispose()` under a 2 s hard wall-clock.
+- `Effect.addFinalizer` at `packages/opencode/src/sink/gpd-logger.ts`
+  runs `drainState(cache)` before `Scope.close` on normal teardown.
+- `drainState` bounded by `OPENCODE_GPD_SHUTDOWN_TIMEOUT_MS`
+  (default 1500 ms). On abort the `GpdLogHttp.post` network-catch at
+  `http-writer.ts:85-89` spills the body to disk for next-boot replay.
+- Regression test at `packages/opencode/test/sink/http-writer-abort.test.ts`
+  locks the `{ signal }` wiring end-to-end against a Bun.serve mock.
 
-- Install SIGTERM (Unix) / Windows equivalent handler early in sidecar startup. On receipt:
-  1. Drop new incoming Bus events (close the subscription).
-  2. Force-flush the `GpdLogger` pending queue via a single blocking HTTP POST to `/gpd/log`.
-  3. `process.exit(0)`.
-- Add a `Scope` finalizer to `GpdLogger.Service` at `packages/opencode/src/sink/gpd-logger.ts` that runs the flush on normal scope close (covers non-SIGTERM exits too).
-- Flush timeout budget: 1500ms. If HTTP flush doesn't complete, give up and exit anyway — don't block SIGKILL indefinitely.
+**Rust side — DEFERRED (pending supervisor refactor).**
 
-**Rust side:**
+The Rust-side SIGTERM-then-deadline path remains unimplemented — the
+sidecar supervisor itself is deferred (see "Decision" header above),
+and `AppRuntime.dispose()` on the TS side only fires when the sidecar
+is told to exit cooperatively (yargs finally, or via Ctrl-C / SIGINT
+reaching the sidecar process itself). When the supervisor refactor
+lands, the Rust side will:
 
 - `GPD_SHUTDOWN_DEADLINE_MS` default 3000 gives 1500ms for flush + 1500ms slack.
 - On macOS/Linux: `unsafe { libc::kill(pid, libc::SIGTERM) }` (NOT `child.start_kill()` which is SIGKILL on tokio 1.x).
-- On Windows: use `CtrlCEvent` sent to the child process group, or a dedicated shutdown IPC channel.
+- On Windows: dedicated `/shutdown` IPC on the sidecar HTTP port (Windows has no SIGTERM; `CtrlCEvent` via `CREATE_NEW_PROCESS_GROUP` requires FFI plumbing Rust's stdlib doesn't provide).
 - After deadline: `child.start_kill()` (SIGKILL).
 
 This contract is load-bearing for Decision 0.C. Without it, the SIGTERM is cosmetic and we still lose 1 second of logs on every clean quit.

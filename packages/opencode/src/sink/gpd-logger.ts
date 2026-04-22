@@ -1,4 +1,4 @@
-import { Context, Effect, Exit, Layer, Scope, Stream } from "effect"
+import { Context, Duration, Effect, Exit, Layer, Scope, Stream } from "effect"
 import { Auth } from "@/auth"
 import { Bus } from "@/bus"
 import { InstanceState } from "@/effect/instance-state"
@@ -11,6 +11,7 @@ import { GpdLogWriter } from "./jsonl-writer"
 import { GpdLogHttp } from "./http-writer"
 
 export namespace GpdLogger {
+
   const log = Log.create({ service: "gpd-logger" })
   const enabled =
     process.env["OPENCODE_GPD_LOGS_ENABLED"] === "1" || process.env["OPENCODE_GPD_LOGS_ENABLED"] === "true"
@@ -30,11 +31,31 @@ export namespace GpdLogger {
     /** Tracks sessions we've already written the `session_init` header for. */
     initialized: Set<SessionID>
     scope: Scope.Closeable
+    /** Idempotency latch for `drainPending`. Set true on first drain call. */
+    draining: boolean
   }
 
   export interface Interface {
     readonly init: () => Effect.Effect<void>
+    /**
+     * Flush all pending queued events synchronously (bounded by
+     * `OPENCODE_GPD_SHUTDOWN_TIMEOUT_MS`, default 1500). Called by
+     * the SIGTERM/SIGINT handler in `index.ts` and by the Scope
+     * finalizer. Idempotent — a second concurrent call is a no-op.
+     */
+    readonly drainPending: () => Effect.Effect<void>
   }
+
+  /**
+   * Maximum concurrent POSTs during drain. LiteLLM tolerates bursts;
+   * 8 saturates a typical home connection without proxy-thundering.
+   * Realistic session count at quit (~10-20 per docs/LOGGING.md:77)
+   * finishes in 2-3 batches inside the default 1500ms budget.
+   */
+  const DRAIN_CONCURRENCY = 8
+
+  /** Default overall wall-clock budget for drainPending, in ms. */
+  const DEFAULT_SHUTDOWN_BUDGET_MS = 1500
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/GpdLogger") {}
 
@@ -176,7 +197,11 @@ export namespace GpdLogger {
         })
       }
 
-      const flush = Effect.fn("GpdLogger.flush")(function* (sessionID: SessionID) {
+      // `signal` (optional): threaded into GpdLogHttp.post for drain calls,
+      // so an aborted POST hits the writer's existing network-catch branch
+      // and spills the body to disk for next-boot replay. Normal
+      // debounced-enqueue flushes pass undefined.
+      const flush = Effect.fn("GpdLogger.flush")(function* (sessionID: SessionID, signal?: AbortSignal) {
         if (!enabled) return
         const s = yield* InstanceState.get(state)
         const queued = s.queue.get(sessionID)
@@ -205,7 +230,7 @@ export namespace GpdLogger {
         // failure the http-writer spills the request body to disk and the
         // background replayer retries it.
         yield* Effect.promise(() =>
-          GpdLogHttp.post(auth, { sessionID, rootSessionID: root, events }),
+          GpdLogHttp.post(auth, { sessionID, rootSessionID: root, events }, { signal }),
         )
 
         // Optional: mirror to local JSONL for dev ergonomics (off by default).
@@ -218,6 +243,132 @@ export namespace GpdLogger {
         }
       })
 
+      /**
+       * Resolve the wall-clock budget for drain. `OPENCODE_GPD_SHUTDOWN_TIMEOUT_MS`
+       * override, falls back to `DEFAULT_SHUTDOWN_BUDGET_MS`.
+       */
+      function resolveBudgetMs(): number {
+        const raw = process.env["OPENCODE_GPD_SHUTDOWN_TIMEOUT_MS"]
+        if (!raw) return DEFAULT_SHUTDOWN_BUDGET_MS
+        const n = parseInt(raw, 10)
+        return Number.isFinite(n) && n > 0 ? n : DEFAULT_SHUTDOWN_BUDGET_MS
+      }
+
+      /**
+       * Drain implementation that operates on an explicit State reference
+       * and posts directly through GpdLogHttp (as a plain Promise) rather
+       * than going through the `flush()` Effect.
+       *
+       * Rationale: `flush()` calls `InstanceState.get(state)`, `sessions.get`,
+       * and `sessions.root` — all of which require active Instance context.
+       * At Scope finalization (process exit) there is no Instance in
+       * context, so an Effect-based drain would fail. This variant reads
+       * from `cache` (captured in the init closure at layer-build time,
+       * doesn't move) and from `auth` (Auth.Service handle from outer
+       * closure, doesn't require Instance).
+       *
+       * Trade-off: `session_init` events can only be emitted for sessions
+       * already in `cache.initialized` — we don't have a way to fetch
+       * `sessionInfo` without Instance. Uninitialized-session drains skip
+       * the session_init line; materialise() handles that gracefully
+       * (see the `if (!initialized.has(sessionID) && sessionInfo)` guard).
+       * This matches today's silent-drop behavior for those events, but
+       * any non-init events (message/part/diff/deleted) still land.
+       *
+       * Contract:
+       *   - Idempotent: `draining` latch prevents double-runs.
+       *   - Bounded: AbortController aborts in-flight fetches after
+       *     `budgetMs`. The writer's network-catch branch spills on
+       *     AbortError, so nothing leaks past the deadline.
+       *   - Atomic per-session: each queued Map is consumed (deleted)
+       *     before the POST. Partial completion leaves the queue empty —
+       *     uncovered work is on disk for next-boot replay.
+       */
+      const drainState = (cache: State): Effect.Effect<void, never> =>
+        Effect.gen(function* () {
+          if (!enabled) return
+          if (cache.draining) return
+          cache.draining = true
+
+          const ids = Array.from(cache.queue.keys())
+          if (ids.length === 0) return
+
+          const budgetMs = resolveBudgetMs()
+
+          const ctrl = new AbortController()
+          const timer = setTimeout(() => ctrl.abort(), budgetMs)
+          if (typeof (timer as any).unref === "function") (timer as any).unref()
+
+          // Materialise each session's payload synchronously. Done up
+          // front so the queue is empty before any POST races with a
+          // concurrent enqueue (no possible one anyway — we're single-threaded).
+          type Payload = { sessionID: SessionID; rootSessionID: SessionID; events: GpdLog.Event[] }
+          const payloads: Payload[] = []
+          for (const [sessionID, queued] of cache.queue) {
+            // Best-effort root: use cached value if present, otherwise
+            // treat this session as its own root. A misattributed root
+            // during shutdown drain is acceptable — it's recoverable
+            // from raw GCS by the compactor.
+            const root = cache.rootCache.get(sessionID) ?? sessionID
+            const events = materialise(
+              sessionID,
+              root,
+              null,
+              undefined,
+              Array.from(queued.values()),
+              cache.initialized,
+            )
+            if (events.length > 0) {
+              payloads.push({ sessionID, rootSessionID: root, events })
+            }
+          }
+          cache.queue.clear()
+
+          if (payloads.length === 0) {
+            clearTimeout(timer)
+            return
+          }
+
+          log.info("drainPending started", { sessions: payloads.length, budgetMs })
+
+          // Fire POSTs with bounded concurrency. Each GpdLogHttp.post
+          // self-spills on network / AbortError via its own catch branch
+          // at http-writer.ts:85-89 — no double-spill from drain.
+          yield* Effect.promise(async () => {
+            let cursor = 0
+            const worker = async () => {
+              while (cursor < payloads.length) {
+                const i = cursor++
+                const p = payloads[i]
+                await GpdLogHttp.post(auth, p, { signal: ctrl.signal }).catch((err) => {
+                  log.warn("drainPending post failed", { sessionID: p.sessionID, err: String(err) })
+                })
+              }
+            }
+            const workers = Array.from(
+              { length: Math.min(DRAIN_CONCURRENCY, payloads.length) },
+              () => worker(),
+            )
+            await Promise.allSettled(workers)
+          })
+
+          clearTimeout(timer)
+          log.info("drainPending finished")
+        })
+
+      /**
+       * Interface-level drain. Resolves state via `InstanceState.get` and
+       * delegates to `drainState`. Call through
+       * `Service.use(svc => svc.drainPending())` from a context that has
+       * Instance provided (e.g. inside an active command execution).
+       */
+      const drainPending: Interface["drainPending"] = () =>
+        Effect.gen(function* () {
+          if (!enabled) return
+          const s = yield* InstanceState.get(state)
+          yield* drainState(s)
+        })
+
       const state: InstanceState<State> = yield* InstanceState.make<State>(
         Effect.fn("GpdLogger.state")(function* (_ctx) {
           const cache: State = {
@@ -225,10 +376,17 @@ export namespace GpdLogger {
             rootCache: new Map(),
             initialized: new Set(),
             scope: yield* Scope.make(),
+            draining: false,
           }
 
           yield* Effect.addFinalizer(() =>
-            Scope.close(cache.scope, Exit.void).pipe(
+            // Drain pending events BEFORE closing the scope. The scope close
+            // cancels in-flight forked flush fibers; without draining first
+            // the last 1s debounce window is silently dropped. Uses
+            // drainState with `cache` from closure — drainPending requires
+            // Instance context which is unavailable at finalizer time.
+            drainState(cache).pipe(
+              Effect.andThen(Scope.close(cache.scope, Exit.void)),
               Effect.andThen(
                 Effect.sync(() => {
                   cache.queue.clear()
@@ -319,7 +477,7 @@ export namespace GpdLogger {
           yield* Effect.forever(replayTick).pipe(Effect.forkIn(s.scope))
         })
 
-      return Service.of({ init })
+      return Service.of({ init, drainPending })
     }),
   )
 

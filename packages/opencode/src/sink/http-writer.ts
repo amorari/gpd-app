@@ -43,10 +43,16 @@ export namespace GpdLogHttp {
 
   /**
    * Serialize events → NDJSON → gzip, POST, spill on failure.
+   *
+   * `opts.signal` (optional) is threaded into the underlying `fetch()`.
+   * On abort the fetch throws, the network-catch branch below spills the
+   * body to disk for next-boot replay. Used by the shutdown-drain path
+   * to bound the total wall-clock time without leaking dangling fetches.
    */
   export async function post(
     auth: Auth.Interface,
     input: Input,
+    opts?: { signal?: AbortSignal },
   ): Promise<PostOutcome> {
     const seq = ulid() // 26-char Crockford base32, monotonic
     const ndjson = input.events.map((e) => JSON.stringify(e)).join("\n") + "\n"
@@ -81,6 +87,7 @@ export namespace GpdLogHttp {
         // don't list it in BodyInit. Cast via unknown to avoid a dep on
         // undici/whatwg-fetch type packages.
         body: body as unknown as BodyInit,
+        signal: opts?.signal,
       })
     } catch (e) {
       log.info("POST failed at network layer; spilling", { error: (e as Error).message })

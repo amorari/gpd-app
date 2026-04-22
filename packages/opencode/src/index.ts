@@ -51,6 +51,45 @@ process.on("uncaughtException", (e) => {
   })
 })
 
+// Graceful-shutdown bridge for the GPD logger. Without this, SIGTERM /
+// Ctrl-C kills the process before the 1 s-debounced flush window fires
+// and the last burst of in-memory events is dropped silently (see
+// docs/LOGGING.md "1s debounced flush" loss window). AppRuntime.dispose()
+// triggers the ManagedRuntime finalizer chain which includes GpdLogger's
+// drainState — that posts any queued events via GpdLogHttp.post, and on
+// AbortError / network failure spills to disk for next-boot replay.
+//
+// Bounded by a 2 s hard wall-clock: drain has its own 1.5 s budget plus
+// 500 ms spill slack; anything still in flight beyond that is abandoned
+// (matches today's SIGKILL behavior on Windows / no-console Linux).
+let shuttingDown = false
+async function handleShutdown(signal: "SIGTERM" | "SIGINT"): Promise<void> {
+  if (shuttingDown) return
+  shuttingDown = true
+  try {
+    const { AppRuntime } = await import("@/effect/app-runtime")
+    const hardDeadline = new Promise<void>((resolve) => {
+      const t = setTimeout(() => resolve(), 2000)
+      if (typeof (t as any).unref === "function") (t as any).unref()
+    })
+    await Promise.race([AppRuntime.dispose(), hardDeadline])
+  } catch (e) {
+    Log.Default.warn("shutdown failed", { e: errorMessage(e) })
+  }
+  if (signal === "SIGINT") process.exit(0)
+}
+// SIGTERM is never delivered on Windows (Node documents it as a no-op
+// there), so gate registration. SIGINT works on Unix always; Windows
+// only when the process has an attached console (degraded but present).
+if (process.platform !== "win32") {
+  process.on("SIGTERM", () => {
+    void handleShutdown("SIGTERM")
+  })
+}
+process.on("SIGINT", () => {
+  void handleShutdown("SIGINT")
+})
+
 const args = hideBin(process.argv)
 
 function show(out: string) {
