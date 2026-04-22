@@ -8,6 +8,7 @@ export const commands = {
 	killSidecar: () => __TAURI_INVOKE<void>("kill_sidecar"),
 	readThirdPartyNotices: () => __TAURI_INVOKE<string>("read_third_party_notices"),
 	readLicense: () => __TAURI_INVOKE<string>("read_license"),
+	quitApp: () => __TAURI_INVOKE<void>("quit_app"),
 	installCli: () => __TAURI_INVOKE<string>("install_cli"),
 	awaitInitialization: (events: Channel) => __TAURI_INVOKE<ServerReadyData>("await_initialization", { events }),
 	getDefaultServerUrl: () => __TAURI_INVOKE<string | null>("get_default_server_url"),

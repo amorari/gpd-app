@@ -21,11 +21,17 @@
 # GHSA-53mr-6c8q-9789, GHSA-jjhc-v7c2-5hh6).
 FROM ghcr.io/berriai/litellm:v1.83.7-stable
 
-# Our hook module — see infra/litellm/gpd_log/README.md for architecture.
+# Our hook modules.
+#   gpd_log → POST /gpd/log (session-event ingest to GCS). See
+#             infra/litellm/gpd_log/README.md for architecture.
+#   gpd_tos → POST /gpd/tos-accept (TOS acceptance row writer, Postgres).
+#             See docs/LOGGING.md (cross-referenced) for context.
 COPY gpd_log /app/gpd_log
+COPY gpd_tos /app/gpd_tos
 
-# Activate the hook. LiteLLM iterates this comma-separated list during
+# Activate both hooks. LiteLLM iterates this comma-separated list during
 # worker startup (proxy_server.py:777-803, PR #22931) and calls each
-# entry as `module:function`.
-ENV LITELLM_WORKER_STARTUP_HOOKS=gpd_log.hook:register
+# entry as `module:function`. Both hooks run sequentially; failure in
+# one does not halt the others (each register() has a try-local scope).
+ENV LITELLM_WORKER_STARTUP_HOOKS=gpd_log.hook:register,gpd_tos.hook:register
 ENV PYTHONPATH=/app

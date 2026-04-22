@@ -5,7 +5,9 @@
  * Purges a user's data from every persistence layer:
  *   1. GCS: rm -r gs://gpd-desktop-logs/user=<hash>/
  *   2. BigQuery: DELETE FROM gpd_logs.sessions WHERE user_hash = <hash>
- *   3. LiteLLM: POST /user/delete (removes virtual keys, spend records)
+ *   3. LiteLLM Postgres: DELETE FROM gpd_tos_acceptance WHERE user_id = <id>
+ *      (requires plain user_id; indexed by id, not hash)
+ *   4. LiteLLM: POST /user/delete (removes virtual keys, spend records)
  *
  * Runs as the shell user's gcloud + bq credentials. Requires --confirm to
  * prevent accidents; defaults to dry-run so you can see what would be
@@ -128,9 +130,36 @@ if (!dryRun) {
   console.log(`      ✓ deleted`)
 }
 
-// 3. LiteLLM
+// 3. LiteLLM Postgres: gpd_tos_acceptance rows (indexed by plain user_id).
 console.log()
-console.log(`[3/3] LiteLLM keys + spend for user_id=${userId ?? "(skipped — need plain user_id)"}`)
+console.log(`[3/4] Postgres: DELETE FROM gpd_tos_acceptance WHERE user_id = ${userId ?? "(skipped — need plain user_id)"}`)
+if (!userId) {
+  console.log(`      skipped: gpd_tos_acceptance is indexed by plain user_id, not hash.`)
+} else if (dryRun) {
+  console.log(`      would DELETE via railway ssh → psql`)
+} else {
+  // Route via `railway ssh` so we don't need the operator to have
+  // DATABASE_URL in their shell — LiteLLM has it in-container.
+  const sql = `DELETE FROM gpd_tos_acceptance WHERE user_id = $$${userId.replace(/\$/g, "")}$$`
+  const res = spawnSync(
+    "railway",
+    [
+      "ssh",
+      "--service",
+      "litellm",
+      `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c ${JSON.stringify(sql)}`,
+    ],
+    { stdio: "inherit", encoding: "utf8" },
+  )
+  if (res.status !== 0) {
+    die(`railway ssh psql DELETE failed (exit ${res.status})`)
+  }
+  console.log(`      ✓ deleted`)
+}
+
+// 4. LiteLLM virtual keys + spend records
+console.log()
+console.log(`[4/4] LiteLLM keys + spend for user_id=${userId ?? "(skipped — need plain user_id)"}`)
 if (!userId) {
   console.log(`      skipped: LiteLLM indexes by plain user_id, not hash.`)
   console.log(`      Run this script with --user-id=<id> to also purge LiteLLM state.`)

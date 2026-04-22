@@ -85,6 +85,9 @@ export type Platform = {
   /** Read the bundled THIRD_PARTY_NOTICES.md (desktop only) */
   readThirdPartyNotices?(): Promise<string>
 
+  /** Exit the app immediately (desktop only; falls back to window.close on web). */
+  quit?(): Promise<void>
+
   /** Webview zoom level (desktop only) */
   webviewZoom?: Accessor<number>
 

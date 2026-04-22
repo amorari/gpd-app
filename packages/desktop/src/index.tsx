@@ -376,6 +376,7 @@ const createPlatform = (): Platform => {
     parseMarkdown: (markdown: string) => commands.parseMarkdownCommand(markdown),
     readLicense: () => commands.readLicense(),
     readThirdPartyNotices: () => commands.readThirdPartyNotices(),
+    quit: () => commands.quitApp(),
 
     webviewZoom,
 

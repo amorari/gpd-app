@@ -5,6 +5,20 @@ export const dict = {
   "welcome.apiKey.placeholder": "Paste your GPD API key",
   "welcome.apiKey.required": "An API key is required to get started",
   "welcome.getStarted": "Get Started",
+  "welcome.continue": "Continue",
+  "welcome.tos.title": "Terms of Service",
+  "welcome.tos.intro":
+    "Please review the terms below. You must agree to continue using GPD.",
+  "welcome.tos.checkbox":
+    "I have read and agree to the GPD Terms of Service and Privacy Policy.",
+  "welcome.tos.accept": "I Agree",
+  "welcome.tos.back": "Back",
+  "welcome.tos.cancel": "Quit",
+  "welcome.tos.errorAcceptFailed":
+    "We couldn't record your acceptance. Check your connection and try again.",
+  "welcome.tos.upgradeTitle": "Updated Terms of Service",
+  "welcome.tos.upgradeIntro":
+    "GPD has updated its Terms of Service. Please review and agree to continue.",
   "command.category.suggested": "Suggested",
   "command.category.view": "View",
   "command.category.project": "Project",

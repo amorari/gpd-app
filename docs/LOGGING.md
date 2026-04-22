@@ -6,6 +6,18 @@ single source of truth for *why* the logging stack looks the way it does and
 `infra/litellm/README.md`, `infra/bigquery/README.md`, and the scripts under
 `scripts/`.
 
+> **Legal prerequisite:** every user must accept the GPD Terms of Service
+> before any session data is logged. The in-app gate
+> (`packages/app/src/components/welcome-screen.tsx` +
+> `tos-upgrade-gate.tsx`) POSTs to `/gpd/tos-accept` on LiteLLM before it
+> writes the LiteLLM virtual key into `auth.json`. A user whose TOS
+> assent is not on file cannot reach the main IDE, so the sidecar
+> (which is what emits Bus events into `gpd-logger.ts`) never starts.
+> Server-side acceptance rows are stored in the
+> `gpd_tos_acceptance` Postgres table (see
+> `infra/litellm/gpd_tos/` and `infra/litellm/scripts/create-tos-table.sql`).
+> GDPR deletion cascades through `scripts/delete-user.ts`.
+
 ---
 
 ## TL;DR

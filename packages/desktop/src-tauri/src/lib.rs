@@ -285,6 +285,17 @@ fn read_license(app: AppHandle) -> Result<String, String> {
     read_bundled_resource(&app, "LICENSE")
 }
 
+/// Exits the app immediately with status 0.
+///
+/// Used by the TOS re-accept gate when the user declines updated terms.
+/// Bypasses window.close() listeners so refusing TOS cannot land the app
+/// in a partially-initialised state.
+#[tauri::command]
+#[specta::specta]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 fn read_bundled_resource(app: &AppHandle, name: &str) -> Result<String, String> {
     let resolver = app.path();
     let path = resolver
@@ -426,6 +437,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             kill_sidecar,
             read_third_party_notices,
             read_license,
+            quit_app,
             cli::install_cli,
             await_initialization,
             server::get_default_server_url,

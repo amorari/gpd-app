@@ -1,20 +1,28 @@
 # GPD's LiteLLM image
 
-Ships stock `ghcr.io/berriai/litellm:main-stable` + one custom
-route, `POST /gpd/log`, for session-log ingest. The SA key that writes
-to `gs://gpd-desktop-logs` lives only on Railway — desktop clients
-authenticate with their existing LiteLLM virtual key.
+Ships stock `ghcr.io/berriai/litellm:<pin>` + two custom routes:
+
+- **`POST /gpd/log`** — session-log ingest to `gs://gpd-desktop-logs`. SA
+  key lives only on Railway; desktop clients authenticate with their
+  existing LiteLLM virtual key.
+- **`POST /gpd/tos-accept`** — Terms-of-Service acceptance writer. Writes
+  one append-only row per (user, version, device) to `gpd_tos_acceptance`
+  in LiteLLM's Postgres DB. Same virtual-key auth.
 
 ## What's in here
 
 | File | What it does |
 |---|---|
 | `Dockerfile` | 3-line layer on top of stock LiteLLM |
-| `gpd_log/hook.py` | `register()` entry point for `LITELLM_WORKER_STARTUP_HOOKS` |
+| `gpd_log/hook.py` | `register()` entry point for `LITELLM_WORKER_STARTUP_HOOKS` — wires `/gpd/log` |
 | `gpd_log/middleware.py` | Rejects requests with missing / oversized Content-Length before the body hits memory |
 | `gpd_log/handler.py` | The route: auth → rate-limit → byte-quota → GCS upload |
 | `gpd_log/gcs_writer.py` | `upload_from_string(if_generation_match=0)` idempotent write |
 | `gpd_log/quota.py` | Per-key daily byte counter in Redis, fail-closed |
+| `gpd_tos/hook.py` | `register()` entry — wires `/gpd/tos-accept` |
+| `gpd_tos/handler.py` | Auth → validate version → capture IP/UA → insert row |
+| `gpd_tos/db.py` | Lazy `PrismaClient` singleton + parameterised `INSERT` helper |
+| `scripts/create-tos-table.sql` | One-time DDL for `gpd_tos_acceptance` (apply before deploying) |
 
 ## One-time GCP setup
 
@@ -122,3 +130,46 @@ gs://gpd-desktop-logs/user=<hashed_user_id>/date=YYYY-MM-DD/session=<root_id>/su
 A nightly compactor (separate service) fuses `parts/*.jsonl.gz` into
 a single `root.jsonl.gz` per session per day, using GCS `Objects.compose()`
 in 32-at-a-time batches.
+
+## TOS acceptance — one-time DDL before deploy
+
+`/gpd/tos-accept` writes to the `gpd_tos_acceptance` table in LiteLLM's
+Postgres DB. The handler assumes the table exists; the first INSERT
+against a missing table returns `503 tos write failed: ...`.
+
+Apply the DDL **before** the first redeploy that ships the `gpd_tos`
+package:
+
+```bash
+cat infra/litellm/scripts/create-tos-table.sql | \
+  railway ssh --service litellm \
+    --project 0ddad766-1ee1-44ed-95c2-f8f7d9cb5515 \
+    'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f -'
+```
+
+Idempotent — safe to re-run.
+
+### TOS endpoint verification
+
+```bash
+KEY=sk-<your-key>                                    # must carry a user_id (non-admin)
+BASE=https://litellm-production-46bb.up.railway.app
+
+curl -sS -X POST \
+  "$BASE/gpd/tos-accept?tos_version=0.0-placeholder&app_version=1.1.10" \
+  -H "Authorization: Bearer $KEY" \
+  -H "User-Agent: smoke-test/1.0" | jq
+# Expected: {"ok": true}
+
+# Verify the row landed
+railway ssh --service litellm \
+  'psql "$DATABASE_URL" -c "SELECT user_id, key_last4, tos_version, client_ip, accepted_at FROM gpd_tos_acceptance ORDER BY accepted_at DESC LIMIT 5;"'
+```
+
+Negative tests:
+
+```bash
+# Missing tos_version → 400
+# Master / admin key (no user_id) → 401
+# tos_version > 64 chars → 400
+```
