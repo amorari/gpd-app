@@ -593,11 +593,18 @@ install_gpd_dmg() {
 
     download "$dmg_url" "$dmg_file"
     log "Mounting disk image..."
-    # -mountrandom gives us a unique mountpoint under /tmp so we never
-    # collide with a previously-mounted GPD volume.
-    mount_point="$(hdiutil attach "$dmg_file" -nobrowse -quiet -mountrandom /tmp | awk 'END{print $NF}')"
+    # Use -plist for parseable output — the tabular form with -quiet
+    # writes nothing to stdout, and without -quiet it's a mix of progress
+    # and final lines that's fragile to parse. plutil ships on every
+    # macOS since 10.5.
+    local plist
+    plist="$(hdiutil attach "$dmg_file" -nobrowse -mountrandom /tmp -plist 2>/dev/null)" || {
+        die "hdiutil attach failed. If the download was interrupted, re-run the installer."
+    }
+    mount_point="$(printf '%s' "$plist" | plutil -p - 2>/dev/null \
+        | awk -F'"' '/"mount-point"/ {print $4; exit}')"
     if [[ -z "$mount_point" || ! -d "$mount_point" ]]; then
-        die "hdiutil attach failed — disk image may be corrupt. Re-run the installer."
+        die "hdiutil attach succeeded but no mount point in output. Re-run the installer."
     fi
 
     log "Copying GPD.app to /Applications..."
