@@ -1,25 +1,44 @@
-"""Print which schema owns gpd_tos_acceptance + current search_path."""
-import asyncio, os, sys
-from litellm.proxy.utils import PrismaClient
+"""Print where gpd_tos_acceptance lives — used to debug cross-DB mismatches
+(e.g., table in LiteLLM DB, handler connecting to audit DB, or vice versa).
 
-async def main():
-    c = PrismaClient(database_url=os.environ["DATABASE_URL"], proxy_logging_obj=None)
-    await c.connect()
+Queries both GPD_AUDIT_DATABASE_URL (if set) and DATABASE_URL so you can
+see at a glance which DB has the table and which is missing it."""
+import asyncio, os, sys, asyncpg
+
+
+async def probe(label, url):
+    if not url:
+        print(f"--- {label}: not set ---")
+        return
+    if "?" in url:
+        url = url.split("?", 1)[0]
     try:
-        rows = await c.db.query_raw(
-            "SELECT table_schema, table_name FROM information_schema.tables "
+        c = await asyncpg.connect(url)
+    except Exception as e:
+        print(f"--- {label}: connect failed: {e} ---")
+        return
+    try:
+        db = await c.fetchval("SELECT current_database()")
+        rows = await c.fetch(
+            "SELECT table_schema FROM information_schema.tables "
             "WHERE table_name = 'gpd_tos_acceptance'"
         )
-        print("locations of table 'gpd_tos_acceptance':")
-        for r in rows:
-            print(f"  {r}")
-        sp = await c.db.query_raw("SHOW search_path")
-        print(f"search_path: {sp}")
-        cur = await c.db.query_raw("SELECT current_schema()::text AS s")
-        print(f"current_schema: {cur}")
-        db = await c.db.query_raw("SELECT current_database()::text AS d")
-        print(f"current_database: {db}")
+        print(f"--- {label} (database={db}) ---")
+        print(f"  locations: {[r['table_schema'] for r in rows] or '(missing)'}")
+        if rows:
+            cols = await c.fetch(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'gpd_tos_acceptance' "
+                "ORDER BY ordinal_position"
+            )
+            print(f"  columns: {[r['column_name'] for r in cols]}")
     finally:
-        await c.disconnect()
+        await c.close()
+
+
+async def main():
+    await probe("GPD_AUDIT_DATABASE_URL", os.environ.get("GPD_AUDIT_DATABASE_URL"))
+    await probe("DATABASE_URL (LiteLLM)", os.environ.get("DATABASE_URL"))
+
 
 sys.exit(asyncio.run(main()) or 0)

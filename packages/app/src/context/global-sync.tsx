@@ -359,6 +359,7 @@ function createGlobalSync() {
   async function bootstrap() {
     bootingRoot = true
     try {
+      console.log("[gpd-debug] bootstrap:start")
       await bootstrapGlobal({
         globalSDK: globalSDK.client,
         requestFailedTitle: language.t("common.requestFailed"),
@@ -366,7 +367,11 @@ function createGlobalSync() {
         formatMoreCount: (count) => language.t("common.moreCountSuffix", { count }),
         setGlobalStore: setBootStore,
       })
+      console.log("[gpd-debug] bootstrap:ok")
       bootedAt = Date.now()
+    } catch (err) {
+      console.error("[gpd-debug] bootstrap:fail", err, (err as Error)?.stack)
+      throw err
     } finally {
       bootingRoot = false
     }

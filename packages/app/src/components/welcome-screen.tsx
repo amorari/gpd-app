@@ -4,7 +4,11 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { postTosAccept } from "@/lib/tos-accept"
-import { TOS_ACCEPTED_VERSION_STORAGE_KEY, CURRENT_TOS_VERSION } from "./tos-content"
+import {
+  CURRENT_TOS_VERSION,
+  TOS_ACCEPTED_VERSION_STORAGE_KEY,
+  TOS_TEXT_SHA256,
+} from "./tos-content"
 import { TosSection } from "./tos-section"
 
 /**
@@ -40,7 +44,7 @@ export function WelcomeScreen(props: { onComplete: (apiKey: string) => void | Pr
     setStep("tos")
   }
 
-  async function handleTosAccept() {
+  async function handleTosAccept(viewedInFull: boolean) {
     const key = apiKey().trim()
     if (!key) {
       // Defensive: should never land in tos step without a key, but fall back.
@@ -54,7 +58,9 @@ export function WelcomeScreen(props: { onComplete: (apiKey: string) => void | Pr
       await postTosAccept({
         key,
         tosVersion: CURRENT_TOS_VERSION,
+        tosTextSha256: TOS_TEXT_SHA256,
         appVersion: platform.version,
+        viewedInFull,
       })
       localStorage.setItem(TOS_ACCEPTED_VERSION_STORAGE_KEY, CURRENT_TOS_VERSION)
       await props.onComplete(key)
@@ -88,7 +94,7 @@ export function WelcomeScreen(props: { onComplete: (apiKey: string) => void | Pr
             </h1>
             <p class="mt-1.5 text-14-regular text-text-weak">{language.t("welcome.subtitle")}</p>
             <form onSubmit={handleKeySubmit} class="mt-10 w-full flex flex-col gap-4">
-              <TextField autofocus type="password" hideLabel label={language.t("welcome.apiKey.label")} placeholder={language.t("welcome.apiKey.placeholder")} name="apiKey" value={apiKey()} onChange={(v) => { setApiKey(v); if (error()) setError(undefined) }} validationState={error() ? "invalid" : undefined} error={error()} />
+              <TextField autofocus type="text" hideLabel label={language.t("welcome.apiKey.label")} placeholder={language.t("welcome.apiKey.placeholder")} name="gpd-key" value={apiKey()} onChange={(v) => { setApiKey(v); if (error()) setError(undefined) }} validationState={error() ? "invalid" : undefined} error={error()} autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false} data-1p-ignore data-lpignore="true" data-form-type="other" style={{ "-webkit-text-security": "disc", "text-security": "disc" }} />
               <Button type="submit" size="large" variant="primary" class="w-full" disabled={submitting()}>{language.t("welcome.continue")}</Button>
             </form>
           </div>

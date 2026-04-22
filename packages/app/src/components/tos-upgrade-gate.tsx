@@ -2,7 +2,11 @@ import { createSignal } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { postTosAccept } from "@/lib/tos-accept"
-import { CURRENT_TOS_VERSION, TOS_ACCEPTED_VERSION_STORAGE_KEY } from "./tos-content"
+import {
+  CURRENT_TOS_VERSION,
+  TOS_ACCEPTED_VERSION_STORAGE_KEY,
+  TOS_TEXT_SHA256,
+} from "./tos-content"
 import { TosSection } from "./tos-section"
 
 /**
@@ -29,14 +33,16 @@ export function TosUpgradeGate(props: {
   const [error, setError] = createSignal<string | undefined>()
   const [submitting, setSubmitting] = createSignal(false)
 
-  async function handleAccept() {
+  async function handleAccept(viewedInFull: boolean) {
     setError(undefined)
     setSubmitting(true)
     try {
       await postTosAccept({
         key: props.apiKey,
         tosVersion: CURRENT_TOS_VERSION,
+        tosTextSha256: TOS_TEXT_SHA256,
         appVersion: platform.version,
+        viewedInFull,
       })
       localStorage.setItem(TOS_ACCEPTED_VERSION_STORAGE_KEY, CURRENT_TOS_VERSION)
       props.onAccepted()

@@ -26,16 +26,31 @@ export type TosAcceptInput = {
   key: string
   /** Must match CURRENT_TOS_VERSION at the moment of acceptance. */
   tosVersion: string
+  /** SHA-256 hex of the exact TOS_TEXT the user saw. Lets server-side
+   *  audit rows tie to the literal text even if the source is later
+   *  edited. */
+  tosTextSha256: string
   /** Desktop build version, for audit trail. Optional. */
   appVersion?: string
+  /** True iff the user scrolled the TOS region to its bottom before
+   *  checking the agreement box. Defense against "I never saw clause 7"
+   *  disputes (Specht v. Netscape class). */
+  viewedInFull?: boolean
 }
 
 export async function postTosAccept(input: TosAcceptInput): Promise<void> {
   if (!input.key) throw new Error("missing LiteLLM key")
   if (!input.tosVersion) throw new Error("missing tosVersion")
+  if (!/^[0-9a-f]{64}$/.test(input.tosTextSha256)) {
+    throw new Error("tosTextSha256 must be 64 lowercase hex chars")
+  }
 
-  const params = new URLSearchParams({ tos_version: input.tosVersion })
+  const params = new URLSearchParams({
+    tos_version: input.tosVersion,
+    tos_text_sha256: input.tosTextSha256,
+  })
   if (input.appVersion) params.set("app_version", input.appVersion)
+  if (input.viewedInFull) params.set("viewed_in_full", "1")
 
   const res = await fetch(`${LITELLM_TOS_ACCEPT_URL}?${params.toString()}`, {
     method: "POST",

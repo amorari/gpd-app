@@ -31,8 +31,9 @@ RUN pip install --no-cache-dir asyncpg==0.31.0
 # Our hook modules.
 #   gpd_log → POST /gpd/log (session-event ingest to GCS). See
 #             infra/litellm/gpd_log/README.md for architecture.
-#   gpd_tos → POST /gpd/tos-accept (TOS acceptance row writer, Postgres).
-#             See docs/LOGGING.md (cross-referenced) for context.
+#   gpd_tos → POST /gpd/tos-accept + /gpd/tos-revoke (TOS audit writer,
+#             separate Postgres via GPD_AUDIT_DATABASE_URL). See
+#             docs/LOGGING.md + infra/litellm/gpd_tos/migrations/.
 COPY gpd_log /app/gpd_log
 COPY gpd_tos /app/gpd_tos
 

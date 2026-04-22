@@ -1,18 +1,14 @@
-"""Postgres writer for TOS acceptance rows.
+"""Postgres writer for TOS acceptance rows (separate audit DB).
 
-We use asyncpg directly (not LiteLLM's bundled PrismaClient) for two reasons:
+Uses asyncpg directly, pointed at `GPD_AUDIT_DATABASE_URL` — the dedicated
+legal-audit database, isolated from LiteLLM's own Postgres so upstream
+`prisma migrate` behavior can't drop acceptance rows. Schema is managed by
+`gpd_tos.migrate.apply_migrations()` which runs from the startup hook.
 
-1. `PrismaClient.db.execute_raw()` silently rolls DDL back on disconnect,
-   so `ensure_schema()` can't reliably CREATE TABLE that way.
-2. LiteLLM's startup `prisma migrate deploy` step drops unmanaged tables
-   between deploys, so we need to (re-)create `gpd_tos_acceptance` in
-   every worker's startup — `ensure_schema()` runs from hook.register().
-
-asyncpg is baked into the Dockerfile so the import is always satisfied.
-
-The connection pool is lazily opened on first use. We keep a small pool
-(1..4) because TOS traffic is very low-volume (one row per user per
-version per device); a larger pool would waste file descriptors.
+Pool is lazily opened on first use, sized 1..4 since TOS traffic is one
+row per user per version per device install. The pool only opens *after*
+migrations have been applied (startup hook awaits migrate before serving
+traffic), so `insert_acceptance` cannot race the first CREATE TABLE.
 """
 from __future__ import annotations
 
@@ -30,13 +26,25 @@ _lock = asyncio.Lock()
 
 
 def _clean_url(url: str) -> str:
-    """Strip the ?schema=... (and other) query params Prisma uses.
-
-    asyncpg doesn't understand them and will reject the URL outright.
-    The `schema` param was irrelevant to our use anyway — the table
-    lives in `public` by default.
-    """
+    """Strip Prisma `?schema=...` from the URL — asyncpg rejects unknown query
+    params outright. Only known-inert params we'd want to preserve (e.g.,
+    `sslmode`, `connect_timeout`) go through a libpq-style URL, not this
+    Prisma-style URL; none are ever appended by Railway in practice."""
     return url.split("?", 1)[0] if "?" in url else url
+
+
+def _audit_url() -> str:
+    url = os.environ.get("GPD_AUDIT_DATABASE_URL")
+    if url:
+        return _clean_url(url)
+    fallback = os.environ.get("DATABASE_URL")
+    if fallback:
+        logger.warning(
+            "gpd_tos.db: GPD_AUDIT_DATABASE_URL unset; using DATABASE_URL "
+            "(LiteLLM's own DB). NOT production-safe."
+        )
+        return _clean_url(fallback)
+    raise RuntimeError("gpd_tos.db: no audit database URL configured")
 
 
 async def _get_pool() -> asyncpg.Pool:
@@ -46,101 +54,103 @@ async def _get_pool() -> asyncpg.Pool:
     async with _lock:
         if _pool is not None:
             return _pool
-        db_url = os.environ.get("DATABASE_URL")
-        if not db_url:
-            raise RuntimeError(
-                "DATABASE_URL env var required for gpd_tos "
-                "(LiteLLM always sets it on Railway)"
-            )
-        _pool = await asyncpg.create_pool(_clean_url(db_url), min_size=1, max_size=4)
+        _pool = await asyncpg.create_pool(_audit_url(), min_size=1, max_size=4)
         logger.info("gpd_tos.db: asyncpg pool connected")
         return _pool
-
-
-_DDL = [
-    """
-    CREATE TABLE IF NOT EXISTS gpd_tos_acceptance (
-      id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id          TEXT         NOT NULL,
-      key_hash_last4   TEXT         NOT NULL,
-      tos_version      TEXT         NOT NULL,
-      app_version      TEXT,
-      user_agent       TEXT,
-      client_ip        INET,
-      accepted_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
-    )
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_gpd_tos_user_version_at
-      ON gpd_tos_acceptance (user_id, tos_version, accepted_at DESC)
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_gpd_tos_accepted_at
-      ON gpd_tos_acceptance (accepted_at DESC)
-    """,
-]
-
-
-async def ensure_schema() -> None:
-    """(Re-)create gpd_tos_acceptance and its indexes if absent.
-
-    Called from the worker startup hook so every redeploy restores the
-    table — LiteLLM's startup migrations drop unmanaged tables, which
-    would otherwise leave the first POST 503-ing with "relation does
-    not exist".
-
-    Idempotent (IF NOT EXISTS everywhere). Uses a dedicated connection
-    (not the pool) so the DDL runs in implicit autocommit before the
-    pool is warmed.
-    """
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise RuntimeError("DATABASE_URL env var required for gpd_tos.ensure_schema")
-    conn = await asyncpg.connect(_clean_url(db_url))
-    try:
-        for stmt in _DDL:
-            await conn.execute(stmt)
-        logger.info("gpd_tos.db: ensure_schema() ok — gpd_tos_acceptance ready")
-    finally:
-        await conn.close()
 
 
 async def insert_acceptance(
     *,
     user_id: str,
-    key_hash_last4: str,
+    token_hash_suffix: str,
     tos_version: str,
+    tos_text_sha256: str,
+    viewed_in_full: bool,
     app_version: Optional[str],
     user_agent: Optional[str],
     client_ip: Optional[str],
 ) -> None:
     """INSERT one row into gpd_tos_acceptance.
 
-    client_ip is cast `::inet` on the server — invalid addresses raise
-    and the handler returns 503 to the client. Preferable to silently
-    dropping the row.
+    client_ip is cast `::inet` on the server. The handler validates the
+    address client-side (Python's `ipaddress` module) and passes None for
+    unparseable values, so the INET cast should never raise here. If it
+    does, the handler returns 503; prefer that to silent NULL.
 
-    key_hash_last4 is the last 4 chars of LiteLLM's SHA256 token hash
-    (what `user_api_key_dict.api_key` exposes), NOT the raw sk-... key
-    the user typed. See `infra/litellm/scripts/rename-key-last4.py` for
-    the rename migration.
+    token_hash_suffix is expected to be the first 16 chars of the LiteLLM
+    SHA256 token hash. 64 bits ≈ no collisions up to the billion-user
+    regime.
     """
     pool = await _get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             """
             INSERT INTO gpd_tos_acceptance (
-              user_id, key_hash_last4, tos_version, app_version,
-              user_agent, client_ip
+              user_id, token_hash_suffix, tos_version, tos_text_sha256,
+              viewed_in_full, app_version, user_agent, client_ip
             ) VALUES (
               $1, $2, $3, $4,
-              $5, $6::inet
+              $5, $6, $7, $8::inet
             )
             """,
             user_id,
-            key_hash_last4,
+            token_hash_suffix,
             tos_version,
+            tos_text_sha256,
+            viewed_in_full,
             app_version,
             user_agent,
             client_ip,
         )
+
+
+async def mark_revoked(*, user_id: str) -> int:
+    """Stamp revoked_at = now() on every non-revoked row for user_id.
+
+    Returns the number of rows touched. Used by `/gpd/tos-revoke` so a user
+    withdrawing consent leaves an explicit revocation mark, NOT a deletion
+    (GDPR Art. 17(3)(e) allows retention for legal-claim defence)."""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE gpd_tos_acceptance
+               SET revoked_at = now()
+             WHERE user_id = $1 AND revoked_at IS NULL
+            """,
+            user_id,
+        )
+        # asyncpg returns "UPDATE <n>"; split off the count.
+        try:
+            return int(result.rsplit(" ", 1)[-1])
+        except ValueError:
+            return 0
+
+
+async def pseudonymize_user(*, user_id: str) -> int:
+    """GDPR erasure: redact identifying fields but keep the audit trail.
+
+    Drops client_ip + user_agent + token_hash_suffix; keeps user_id
+    (already hashed by LiteLLM), tos_version, tos_text_sha256, viewed_in_full,
+    accepted_at, revoked_at. Rationale: Art. 17(3)(e) explicitly permits
+    retention of records needed for "establishment, exercise or defence
+    of legal claims" — proof of consent falls squarely in that bucket.
+    Stripping IP/UA/token_suffix leaves the minimal row that proves "a
+    holder of user_id X consented to version Y at time Z" without
+    retaining surveillance-grade fields."""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE gpd_tos_acceptance
+               SET client_ip = NULL,
+                   user_agent = NULL,
+                   token_hash_suffix = 'REDACTED'
+             WHERE user_id = $1
+            """,
+            user_id,
+        )
+        try:
+            return int(result.rsplit(" ", 1)[-1])
+        except ValueError:
+            return 0

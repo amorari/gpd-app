@@ -130,37 +130,40 @@ if (!dryRun) {
   console.log(`      ✓ deleted`)
 }
 
-// 3. LiteLLM Postgres: gpd_tos_acceptance rows (indexed by plain user_id).
+// 3. Audit Postgres: PSEUDONYMIZE gpd_tos_acceptance rows.
+//
+// Not DELETE — GDPR Art. 17(3)(e) permits (and legal practice requires)
+// retention of "I once consented" proof post-erasure. We strip
+// surveillance-grade fields (client_ip, user_agent, token_hash_suffix)
+// and keep the minimal row: user_id + tos_version + tos_text_sha256 +
+// viewed_in_full + accepted_at + revoked_at. That's enough to answer
+// "did user X consent to version Y at time Z" in a future dispute,
+// without retaining identifying metadata.
 console.log()
-console.log(`[3/4] Postgres: DELETE FROM gpd_tos_acceptance WHERE user_id = ${userId ?? "(skipped — need plain user_id)"}`)
+console.log(`[3/4] Audit DB: pseudonymize gpd_tos_acceptance rows for user_id=${userId ?? "(skipped — need plain user_id)"}`)
 if (!userId) {
   console.log(`      skipped: gpd_tos_acceptance is indexed by plain user_id, not hash.`)
 } else if (dryRun) {
-  console.log(`      would DELETE via railway ssh → python (asyncpg)`)
+  console.log(`      would UPDATE via railway ssh → python (asyncpg) against GPD_AUDIT_DATABASE_URL`)
 } else {
-  // LiteLLM's Docker image ships neither psql nor a shell that can run
-  // arbitrary SQL against DATABASE_URL. We cannot use PrismaClient either
-  // because its execute_raw() silently rolls DDL/DML back on disconnect
-  // when used outside LiteLLM's own request context. The robust path is
-  // asyncpg (pip-installed on first use) via a short Python snippet
-  // piped over `railway ssh` as base64 so the script can contain quotes.
+  // asyncpg baked into the LiteLLM image (infra/litellm/Dockerfile)
+  // since the TOS hook added it. Prisma rolls DDL/DML back on disconnect
+  // and is unusable from a standalone script.
   const pyScript = `
-import asyncio, os, sys
-try:
-    import asyncpg
-except ImportError:
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "asyncpg"])
-    import asyncpg
+import asyncio, os, sys, asyncpg
 
 async def main():
-    url = os.environ["DATABASE_URL"]
+    url = os.environ.get("GPD_AUDIT_DATABASE_URL") or os.environ["DATABASE_URL"]
     if "?" in url:
         url = url.split("?", 1)[0]
     c = await asyncpg.connect(url)
     try:
         result = await c.execute(
-            "DELETE FROM gpd_tos_acceptance WHERE user_id = $1",
+            """UPDATE gpd_tos_acceptance
+                  SET client_ip = NULL,
+                      user_agent = NULL,
+                      token_hash_suffix = 'REDACTED'
+                WHERE user_id = $1""",
             ${JSON.stringify(userId)},
         )
         print(f"    {result}")
@@ -176,14 +179,14 @@ asyncio.run(main())
       "ssh",
       "--service",
       "litellm",
-      `echo ${b64} | base64 -d > /tmp/delete-tos.py && python /tmp/delete-tos.py`,
+      `echo ${b64} | base64 -d > /tmp/pseudonymize-tos.py && python /tmp/pseudonymize-tos.py`,
     ],
     { stdio: "inherit", encoding: "utf8" },
   )
   if (res.status !== 0) {
-    die(`railway ssh python DELETE failed (exit ${res.status})`)
+    die(`railway ssh python UPDATE failed (exit ${res.status})`)
   }
-  console.log(`      ✓ deleted`)
+  console.log(`      ✓ pseudonymized (user_id retained for legal-audit evidence)`)
 }
 
 // 4. LiteLLM virtual keys + spend records

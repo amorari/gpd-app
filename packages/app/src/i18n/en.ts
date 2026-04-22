@@ -11,6 +11,8 @@ export const dict = {
     "Please review the terms below. You must agree to continue using GPD.",
   "welcome.tos.checkbox":
     "I have read and agree to the GPD Terms of Service and Privacy Policy.",
+  "welcome.tos.scrollHint":
+    "Please scroll to the end of the terms to continue.",
   "welcome.tos.accept": "I Agree",
   "welcome.tos.back": "Back",
   "welcome.tos.cancel": "Quit",

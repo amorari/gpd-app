@@ -23,6 +23,20 @@
  *  is the legal anchor for "which TOS did this user agree to". */
 export const CURRENT_TOS_VERSION = "0.0-placeholder"
 
+/** SHA-256 hex of `TOS_TEXT` below, computed at commit time.
+ *
+ *  Every acceptance POST includes this so server-side rows tie back to the
+ *  exact text the user saw, even if the source file is later edited or the
+ *  git history is rewritten. Build-time guard in `.github/workflows/gpd-release.yml`
+ *  (`tos-guard` job) re-hashes TOS_TEXT and fails the release if the constant
+ *  is stale.
+ *
+ *  Regenerate locally after editing TOS_TEXT:
+ *    python3 -c "import re,hashlib,pathlib; s=pathlib.Path('packages/app/src/components/tos-content.tsx').read_text(); \
+ *      print(hashlib.sha256(re.search(r'export const TOS_TEXT = \`([^\`]+)\`', s).group(1).encode()).hexdigest())" */
+export const TOS_TEXT_SHA256 =
+  "f274a1fca9806402865b76e7f0d64018fcb7f8558bc89fcc69eeff98cc17dcdd"
+
 /** localStorage key under which the last-accepted TOS version is cached.
  *  SetupGate compares this against CURRENT_TOS_VERSION on every launch to
  *  decide whether to re-prompt. Wiping this key (via dev tools) simulates
