@@ -158,6 +158,21 @@ export type Platform = {
   checkProjectAccessible?(path: string): Promise<"ok" | "locked" | "missing">
 
   /**
+   * Canonicalize a filesystem path via the Tauri main process.
+   * Resolves `.`/`..` segments and follows symlinks.
+   *
+   * Returns the canonical absolute path, or `null` when the path does
+   * not exist or cannot be resolved. Used as a trust boundary before
+   * comparing an untrusted (URL-derived) path against forbidden roots:
+   * without canonicalization, `<home>/Documents/..` or a symlinked
+   * path bypasses `rejectUnsafeProjectPath`.
+   *
+   * Desktop-only. Web builds return `undefined` at the function slot
+   * so callers must handle absence (treat as "cannot verify").
+   */
+  canonicalizeProjectPath?(path: string): Promise<string | null>
+
+  /**
    * TeX compilation surface. Desktop only. Lets the Build pane detect a
    * compiler, compile a `.tex` file to PDF, and do bidirectional SyncTeX
    * navigation between source and rendered output.

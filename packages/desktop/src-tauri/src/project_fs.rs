@@ -74,3 +74,29 @@ pub fn check_project_accessible(path: String) -> Result<String, String> {
         }
     }
 }
+
+/// Canonicalize a path via `std::fs::canonicalize`, which resolves `.`/`..`
+/// segments and follows every symlink.
+///
+/// Used by the frontend as a trust boundary for URL-driven project opens:
+/// a raw URL param cannot be trusted to be in canonical form, so callers
+/// should canonicalize first and THEN compare against forbidden roots
+/// (`rejectUnsafeProjectPath`). Without this step, `<home>/Documents/..`
+/// or a symlink into a system directory bypasses the string-level guard.
+///
+/// Returns:
+///   - `Ok(canonical)` when the path exists and resolves
+///   - `Err(...)` for missing paths, permission denied, or invalid input
+#[tauri::command]
+#[specta::specta]
+pub fn canonicalize_project_path(path: String) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Path is empty.".to_string());
+    }
+    let p = PathBuf::from(trimmed);
+    match std::fs::canonicalize(&p) {
+        Ok(canon) => Ok(canon.to_string_lossy().to_string()),
+        Err(err) => Err(format!("{err}")),
+    }
+}

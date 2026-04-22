@@ -395,6 +395,13 @@ const createPlatform = (): Platform => {
       const result = await commands.checkProjectAccessible(path)
       return result as "ok" | "locked" | "missing"
     },
+    canonicalizeProjectPath: async (path: string) => {
+      try {
+        return await commands.canonicalizeProjectPath(path)
+      } catch {
+        return null
+      }
+    },
     onTectonicDownloadProgress: async (cb) => {
       return events.tectonicDownloadProgress.listen((event) => {
         cb(event.payload)
