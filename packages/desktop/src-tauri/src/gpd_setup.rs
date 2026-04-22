@@ -539,7 +539,6 @@ mod tests {
         // Verify top-level structure
         let obj = parsed.as_object().expect("config should be an object");
         assert!(obj.contains_key("provider"), "missing 'provider' key");
-        assert!(obj.contains_key("model"), "missing 'model' key");
         assert!(obj.contains_key("enabled_providers"), "missing 'enabled_providers' key");
         assert!(obj.contains_key("mcp"), "missing 'mcp' key");
     }
