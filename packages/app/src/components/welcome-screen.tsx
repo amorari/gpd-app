@@ -42,6 +42,35 @@ export function WelcomeScreen(props: { onComplete: (apiKey: string) => void | Pr
       return
     }
     setError(undefined)
+    // If this device already accepted the current TOS version (e.g. user
+    // is just rotating their key), skip the TOS step and auto-POST a
+    // fresh acceptance row server-side for the new key's user_id. Keeps
+    // per-user_id compliance row intact without forcing a re-click.
+    const cachedVersion = localStorage.getItem(TOS_ACCEPTED_VERSION_STORAGE_KEY)
+    if (cachedVersion === CURRENT_TOS_VERSION) {
+      setSubmitting(true)
+      try {
+        await postTosAccept({
+          key,
+          tosVersion: CURRENT_TOS_VERSION,
+          tosTextSha256: TOS_TEXT_SHA256,
+          privacyTextSha256: PRIVACY_TEXT_SHA256,
+          appVersion: platform.version,
+          viewedInFull: true,
+        })
+        await props.onComplete(key)
+        return
+      } catch (err) {
+        // Fall through to the explicit TOS step so the user can see the
+        // error and retry / review.
+        setError(
+          err instanceof Error
+            ? `${language.t("welcome.tos.errorAcceptFailed")} (${err.message})`
+            : language.t("welcome.tos.errorAcceptFailed"),
+        )
+        setSubmitting(false)
+      }
+    }
     setStep("tos")
   }
 
@@ -96,7 +125,7 @@ export function WelcomeScreen(props: { onComplete: (apiKey: string) => void | Pr
             </h1>
             <p class="mt-1.5 text-14-regular text-text-weak">{language.t("welcome.subtitle")}</p>
             <form onSubmit={handleKeySubmit} class="mt-10 w-full flex flex-col gap-4">
-              <TextField autofocus type="text" hideLabel label={language.t("welcome.apiKey.label")} placeholder={language.t("welcome.apiKey.placeholder")} name="gpd-key" value={apiKey()} onChange={(v) => { setApiKey(v); if (error()) setError(undefined) }} validationState={error() ? "invalid" : undefined} error={error()} autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false} data-1p-ignore data-lpignore="true" data-form-type="other" style={{ "-webkit-text-security": "disc", "text-security": "disc" }} />
+              <TextField autofocus type="password" hideLabel label={language.t("welcome.apiKey.label")} placeholder={language.t("welcome.apiKey.placeholder")} name="gpd-key" value={apiKey()} onChange={(v) => { setApiKey(v); if (error()) setError(undefined) }} validationState={error() ? "invalid" : undefined} error={error()} autocomplete="off" />
               <Button type="submit" size="large" variant="primary" class="w-full" disabled={submitting()}>{language.t("welcome.continue")}</Button>
             </form>
           </div>

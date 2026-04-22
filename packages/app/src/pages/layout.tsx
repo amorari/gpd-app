@@ -1123,8 +1123,24 @@ export default function Layout(props: ParentProps) {
         id: "gpd.resetKey",
         title: language.t("sidebar.resetKey"),
         category: language.t("command.category.settings"),
-        onSelect: () => {
+        onSelect: async () => {
+          console.log("[gpd] command gpd.resetKey: start")
+          try {
+            const r = await globalSDK.client.auth.remove({ providerID: "gpd" })
+            console.log("[gpd] auth.remove('gpd') →", r)
+          } catch (e) {
+            console.error("[gpd] auth.remove('gpd') failed:", e)
+          }
+          try {
+            const r = await globalSDK.client.global.dispose()
+            console.log("[gpd] global.dispose →", r)
+          } catch (e) {
+            console.error("[gpd] global.dispose failed:", e)
+          }
+          // Preserve gpd.tos.acceptedVersion — changing key on same device
+          // doesn't invalidate prior TOS acceptance. Revoke Consent wipes it.
           localStorage.removeItem("gpd.key.saved")
+          console.log("[gpd] localStorage cleared (tos version preserved), reloading")
           window.location.reload()
         },
       },
@@ -2490,8 +2506,22 @@ export default function Layout(props: ParentProps) {
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}
-      onResetKey={() => {
+      onResetKey={async () => {
+        console.log("[gpd] sidebar onResetKey: start")
+        try {
+          const r = await globalSDK.client.auth.remove({ providerID: "gpd" })
+          console.log("[gpd] auth.remove('gpd') →", r)
+        } catch (e) {
+          console.error("[gpd] auth.remove('gpd') failed:", e)
+        }
+        try {
+          const r = await globalSDK.client.global.dispose()
+          console.log("[gpd] global.dispose →", r)
+        } catch (e) {
+          console.error("[gpd] global.dispose failed:", e)
+        }
         localStorage.removeItem("gpd.key.saved")
+        console.log("[gpd] localStorage cleared (tos version preserved), reloading")
         window.location.reload()
       }}
       resetKeyLabel={() => language.t("sidebar.resetKey")}

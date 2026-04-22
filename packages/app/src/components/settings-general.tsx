@@ -12,6 +12,7 @@ import { useParams } from "@solidjs/router"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
 import { usePlatform } from "@/context/platform"
+import { useGlobalSDK } from "@/context/global-sdk"
 import {
   monoDefault,
   monoFontFamily,
@@ -69,6 +70,7 @@ export const SettingsGeneral: Component = () => {
   const language = useLanguage()
   const permission = usePermission()
   const platform = usePlatform()
+  const globalSDK = useGlobalSDK()
   const params = useParams()
   const settings = useSettings()
 
@@ -531,8 +533,25 @@ export const SettingsGeneral: Component = () => {
     const [revoking, setRevoking] = createSignal(false)
     const [revokeError, setRevokeError] = createSignal<string | undefined>()
 
-    const handleChangeApiKey = () => {
+    const handleChangeApiKey = async () => {
+      console.log("[gpd] handleChangeApiKey: start")
+      try {
+        const r = await globalSDK.client.auth.remove({ providerID: "gpd" })
+        console.log("[gpd] auth.remove('gpd') →", r)
+      } catch (e) {
+        console.error("[gpd] auth.remove('gpd') failed:", e)
+      }
+      try {
+        const r = await globalSDK.client.global.dispose()
+        console.log("[gpd] global.dispose →", r)
+      } catch (e) {
+        console.error("[gpd] global.dispose failed:", e)
+      }
+      // Deliberately DO NOT clear gpd.tos.acceptedVersion — changing key
+      // on the same device keeps prior version acceptance valid. Revoke
+      // Consent is the explicit path for wiping it.
       localStorage.removeItem("gpd.key.saved")
+      console.log("[gpd] localStorage cleared (tos version preserved), reloading")
       window.location.reload()
     }
 

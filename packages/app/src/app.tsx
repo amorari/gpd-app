@@ -1,4 +1,17 @@
 import "@/index.css"
+
+if (typeof window !== "undefined" && !(window as any).__gpdDebugHooked) {
+  ;(window as any).__gpdDebugHooked = true
+  window.addEventListener("unhandledrejection", (e) => {
+    const r: any = e.reason
+    // eslint-disable-next-line no-console
+    console.error("[gpd-dbg] unhandledrejection name=", r?.name, "msg=", r?.message, "\nFULL STACK:\n", r?.stack, "\ncause=", r?.cause)
+  })
+  window.addEventListener("error", (e) => {
+    // eslint-disable-next-line no-console
+    console.error("[gpd-dbg] window.error msg=", e.message, "file=", e.filename, ":", e.lineno, "error.stack=", (e.error as any)?.stack)
+  })
+}
 import { I18nProvider } from "@opencode-ai/ui/context"
 import { DialogProvider } from "@opencode-ai/ui/context/dialog"
 import { FileComponentProvider } from "@opencode-ai/ui/context/file"
@@ -340,23 +353,22 @@ function SetupGate(props: ParentProps) {
   // When globalSync finishes bootstrapping and providers load, check if
   // "gpd" is already authed. This is the "installer set the key"
   // out-of-band path.
+  // Latch: once we detect that provider-connected reports gpd but auth.json
+  // can't be read (keyResource returned null), we stop letting the
+  // provider-connected effect re-promote hasKey. Without this, the two
+  // effects ping-pong: eff343 sees gpd connected → hasKey=true → eff411
+  // sees null key → hasKey=false → eff343 re-promotes → infinite loop.
+  const [reonboardLatched, setReonboardLatched] = createSignal(false)
+
   createEffect(() => {
-    // Wait until provider data is actually populated. `connected` is
-    // empty before the first sync even if auth.json has entries.
     if (!globalSync.ready) return
     const allProviders = globalSync.data.provider.all
     if (!allProviders || allProviders.length === 0) return
-
-    // `connected` is the array of provider IDs that have auth credentials
-    // — populated by the server reading auth.json. Check it directly
-    // instead of going through useProviders() (which depends on the
-    // Router context; see WHY note in the hook imports above).
+    if (reonboardLatched()) return
     const connected = globalSync.data.provider.connected ?? []
     const gpdAuthed = connected.includes("gpd")
     if (gpdAuthed && !hasKey()) {
       setHasKey(true)
-      // Persist so the next launch takes the localStorage fast path and
-      // skips the sync-wait on cold start.
       localStorage.setItem("gpd.key.saved", "true")
     }
   })
@@ -367,6 +379,12 @@ function SetupGate(props: ParentProps) {
       auth: { type: "api", key: apiKey },
     })
     localStorage.setItem("gpd.key.saved", "true")
+    // WelcomeScreen's TOS step just wrote the accepted-version to
+    // localStorage before calling us. The tosAcceptedVersion signal was
+    // seeded from localStorage at mount time and doesn't auto-refresh,
+    // so pull the current value forward here — otherwise tosUpToDate()
+    // stays false and TosUpgradeGate re-prompts the user (double TOS).
+    setTosAcceptedVersion(localStorage.getItem(TOS_ACCEPTED_VERSION_STORAGE_KEY))
     setHasKey(true)
     await globalSDK.client.global.dispose()
   }
@@ -413,6 +431,9 @@ function SetupGate(props: ParentProps) {
     if (tosUpToDate()) return
     if (keyResource.loading) return
     if (keyResource() != null) return
+    // Latch this decision so eff343 won't re-promote hasKey from stale
+    // provider.connected on the next tick (see reonboardLatched docs).
+    setReonboardLatched(true)
     localStorage.removeItem("gpd.key.saved")
     setHasKey(false)
   })
