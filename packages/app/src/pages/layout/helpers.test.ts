@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test"
 import {
   collectNewSessionDeepLinks,
   collectOpenProjectDeepLinks,
+  collectSessionDeepLinks,
   drainPendingDeepLinks,
+  lastSessionDeepLink,
   parseDeepLink,
   parseNewSessionDeepLink,
+  parseSessionDeepLink,
 } from "./deep-links"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import {
@@ -221,5 +224,62 @@ describe("layout workspace helpers", () => {
     expect(errorMessage({ data: { message: "boom" } }, "fallback")).toBe("boom")
     expect(errorMessage(new Error("broken"), "fallback")).toBe("broken")
     expect(errorMessage("unknown", "fallback")).toBe("fallback")
+  })
+})
+
+describe("session deep links (Task 3.4)", () => {
+  test("parses gpd://session/<id>", () => {
+    expect(parseSessionDeepLink("gpd://session/ses_123")).toBe("ses_123")
+    expect(parseSessionDeepLink("gpd://session/ses_abc_xyz")).toBe("ses_abc_xyz")
+  })
+
+  test("parses opencode://session/<id> (legacy scheme)", () => {
+    expect(parseSessionDeepLink("opencode://session/ses_123")).toBe("ses_123")
+  })
+
+  test("rejects non-app schemes (scheme allowlist)", () => {
+    // The scheme-allowlist gate is a security property — without it, a
+    // crafted `https://session/<id>` would feed user-controlled input
+    // into `session.get`. See docs/PR-REVIEW-2026-04-22.md § PR #20.
+    expect(parseSessionDeepLink("https://session/ses_123")).toBeUndefined()
+    expect(parseSessionDeepLink("file://session/ses_123")).toBeUndefined()
+    expect(parseSessionDeepLink("data:session/ses_123")).toBeUndefined()
+    expect(parseSessionDeepLink("javascript:alert(1)")).toBeUndefined()
+  })
+
+  test("rejects wrong hostname", () => {
+    expect(parseSessionDeepLink("gpd://sesssion/ses_123")).toBeUndefined()
+    expect(parseSessionDeepLink("gpd://other/ses_123")).toBeUndefined()
+  })
+
+  test("rejects empty or missing id", () => {
+    expect(parseSessionDeepLink("gpd://session/")).toBeUndefined()
+    expect(parseSessionDeepLink("gpd://session")).toBeUndefined()
+  })
+
+  test("trims trailing slashes on id", () => {
+    expect(parseSessionDeepLink("gpd://session/ses_123/")).toBe("ses_123")
+  })
+
+  test("collectSessionDeepLinks filters out non-matches", () => {
+    expect(
+      collectSessionDeepLinks([
+        "gpd://session/a",
+        "https://session/b", // rejected — non-app scheme
+        "opencode://session/c",
+        "gpd://open-project?directory=/x", // rejected — wrong hostname
+      ]),
+    ).toEqual(["a", "c"])
+  })
+
+  test("lastSessionDeepLink returns the final session in the batch", () => {
+    expect(
+      lastSessionDeepLink(["gpd://session/a", "gpd://session/b", "gpd://session/c"]),
+    ).toBe("c")
+  })
+
+  test("lastSessionDeepLink is undefined for empty / all-rejected input", () => {
+    expect(lastSessionDeepLink([])).toBeUndefined()
+    expect(lastSessionDeepLink(["https://session/a", "file://session/b"])).toBeUndefined()
   })
 })
