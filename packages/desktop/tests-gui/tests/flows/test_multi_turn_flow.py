@@ -5,7 +5,7 @@ import pytest
 
 @pytest.mark.flows
 @pytest.mark.real_backend
-def test_three_turn_context_retention(http, anthropic_key):
+def test_three_turn_context_retention(http, gpd_key):
     ses = http.create_session()
     try:
         # Turn 1: plant fact

@@ -79,7 +79,7 @@ def _send(http, sid: str, text: str) -> dict:
 @pytest.mark.flows
 @pytest.mark.real_backend
 def test_fork_session_shares_prefix_then_diverges(
-    http, scratch_project_dir, anthropic_key
+    http, scratch_project_dir, gpd_key
 ):
     sid_a = http.create_session(directory=str(scratch_project_dir))["id"]
     sid_b: str | None = None

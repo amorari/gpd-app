@@ -47,7 +47,7 @@ def _ask_one(http, ses_id: str, marker: str) -> str:
 @pytest.mark.flows
 @pytest.mark.real_backend
 @pytest.mark.timeout(300)
-def test_five_concurrent_sessions_no_contamination(http, anthropic_key):
+def test_five_concurrent_sessions_no_contamination(http, gpd_key):
     """5 simultaneous sessions each echo their own marker and contain no other marker."""
     sessions = [http.create_session() for _ in range(5)]
     try:
@@ -82,7 +82,7 @@ def test_five_concurrent_sessions_no_contamination(http, anthropic_key):
 @pytest.mark.flows
 @pytest.mark.real_backend
 @pytest.mark.timeout(300)
-def test_three_parallel_multiturn_sessions_retain_context(http, anthropic_key):
+def test_three_parallel_multiturn_sessions_retain_context(http, gpd_key):
     """3 sessions, each doing a 3-turn conversation in parallel, retain their own context."""
     FACTS = ["NIGHTBIRD-7", "SOLARFOX-3", "IRONGATE-5"]
     sessions = [http.create_session() for _ in range(3)]

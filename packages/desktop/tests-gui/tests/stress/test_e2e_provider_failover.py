@@ -46,7 +46,7 @@ def _last_text(http, ses_id) -> str:
 @pytest.mark.flows
 @pytest.mark.real_backend
 @pytest.mark.timeout(180)
-def test_haiku_sonnet_haiku_context_survives_model_switch(http, anthropic_key):
+def test_haiku_sonnet_haiku_context_survives_model_switch(http, gpd_key):
     """Fact planted with haiku is recalled via haiku after a sonnet distraction turn."""
     ses = http.create_session()
     FACT = "BLUEPINE-42"
@@ -69,7 +69,7 @@ def test_haiku_sonnet_haiku_context_survives_model_switch(http, anthropic_key):
 @pytest.mark.flows
 @pytest.mark.real_backend
 @pytest.mark.timeout(300)
-def test_10_turn_alternating_haiku_sonnet(http, anthropic_key):
+def test_10_turn_alternating_haiku_sonnet(http, gpd_key):
     """10 turns alternating haiku/sonnet — all complete and last reply is non-empty."""
     ses = http.create_session()
     try:
@@ -94,7 +94,7 @@ def test_10_turn_alternating_haiku_sonnet(http, anthropic_key):
 @pytest.mark.flows
 @pytest.mark.real_backend
 @pytest.mark.timeout(60)
-def test_invalid_model_error_leaves_session_usable(http, anthropic_key):
+def test_invalid_model_error_leaves_session_usable(http, gpd_key):
     """After a failed send (bad model ID), the session can still accept a valid turn."""
     ses = http.create_session()
     try:

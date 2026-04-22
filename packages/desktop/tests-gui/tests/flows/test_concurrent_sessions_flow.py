@@ -10,7 +10,7 @@ from gpd_tests.helpers.llm_tolerant import assistant_text
 
 @pytest.mark.flows
 @pytest.mark.real_backend
-def test_two_sessions_do_not_cross_contaminate(http, anthropic_key):
+def test_two_sessions_do_not_cross_contaminate(http, gpd_key):
     ses_a = http.create_session()
     ses_b = http.create_session()
 

@@ -26,7 +26,7 @@ def _tool_names(msg: dict) -> list[str]:
 
 @pytest.mark.flows
 @pytest.mark.real_backend
-def test_journey_multi_turn_tool(http, anthropic_key, tmp_path):
+def test_journey_multi_turn_tool(http, gpd_key, tmp_path):
     sentinel = "psi-journey-9c4e1d"
     foo = tmp_path / "foo.txt"
     foo.write_text(f"The unique sentinel value is: {sentinel}\n")

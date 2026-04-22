@@ -22,7 +22,7 @@ def scratch_project_dir(tmp_path_factory) -> Path:
 
 
 @pytest.fixture
-def anthropic_key() -> str:
+def gpd_key() -> str:
     """Return the test-mode Anthropic key; skip if absent.
 
     Tests marked @pytest.mark.real_backend depend on this. Non-real-backend

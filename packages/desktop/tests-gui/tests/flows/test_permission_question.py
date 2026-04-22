@@ -106,7 +106,7 @@ def test_permission_reply_to_missing_id_returns_error(http):
 )
 @pytest.mark.flows
 @pytest.mark.real_backend
-def test_permission_prompt_lifecycle_ask_reply_observe(http, anthropic_key):
+def test_permission_prompt_lifecycle_ask_reply_observe(http, gpd_key):
     """Full state-machine test: ask -> read from list -> reply -> list empties.
 
     Flow (when permission mode is 'ask'):
@@ -200,6 +200,6 @@ def test_question_reject_missing_id_returns_error(http):
 )
 @pytest.mark.flows
 @pytest.mark.real_backend
-def test_question_prompt_lifecycle_ask_reply_observe(http, anthropic_key):
+def test_question_prompt_lifecycle_ask_reply_observe(http, gpd_key):
     """Full state-machine test: model asks question -> reply -> list empties."""
     pass  # pragma: no cover - gated by @pytest.mark.skip

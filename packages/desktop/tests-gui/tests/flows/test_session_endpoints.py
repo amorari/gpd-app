@@ -334,7 +334,7 @@ def test_session_status_returns_dict(http, scratch_project_dir):
 
 @pytest.mark.flows
 @pytest.mark.real_backend
-def test_prompt_async_returns_204(http, scratch_project_dir, anthropic_key):
+def test_prompt_async_returns_204(http, scratch_project_dir, gpd_key):
     """POST /session/:sid/prompt_async returns 204 (No Content).
 
     Shape-only: we don't wait for the LLM to finish. The server schedules the

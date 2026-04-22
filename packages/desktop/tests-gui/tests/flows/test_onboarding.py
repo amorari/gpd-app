@@ -2,7 +2,7 @@
 
 Gating (post G6.1):
   - ``@pytest.mark.real_backend`` — skipped unless ``GPD_TEST_ANTHROPIC_KEY``
-    is set (via the ``anthropic_key`` fixture); the flow writes the key to
+    is set (via the ``gpd_key`` fixture); the flow writes the key to
     auth.json so a real (non-stub) key is required.
   - ``@pytest.mark.fresh_app`` — alias for ``@pytest.mark.tier(2)``; before
     this test runs, ``conftest.pytest_runtest_setup`` calls
@@ -32,7 +32,7 @@ from gpd_tests.pages.onboarding import Onboarding, sentinel_path
 @pytest.mark.real_backend
 @pytest.mark.fresh_app
 def test_first_run_paste_key_reach_home(
-    mcp, anthropic_key, clean_onboarding_state, app_state
+    mcp, gpd_key, clean_onboarding_state, app_state
 ):
     # Precondition: fresh_app + clean_onboarding_state ensure GPD restarted
     # with sentinel absent and auth.json removed.
@@ -48,7 +48,7 @@ def test_first_run_paste_key_reach_home(
         "tier-2 may not be forcing first-run"
     )
 
-    onboarding.enter_api_key(anthropic_key)
+    onboarding.enter_api_key(gpd_key)
     onboarding.wait_for_home(timeout_s=30.0)
 
     # Post-condition: sentinel present, auth.json populated.

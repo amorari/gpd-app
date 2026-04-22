@@ -10,7 +10,7 @@ import pytest
 @pytest.mark.flows
 @pytest.mark.real_backend
 def test_session_survives_quit_relaunch(http, app_state):
-    # Inline real-backend guard: the `anthropic_key` fixture lives in
+    # Inline real-backend guard: the `gpd_key` fixture lives in
     # tests/flows/conftest.py and isn't visible from tests/lifecycle/.
     # Keeping the check inline avoids duplicating the fixture here and keeps
     # tests/lifecycle/conftest.py truly minimal (per plan task D1, step 2).

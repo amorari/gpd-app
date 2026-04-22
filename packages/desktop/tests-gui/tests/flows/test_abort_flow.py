@@ -21,7 +21,7 @@ def _assistant_text(msgs: list[dict]) -> str:
 
 @pytest.mark.flows
 @pytest.mark.real_backend
-def test_abort_stops_generation(http, anthropic_key):
+def test_abort_stops_generation(http, gpd_key):
     ses = http.create_session()
     try:
         errors: list[Exception] = []

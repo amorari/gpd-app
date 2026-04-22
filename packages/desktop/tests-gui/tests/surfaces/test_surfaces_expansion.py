@@ -64,7 +64,7 @@ def _dismiss(probe: DOMProbe, os_input, max_presses: int = 3) -> None:
 
 @pytest.mark.surfaces
 @pytest.mark.real_backend
-def test_fork_dialog_opens_with_message_list(http, mcp, os_input, anthropic_key):
+def test_fork_dialog_opens_with_message_list(http, mcp, os_input, gpd_key):
     """Full journey: send one message to a real session, navigate to it in
     the UI, trigger the /fork command, and assert the fork dialog shows a
     list of messages to branch from.

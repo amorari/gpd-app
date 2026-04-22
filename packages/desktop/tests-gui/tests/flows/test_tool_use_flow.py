@@ -11,7 +11,7 @@ from gpd_tests.helpers.llm_tolerant import assistant_text
 
 @pytest.mark.flows
 @pytest.mark.real_backend
-def test_assistant_reads_file_via_tool(http, anthropic_key):
+def test_assistant_reads_file_via_tool(http, gpd_key):
     sentinel = "psi-marker-7f3a2b"
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
         f.write(f"This file contains the sentinel: {sentinel}")

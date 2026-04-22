@@ -9,7 +9,7 @@ from gpd_tests.helpers.llm_tolerant import assert_assistant_replied
 @pytest.mark.flows
 @pytest.mark.real_backend
 def test_new_session_send_prompt_assistant_replies(
-    http, scratch_project_dir, anthropic_key
+    http, scratch_project_dir, gpd_key
 ):
     # 1. Create session in the scratch dir (directory passed as query param).
     session = http.create_session(directory=str(scratch_project_dir))

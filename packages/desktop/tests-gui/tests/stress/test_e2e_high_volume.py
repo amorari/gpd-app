@@ -36,7 +36,7 @@ def _last_assistant_text(msgs: list) -> str:
 @pytest.mark.flows
 @pytest.mark.real_backend
 @pytest.mark.timeout(600)
-def test_20_turn_session_completes_under_budget(http, anthropic_key):
+def test_20_turn_session_completes_under_budget(http, gpd_key):
     """20 sequential turns complete in < 480 s with context retention."""
     ses = http.create_session()
     t_start = time.monotonic()
