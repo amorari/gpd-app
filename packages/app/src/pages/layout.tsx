@@ -76,6 +76,7 @@ import {
 import {
   collectNewSessionDeepLinks,
   collectOpenProjectDeepLinks,
+  collectSessionDeepLinks,
   deepLinkEvent,
   drainPendingDeepLinks,
 } from "./layout/deep-links"
@@ -572,6 +573,18 @@ export default function Layout(props: ParentProps) {
     setState("scrollSessionKey", sessionKey)
     element.scrollIntoView({ block: "nearest", behavior: "smooth" })
   }
+
+  // Auto-register the project when landing on a /:dir URL directly (e.g. deep
+  // link, test navigation, bookmark). Without this, navigating to a project
+  // URL that was never explicitly opened via the sidebar/dialog leaves the
+  // project list empty and the sidebar blank.
+  createEffect(() => {
+    const dir = currentDir()
+    if (!dir) return
+    if (!layoutReady()) return
+    if (layout.projects.list().some((p) => workspaceKey(p.worktree) === workspaceKey(dir))) return
+    layout.projects.open(dir)
+  })
 
   const currentProject = createMemo(() => {
     const directory = currentDir()
@@ -1454,6 +1467,16 @@ export default function Layout(props: ParentProps) {
       }
       const href = link.prompt ? `/${slug}/session?prompt=${encodeURIComponent(link.prompt)}` : `/${slug}/session`
       navigateWithSidebarReset(href)
+    }
+
+    for (const sessionID of collectSessionDeepLinks(urls)) {
+      void globalSDK.client.session
+        .get({ sessionID })
+        .then((x) => x.data)
+        .then((session) => {
+          navigateToSession(session)
+        })
+        .catch(() => undefined)
     }
   }
 
