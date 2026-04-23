@@ -26,9 +26,28 @@ def _session_route(path: str) -> str:
 
 @pytest.mark.surfaces
 def test_session_route_reachable(mcp, prepared_project_path):
+    """Session route: URL resolves AND page rendered something.
+
+    A URL-only check passes for a crashed webview at /session — we also
+    verify the document body has rendered elements so we catch the case
+    where routing works but the SPA failed to mount.
+    """
     url = _session_route(prepared_project_path)
     Navigator(mcp).go(url, timeout_s=5.0)
     assert "/session" in mcp.current_url()
+
+    probe = DOMProbe(mcp)
+    try:
+        rendered = probe.eval_bool(
+            '(() => {'
+            '  const body = document.body;'
+            '  if (!body) return false;'
+            '  return body.querySelectorAll("div, main, nav, aside, section, header, footer").length > 0;'
+            '})()'
+        )
+    except ProbeSkip as e:
+        pytest.skip(f"execute_js unavailable ({e})")
+    assert rendered, "session URL loaded but document body contains no rendered elements"
 
 
 @pytest.mark.surfaces

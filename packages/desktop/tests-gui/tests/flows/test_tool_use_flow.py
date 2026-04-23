@@ -30,9 +30,6 @@ def test_assistant_reads_file_via_tool(http, gpd_key):
                     "string you find inside. Do not invent one."
                 ),
             }],
-            model_id="claude-sonnet-4-6",
-            provider_id="gpd",
-            agent="default",
         )
         msgs = http.messages(ses_id)
         assistant_msgs = [

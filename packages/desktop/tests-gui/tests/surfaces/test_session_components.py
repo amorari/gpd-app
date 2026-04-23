@@ -199,18 +199,20 @@ def test_session_item_click_navigates_to_session_route(
     ),
 )
 def test_session_rename_via_ui_persists_via_sidecar(
-    mcp, http, prepared_project_path
+    mcp, http, os_input, prepared_project_path
 ):
-    """Open session, click more-options, click Rename, type, blur; verify
-    the new title appears on GET /session/:sid."""
+    """Open session, click more-options, click Rename, type via OS keyboard,
+    press Enter; verify the new title appears on GET /session/:sid.
+
+    Typing uses ``os_input.type_text()`` (real OS-level key events). Do NOT
+    replace this with ``.dispatchEvent(new Event("input"))`` + direct
+    ``.value =`` assignment — SolidJS's onInput handler does not fire on
+    synthetic DOM events, so that approach produces false confidence.
+    """
     ses = http.create_session(directory=prepared_project_path)
     sid = ses.get("id")
     assert sid, f"create_session returned no id: {ses!r}"
 
-    # Capture the original title so we can restore it at the end even if any
-    # step below fails — this is a harness-level courtesy since we'll delete
-    # the session in the finally anyway, but matches the task's "Restore
-    # original in finally" instruction.
     original_title: str | None = None
     new_title = f"renamed-{uuid.uuid4().hex[:8]}"
 
@@ -268,22 +270,31 @@ def test_session_rename_via_ui_persists_via_sidecar(
 
         time.sleep(0.2)
 
-        # Type the new title into the inline input and blur to save.
-        type_js = (
+        # Focus the title input via JS, then type using real OS key events.
+        # Frameworks (SolidJS/React) track "user-originated" input by observing
+        # real input events from the browser's input handling pipeline, not
+        # programmatic .dispatchEvent(). OS-level typing drives the real pipeline.
+        focus_js = (
             '(() => {'
             '  const input = document.querySelector('
             '    \'[data-action="session-title-input"]\''
             '  );'
             '  if (!input) return false;'
-            f'  input.value = {new_title!r};'
-            '  input.dispatchEvent(new Event("input", {bubbles: true}));'
-            '  input.dispatchEvent(new KeyboardEvent("keydown", '
-            '    {key: "Enter", bubbles: true}));'
+            '  input.focus();'
+            '  // Select-all so the new typed text replaces the old title.'
+            '  if (typeof input.select === "function") input.select();'
             '  return true;'
             '})()'
         )
-        if not probe.eval_bool(type_js):
+        if not probe.eval_bool(focus_js):
             pytest.skip("session-title-input anchor missing; patch not yet applied")
+
+        try:
+            os_input.type_text(new_title)
+            time.sleep(0.15)
+            os_input.press_key("return")
+        except Exception as e:
+            pytest.skip(f"os_input unavailable ({e})")
 
         # Give the mutation a moment to fly.
         def _title_updated() -> bool:
@@ -306,16 +317,22 @@ def test_session_rename_via_ui_persists_via_sidecar(
         _safe_delete(http, sid)
 
 
-# --- 4. delete via UI removes from list ------------------------------------
+# --- 4. delete (HTTP) removes row from sidebar (SSE-driven UI sync) --------
 
 
 @pytest.mark.surfaces
-def test_session_delete_via_ui_removes_from_list(
+def test_session_delete_via_http_removes_row_from_sidebar(
     mcp, http, prepared_project_path
 ):
-    """Create a throwaway session, delete it (HTTP path per task instructions —
-    UI delete requires a confirm dialog), and verify the row disappears from
-    the DOM."""
+    """Create a throwaway session, delete it via HTTP, and verify the row
+    disappears from the sidebar DOM.
+
+    NOTE: The UI-level delete flow (sidebar kebab → Delete → confirm dialog)
+    is not covered here — it's a separate surface. This test verifies that
+    SSE-driven sidebar sync reacts correctly to a backend delete, which is
+    a real regression guard for the sidebar's reactivity, not the delete
+    dialog.
+    """
     ses = http.create_session(directory=prepared_project_path)
     sid = ses.get("id")
     assert sid, f"create_session returned no id: {ses!r}"

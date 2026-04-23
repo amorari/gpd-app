@@ -47,9 +47,6 @@ def test_journey_multi_turn_tool(http, gpd_key, tmp_path):
                     "file operations should happen relative to that directory."
                 ),
             }],
-            model_id="claude-sonnet-4-6",
-            provider_id="gpd",
-            agent="default",
         )
 
         # Turn 2: ask to read foo.txt — must invoke the read tool.
@@ -62,9 +59,6 @@ def test_journey_multi_turn_tool(http, gpd_key, tmp_path):
                     "contents. Quote the unique sentinel string exactly."
                 ),
             }],
-            model_id="claude-sonnet-4-6",
-            provider_id="gpd",
-            agent="default",
         )
 
         # Turn 3: ask to write bar.txt — must invoke the write tool.
@@ -79,9 +73,6 @@ def test_journey_multi_turn_tool(http, gpd_key, tmp_path):
                     "newline or extra text."
                 ),
             }],
-            model_id="claude-sonnet-4-6",
-            provider_id="gpd",
-            agent="default",
         )
 
         msgs = http.messages(ses_id)

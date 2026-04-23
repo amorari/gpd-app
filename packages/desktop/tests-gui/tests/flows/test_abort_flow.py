@@ -33,13 +33,13 @@ def test_abort_stops_generation(http, gpd_key):
                     parts=[{
                         "type": "text",
                         "text": (
-                            "Count slowly from 1 to 1000, one number per line. "
-                            "Do not summarize. Just the numbers."
+                            "Give an exhaustive, extremely detailed history of "
+                            "every major physics discovery from ancient Greece to "
+                            "today. Include every scientist, every equation, and "
+                            "every experiment. Do not stop until you have covered "
+                            "everything — this should be thousands of words."
                         ),
                     }],
-                    model_id="claude-sonnet-4-6",
-                    provider_id="gpd",
-                    agent="default",
                 )
             except Exception as e:  # noqa: BLE001
                 errors.append(e)
@@ -62,7 +62,11 @@ def test_abort_stops_generation(http, gpd_key):
         msgs = http.messages(ses["id"])
         text = _assistant_text(msgs)
         assert len(text) > 0, "no partial output captured before abort"
-        assert "1000" not in text, "abort happened too late — model reached 1000"
+        # The model was generating a long history essay — if abort worked, the
+        # text should be noticeably shorter than a complete response (~10k chars).
+        assert len(text) < 8000, (
+            f"abort happened too late — got {len(text)} chars (expected < 8000)"
+        )
     finally:
         try:
             http.delete_session(ses["id"])

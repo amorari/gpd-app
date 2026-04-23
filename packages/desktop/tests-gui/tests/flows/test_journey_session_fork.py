@@ -70,9 +70,6 @@ def _send(http, sid: str, text: str) -> dict:
     return http.send_message(
         sid,
         parts=[{"type": "text", "text": text}],
-        model_id="claude-sonnet-4-6",
-        provider_id="gpd",
-        agent="default",
     )
 
 

@@ -79,9 +79,6 @@ def test_send_message_to_deleted_session_errors(http):
         http.send_message(
             ses["id"],
             parts=[{"type": "text", "text": "hello"}],
-            model_id="claude-haiku-4-5",
-            provider_id="gpd",
-            agent="default",
         )
         # Sidecar accepted the send — verify health is still OK.
         health = http.health()

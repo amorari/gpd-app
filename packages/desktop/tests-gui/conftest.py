@@ -159,6 +159,21 @@ def _auth_json_path() -> Path:
     return base / "opencode" / "auth.json"
 
 
+@pytest.fixture
+def gpd_key() -> str:
+    """Return the GPD LiteLLM key from auth.json; skip if absent or empty."""
+    import json as _json
+    auth_path = _auth_json_path()
+    try:
+        data = _json.loads(auth_path.read_text())
+        key = data.get("gpd", {}).get("key", "")
+    except (FileNotFoundError, _json.JSONDecodeError):
+        key = ""
+    if not key:
+        pytest.skip(f"GPD key not found in {auth_path}; skipping real-backend test")
+    return key
+
+
 def _is_skipped(item) -> bool:
     """Return True if the item is unconditionally or conditionally skipped.
 

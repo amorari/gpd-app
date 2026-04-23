@@ -1,38 +1,17 @@
 """Sessions and their history must survive a quit/relaunch cycle."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 
 @pytest.mark.lifecycle
 @pytest.mark.flows
 @pytest.mark.real_backend
-def test_session_survives_quit_relaunch(http, app_state):
-    # Inline real-backend guard: the `gpd_key` fixture lives in
-    # tests/flows/conftest.py and isn't visible from tests/lifecycle/.
-    # Keeping the check inline avoids duplicating the fixture here and keeps
-    # tests/lifecycle/conftest.py truly minimal (per plan task D1, step 2).
-    import json as _json, os as _os
-    from pathlib import Path as _Path
-    _xdg = _os.environ.get("XDG_DATA_HOME")
-    _auth = (_Path(_xdg)/"opencode"/"auth.json" if _xdg
-             else _Path.home()/".local"/"share"/"opencode"/"auth.json")
-    try:
-        _key = _json.loads(_auth.read_text()).get("gpd", {}).get("key", "")
-    except Exception:
-        _key = ""
-    if not _key:
-        pytest.skip(f"GPD key not found in {_auth}; skipping real-backend lifecycle")
-
+def test_session_survives_quit_relaunch(http, app_state, gpd_key):
     ses = http.create_session()
     http.send_message(
         ses["id"],
         parts=[{"type": "text", "text": "Remember the number 847392. Reply only with 'OK'."}],
-        model_id="claude-sonnet-4-6",
-        provider_id="gpd",
-        agent="default",
     )
     pre_msgs = http.messages(ses["id"])
     assert len(pre_msgs) >= 2, "expected at least user + assistant turn"
@@ -52,9 +31,6 @@ def test_session_survives_quit_relaunch(http, app_state):
     http.send_message(
         ses["id"],
         parts=[{"type": "text", "text": "What number did I ask you to remember?"}],
-        model_id="claude-sonnet-4-6",
-        provider_id="gpd",
-        agent="default",
     )
     final = http.messages(ses["id"])
     assistants = [m for m in final if m["info"]["role"] == "assistant"]

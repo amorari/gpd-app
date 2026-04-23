@@ -194,15 +194,44 @@ def test_deep_link_session_routes_to_session(http, mcp, scratch_project_dir):
     expected = route_session(sid)
     deadline = time.monotonic() + 10.0
     last = ""
+    url_matched = False
     while time.monotonic() < deadline:
         try:
             last = mcp.current_url()
         except Exception:
             last = ""
         if last.endswith(f"/session/{sid}"):
+            url_matched = True
+            break
+        time.sleep(0.2)
+    if not url_matched:
+        pytest.fail(
+            f"deep link did not route to /session/{sid}; current={last!r} "
+            f"(expected prefix: {expected})"
+        )
+
+    # URL match is necessary but not sufficient — a blank/crashed webview can
+    # report the correct URL without having rendered anything. Verify the DOM
+    # actually contains structural elements before declaring success.
+    from gpd_tests.helpers.dom_probe import DOMProbe, ProbeSkip
+
+    probe = DOMProbe(mcp)
+    render_deadline = time.monotonic() + 10.0
+    last_count: int = 0
+    while time.monotonic() < render_deadline:
+        try:
+            last_count = probe.eval_int(
+                'document.body.querySelectorAll'
+                '("div, main, nav, aside, section, header, footer").length'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable ({e}); render check deferred")
+        if last_count > 0:
             return
         time.sleep(0.2)
     pytest.fail(
-        f"deep link did not route to /session/{sid}; current={last!r} "
-        f"(expected prefix: {expected})"
+        f"deep link routed to /session/{sid} but the session UI did not "
+        f"render any structural elements within 10s "
+        f"(body structural element count={last_count}); "
+        "webview may be blank or crashed despite URL match."
     )

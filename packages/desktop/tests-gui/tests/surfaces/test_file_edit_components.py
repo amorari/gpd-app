@@ -230,14 +230,14 @@ def test_file_edit_opens_file_and_shows_content(mcp, http, seeded_session):
 
 
 @pytest.mark.surfaces
-def test_file_edit_save_writes_to_disk(http, seeded_session):
-    """Edit a single line; the tmp_path file on disk must match the new content.
+def test_post_file_edit_line_writes_to_disk(http, seeded_session):
+    """Backend contract test: POST /file/edit-line writes the new line to disk.
 
-    Drives the product's on-save contract directly via ``POST /file/edit-line``
-    — the same route the inline editor calls. This is the load-bearing
-    assertion for the file-edit feature; the UI is only a wrapper around
-    this single HTTP call, so the contract is what we actually care about.
-    The UI-level `data-action` test above is complementary.
+    This test bypasses the UI and drives the product's on-save contract
+    directly — the same route the inline editor calls. It does NOT verify
+    any UI interaction; the UI-level test above (xfail pending patch) is
+    the complementary check. Renamed from ``test_file_edit_save_writes_to_disk``
+    which wrongly implied a UI save-button click.
     """
     project_path, _sid = seeded_session
 

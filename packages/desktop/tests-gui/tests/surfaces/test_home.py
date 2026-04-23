@@ -10,21 +10,44 @@ from gpd_tests.helpers.selectors import SIDEBAR_NEW_SESSION
 
 @pytest.mark.surfaces
 def test_home_route_reachable(mcp):
+    """Home route: URL resolves AND DOM actually rendered content.
+
+    URL-only checks pass for a blank/crashed webview sitting at the right URL,
+    which is a false green. We also assert the document has a non-empty body
+    with at least one real element, so we catch render failures.
+    """
     Navigator(mcp).go(route_home(), timeout_s=5.0)
     actual = mcp.current_url()
     # Navigator adapts tauri:// to http://localhost:1420 in dev builds;
     # accept either URL as "home".
     assert actual == _adapt_url_for_dev(actual, route_home())
 
+    # Additional render check: body must have rendered something.
+    probe = DOMProbe(mcp)
+    try:
+        rendered = probe.eval_bool(
+            '(() => {'
+            '  const body = document.body;'
+            '  if (!body) return false;'
+            '  // Any real element (not just text nodes or scripts).'
+            '  return body.querySelectorAll("div, main, nav, aside, section, header, footer").length > 0;'
+            '})()'
+        )
+    except ProbeSkip as e:
+        pytest.skip(f"execute_js unavailable ({e})")
+    assert rendered, "home URL loaded but document body contains no rendered elements"
+
 
 @pytest.mark.surfaces
-def test_sidebar_new_session_selector_present_on_home(mcp, http, tmp_path):
+def test_sidebar_new_session_selector_present_in_project_workspace(mcp, http, tmp_path):
     """The sidebar new-session button is accessible when a project is registered.
 
     ``[data-action="new-session"]`` (``sidebar-items.tsx:292``) is a
     ``NewSessionItem`` link that only renders inside a project workspace list.
-    We seed one git-initialised project, navigate to the project route, and
-    verify the anchor is present so the test isn't vacuous on a blank home screen.
+    We seed one git-initialised project, navigate to the *project session
+    route* (NOT home), and verify the anchor is present. Previously this test
+    was named ``..._on_home`` which was misleading — it never touches the
+    home surface after seeding.
     """
     # Initialise a git repo so GPD registers the directory as a real project.
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
