@@ -159,6 +159,38 @@ def _auth_json_path() -> Path:
     return base / "opencode" / "auth.json"
 
 
+# Snapshot of auth.json bytes captured at session start. Used to restore
+# the credential after a mid-session tier-2/3 reset wipes it. scripts/reset
+# lists auth.json as a tier-2 path (scripts/reset.py:58) because the
+# onboarding test wants it gone; but the single onboarding test ran among
+# dozens of real_backend tests means every downstream test saw a wiped
+# auth.json and skipped with "GPD key not found". This snapshot lets the
+# harness restore auth.json after each reset so only the onboarding test
+# (which explicitly uses clean_onboarding_state to manage auth around its
+# own body) sees it absent.
+_AUTH_JSON_SNAPSHOT: bytes | None = None
+
+
+def pytest_sessionstart(session):
+    """Snapshot auth.json at session start so tier-2 resets can restore it."""
+    global _AUTH_JSON_SNAPSHOT
+    auth_path = _auth_json_path()
+    try:
+        _AUTH_JSON_SNAPSHOT = auth_path.read_bytes()
+    except FileNotFoundError:
+        _AUTH_JSON_SNAPSHOT = None
+
+
+def _restore_auth_json_snapshot() -> None:
+    """Rewrite auth.json from the session-start snapshot. No-op if none."""
+    if _AUTH_JSON_SNAPSHOT is None:
+        return
+    auth_path = _auth_json_path()
+    auth_path.parent.mkdir(parents=True, exist_ok=True)
+    auth_path.write_bytes(_AUTH_JSON_SNAPSHOT)
+    auth_path.chmod(0o600)
+
+
 @pytest.fixture
 def gpd_key() -> str:
     """Return the GPD LiteLLM key from auth.json; skip if absent or empty."""
@@ -590,6 +622,15 @@ def pytest_runtest_setup(item):
         reset.run(tier=tier, dry_run=False, stop_app=True, start_app=True)
     except Exception as e:
         pytest.skip(f"GPD reset failed before test (tier={tier}): {e}")
+
+    # Tier-2 reset wipes auth.json (scripts/reset.py:58). If a test uses
+    # clean_onboarding_state, that fixture manages auth.json explicitly and
+    # will delete it again before the test body — restoring here is safe:
+    # the fixture runs AFTER pytest_runtest_setup, sees a present file,
+    # backs it up, and deletes it. Every other test that triggers a
+    # tier-2 reset would leave auth.json missing for the remainder of the
+    # session; this restore prevents that cascade.
+    _restore_auth_json_snapshot()
     # Let the fresh app come up before the next fixture use. The driver
     # fixtures below are function-scoped so they rediscover socket path,
     # HTTP port, and creds on the next test.
