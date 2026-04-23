@@ -11,6 +11,7 @@ import { Plugin } from "../plugin"
 import { NamedError } from "@opencode-ai/util/error"
 import { type LanguageModelV3 } from "@ai-sdk/provider"
 import { ModelsDev } from "./models"
+import { resolveGpdProviderModels } from "./gpd-models"
 import { Auth } from "../auth"
 import { Env } from "../env"
 import { Instance } from "../project/instance"
@@ -1107,7 +1108,34 @@ export namespace Provider {
               models: existing?.models ?? {},
             }
 
-            for (const [modelID, model] of Object.entries(provider.models ?? {})) {
+            // GPD (PSI) model list is driven by the LiteLLM proxy's
+            // access group, not by a hardcoded block in opencode.json.
+            // Fetch the user's allowed model ids at provider-resolve
+            // time, join against a static metadata table, and splice
+            // the result in place of `provider.models`. On network
+            // failure this falls back to the full static table (see
+            // resolveGpdProviderModels). Synchronously cached for 5min
+            // so repeated /provider calls don't hammer the proxy.
+            type ConfigModels = NonNullable<typeof provider.models>
+            let models: ConfigModels = provider.models ?? ({} as ConfigModels)
+            if (providerID === "gpd") {
+              const storedAuth = yield* auth.get(ProviderID.make("gpd")).pipe(Effect.orDie)
+              const apiKey =
+                storedAuth && storedAuth.type === "api" ? storedAuth.key : undefined
+              const baseURL = provider.api
+              const dynamic = yield* Effect.promise(() =>
+                resolveGpdProviderModels(baseURL, apiKey),
+              )
+              // Fold the dynamic metadata into any per-model overrides
+              // the user wrote into config so local tweaks still win.
+              const merged: Record<string, any> = {}
+              for (const [id, meta] of Object.entries(dynamic)) {
+                merged[id] = { ...meta, ...(models as Record<string, any>)[id] }
+              }
+              models = merged as ConfigModels
+            }
+
+            for (const [modelID, model] of Object.entries(models)) {
               const existingModel = parsed.models[model.id ?? modelID]
               const name = iife(() => {
                 if (model.name) return model.name

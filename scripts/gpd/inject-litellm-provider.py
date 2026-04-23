@@ -7,6 +7,14 @@ as the provider. This is idempotent — safe to run multiple times.
 
 Usage:
     python3 inject-litellm-provider.py [--config-dir ~/.config/opencode]
+
+NOTE: this script no longer writes a `models` block. The model list is
+resolved at runtime by the sidecar from LiteLLM `/v1/models` with the
+user's access-filtered key, joined against a static metadata table in
+`packages/opencode/src/provider/gpd-models.ts`. Writing a hardcoded
+list here drifted from the server's allow-list whenever access groups
+changed. See that file for the metadata table; add entries there when
+a new model is added to the LiteLLM `gpd-chat` access group.
 """
 
 import json
@@ -19,115 +27,6 @@ PROVIDER_CONFIG = {
         "name": "GPD (PSI)",
         "api": LITELLM_URL,
         "env": ["GPD_API_KEY"],
-        "models": {
-            "claude-opus-4-6": {
-                "name": "Claude Opus 4.6",
-                "tool_call": True,
-                "reasoning": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_000_000, "output": 131_072},
-            },
-            "claude-sonnet-4-6": {
-                "name": "Claude Sonnet 4.6",
-                "tool_call": True,
-                "reasoning": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_000_000, "output": 65_536},
-            },
-            "claude-haiku-4-5": {
-                "name": "Claude Haiku 4.5",
-                "tool_call": True,
-                "reasoning": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 200_000, "output": 65_536},
-            },
-            "gpt-5.4": {
-                "name": "GPT-5.4",
-                "tool_call": True,
-                "reasoning": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_050_000, "output": 131_072},
-            },
-            "gpt-5.4-mini": {
-                "name": "GPT-5.4 mini",
-                "tool_call": True,
-                "reasoning": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_050_000, "output": 131_072},
-            },
-            "gpt-5.4-nano": {
-                "name": "GPT-5.4 nano",
-                "tool_call": True,
-                "reasoning": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_050_000, "output": 131_072},
-            },
-            "gpt-5.4-pro": {
-                "name": "GPT-5.4 Pro",
-                "tool_call": True,
-                "reasoning": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_050_000, "output": 131_072},
-            },
-            "gpt-5.3-codex": {
-                "name": "GPT-5.3 Codex",
-                "tool_call": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_000_000, "output": 32_768},
-            },
-            "gpt-4.1": {
-                "name": "GPT-4.1",
-                "tool_call": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_000_000, "output": 32_768},
-            },
-            "gpt-4.1-mini": {
-                "name": "GPT-4.1 mini",
-                "tool_call": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_000_000, "output": 32_768},
-            },
-            "o4-mini": {
-                "name": "o4-mini (reasoning)",
-                "tool_call": True,
-                "reasoning": True,
-                "temperature": True,
-                "limit": {"context": 200_000, "output": 100_000},
-            },
-            "gemini-3.1-pro-preview": {
-                "name": "Gemini 3.1 Pro",
-                "tool_call": True,
-                "reasoning": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_000_000, "output": 65_536},
-            },
-            "gemini-3-flash-preview": {
-                "name": "Gemini 3 Flash",
-                "tool_call": True,
-                "reasoning": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_000_000, "output": 65_536},
-            },
-            "gemini-3.1-flash-lite-preview": {
-                "name": "Gemini 3.1 Flash-Lite",
-                "tool_call": True,
-                "attachment": True,
-                "temperature": True,
-                "limit": {"context": 1_000_000, "output": 65_536},
-            },
-        },
     }
 }
 
