@@ -30,6 +30,28 @@ from gpd_tests.helpers.navigator import Navigator, route_home
 _SETTINGS_GENERAL_TAB = "General"
 
 
+# Shared JS predicate: returns true if ``el`` is visually/semantically hidden
+# and should therefore be excluded from a11y audits. Covers:
+#   - the ``hidden`` HTML attribute
+#   - computed ``display: none``
+#   - computed ``visibility: hidden``
+#   - ``aria-hidden="true"`` on the element itself or on any ancestor
+_JS_IS_HIDDEN = (
+    'const isHidden = (el) => {'
+    '  if (!el) return true;'
+    '  if (el.hasAttribute && el.hasAttribute("hidden")) return true;'
+    '  const cs = getComputedStyle(el);'
+    '  if (cs && (cs.display === "none" || cs.visibility === "hidden")) return true;'
+    '  let cur = el;'
+    '  while (cur && cur.nodeType === 1) {'
+    '    if (cur.getAttribute && cur.getAttribute("aria-hidden") === "true") return true;'
+    '    cur = cur.parentElement;'
+    '  }'
+    '  return false;'
+    '};'
+)
+
+
 def _dismiss_any_overlay(probe: DOMProbe, os_input, *, max_presses: int = 3) -> None:
     """Press Escape up to ``max_presses`` times to clear any dialog/popover/menu."""
     for _ in range(max_presses):
@@ -78,7 +100,9 @@ def test_all_buttons_have_accessible_name(mcp, os_input):
     try:
         result = probe.eval(
             '(() => {'
-            '  const buttons = Array.from(document.querySelectorAll("button"));'
+            + _JS_IS_HIDDEN +
+            '  const buttons = Array.from(document.querySelectorAll("button"))'
+            '    .filter(b => !isHidden(b));'
             '  const bare = [];'
             '  for (const b of buttons) {'
             '    const text = (b.textContent || "").trim();'
@@ -273,7 +297,10 @@ def test_form_inputs_have_associated_labels(mcp, os_input):
     """Every user-facing ``<input>`` must expose an accessible name.
 
     Excludes ``type="hidden"`` and ``type="submit"`` (submit buttons derive
-    their name from ``value``). For each remaining input we accept:
+    their name from ``value``), plus visually/semantically hidden inputs:
+    the ``hidden`` attribute, ``display: none``, ``visibility: hidden``, or
+    ``aria-hidden="true"`` on self or any ancestor. For each remaining
+    input we accept:
       - a ``<label for=id>`` in the document
       - an ancestor ``<label>`` wrapping the input
       - a non-empty ``aria-label``
@@ -288,9 +315,10 @@ def test_form_inputs_have_associated_labels(mcp, os_input):
     try:
         result = probe.eval(
             '(() => {'
+            + _JS_IS_HIDDEN +
             '  const inputs = Array.from(document.querySelectorAll('
             '    "input:not([type=\\"hidden\\"]):not([type=\\"submit\\"])"'
-            '  ));'
+            '  )).filter(inp => !isHidden(inp));'
             '  const bare = [];'
             '  for (const inp of inputs) {'
             '    const id = inp.id || "";'
