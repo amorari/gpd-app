@@ -35,15 +35,15 @@ function tr(translator: Translator | undefined, key: string, text: string, vars?
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
-  if (isUnknownErrorLike(error)) return parseReadableUnknownError(error)
+  if (isUnknownErrorLike(error)) return parseReadableUnknownError(error, translate)
   if (isPermissionError(error))
     return tr(
       translate,
       "error.chain.permissionDenied",
       "GPD needs permission to access this folder. Open System Settings → Privacy & Security → Files and Folders to grant access.",
     )
-  if (error instanceof Error && error.message) return friendly(error.message)
-  if (typeof error === "string" && error) return friendly(error)
+  if (error instanceof Error && error.message) return friendly(error.message, translate)
+  if (typeof error === "string" && error) return friendly(error, translate)
   if (fallback) return fallback
   return tr(translate, "error.chain.unknown", "Something went wrong")
 }
@@ -53,25 +53,41 @@ export function formatServerError(error: unknown, translate?: Translator, fallba
  * original text if no match. This catches errors that bypass our typed
  * error shapes (raw Node errors, fetch failures, etc.).
  */
-function friendly(msg: string): string {
+function friendly(msg: string, translate?: Translator): string {
   const lower = msg.toLowerCase()
   if (lower.includes("enoent") || lower.includes("no such file")) {
-    return "That file or folder couldn't be found. It may have been moved or deleted."
+    return tr(
+      translate,
+      "error.friendly.notFound",
+      "That file or folder couldn't be found. It may have been moved or deleted.",
+    )
   }
   if (lower.includes("eacces") || lower.includes("permission denied")) {
-    return "GPD doesn't have permission to access that file or folder."
+    return tr(
+      translate,
+      "error.friendly.permissionDenied",
+      "GPD doesn't have permission to access that file or folder.",
+    )
   }
   if (lower.includes("econnrefused")) {
-    return "Couldn't connect — the service isn't reachable. Check your internet or try restarting GPD."
+    return tr(
+      translate,
+      "error.friendly.connectionRefused",
+      "Couldn't connect — the service isn't reachable. Check your internet or try restarting GPD.",
+    )
   }
   if (lower.includes("enotfound") || lower.includes("getaddrinfo")) {
-    return "Couldn't reach that server. Check your internet connection."
+    return tr(translate, "error.friendly.dnsFailure", "Couldn't reach that server. Check your internet connection.")
   }
   if (lower.includes("etimedout") || lower.includes("timeout")) {
-    return "The request took too long. Try again or check your internet connection."
+    return tr(
+      translate,
+      "error.friendly.timeout",
+      "The request took too long. Try again or check your internet connection.",
+    )
   }
   if (lower.includes("econnreset")) {
-    return "The connection was interrupted. Try again in a moment."
+    return tr(translate, "error.friendly.connectionReset", "The connection was interrupted. Try again in a moment.")
   }
   return msg
 }
@@ -114,10 +130,10 @@ function isUnknownErrorLike(error: unknown): error is UnknownError {
   return typeof (o.data as Record<string, unknown>).message === "string"
 }
 
-function parseReadableUnknownError(error: UnknownError): string {
+function parseReadableUnknownError(error: UnknownError, translator?: Translator): string {
   // Strip stack trace: take only the first line of the message
   const firstLine = error.data.message.split("\n")[0].trim()
-  return friendly(firstLine)
+  return friendly(firstLine, translator)
 }
 
 export function parseReadableConfigInvalidError(errorInput: ConfigInvalidError, translator?: Translator) {
