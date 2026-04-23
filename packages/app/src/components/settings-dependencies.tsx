@@ -90,7 +90,7 @@ export const SettingsDependencies: Component = () => {
     const fetcher = platform.fetch ?? fetch
     const res = await fetcher(new URL(path, s.http.url).toString(), { headers })
     if (!res.ok) {
-      throw new Error(`${res.status} ${res.statusText}`)
+      throw Object.assign(new Error("http"), { status: res.status, statusText: res.statusText })
     }
     return (await res.json()) as T
   }
@@ -99,17 +99,26 @@ export const SettingsDependencies: Component = () => {
     try {
       return await call<DoctorResponse>("/health/doctor")
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const httpErr = err as { status?: number; statusText?: string } | null
+      const details =
+        httpErr && typeof httpErr.status === "number"
+          ? language.t("settings.dependencies.httpError", {
+              status: httpErr.status,
+              statusText: httpErr.statusText ?? "",
+            })
+          : err instanceof Error
+            ? err.message
+            : String(err)
       return {
         overall: "fail" as const,
         summary: { ok: 0, warn: 0, fail: 1, total: 1 },
         checks: [
           {
             id: "python",
-            label: "Python",
+            label: language.t("settings.dependencies.check.python"),
             status: "fail" as const,
             category: "runtime" as const,
-            details: message,
+            details,
           },
         ],
       }

@@ -38,7 +38,7 @@ const ACTION_CARDS: ActionCard[] = [
     icon: "magnifying-glass",
     titleKey: "session.newView.card.arxiv",
     descKey: "session.newView.card.arxiv.description",
-    insert: "Search arXiv for recent papers on ",
+    insert: "session.newView.card.arxiv.insert",
   },
   {
     icon: "help",
@@ -152,7 +152,12 @@ export function NewSessionView(props: NewSessionViewProps) {
                 {(card) => (
                   <button
                     type="button"
-                    onClick={() => insertPrompt(card.insert)}
+                    onClick={() => {
+                      const text = card.insert.startsWith("/")
+                        ? card.insert
+                        : language.t(card.insert as Parameters<typeof language.t>[0])
+                      insertPrompt(text)
+                    }}
                     class="flex flex-col items-start gap-2 rounded-lg border border-border-weak-base bg-background-base px-3 py-3 text-left transition-colors hover:bg-background-strong hover:border-border-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
                   >
                     <Icon name={card.icon} size="small" class="text-text-weak shrink-0" />

@@ -12,6 +12,7 @@ import { useCommand } from "@/context/command"
 import { dirtyFileSet } from "@/components/file-edit/dirty-tracker"
 
 export function FileVisual(props: { path: string; active?: boolean }): JSX.Element {
+  const language = useLanguage()
   const dirty = createMemo(() => dirtyFileSet().has(props.path))
   return (
     <div class="flex items-center gap-x-1.5 min-w-0">
@@ -29,7 +30,7 @@ export function FileVisual(props: { path: string; active?: boolean }): JSX.Eleme
         <span
           aria-hidden="true"
           class="ml-0.5 inline-block size-1.5 shrink-0 rounded-full bg-text-weak"
-          title="Unsaved inline edit"
+          title={language.t("session.tab.unsavedInlineEdit")}
         />
       </Show>
     </div>

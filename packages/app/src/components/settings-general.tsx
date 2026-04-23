@@ -616,7 +616,12 @@ export const SettingsGeneral: Component = () => {
           } catch {
             /* non-JSON */
           }
-          throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ""}`)
+          throw new Error(
+            language.t("settings.account.revokeConsent.errorHttp", {
+              status: res.status,
+              detail: detail ? `: ${detail}` : "",
+            }),
+          )
         }
         // Clear local sign-in state. Server has a revocation row; operator
         // runs `scripts/delete-user.ts --user-id=... --confirm` to

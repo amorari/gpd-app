@@ -17,12 +17,21 @@ import { SettingsList } from "./settings-list"
  * self-contained — avoids pulling in a markdown parser just for one
  * settings screen.
  */
-async function safeCall(fn: (() => Promise<string>) | undefined, label: string): Promise<string> {
-  if (!fn) return `${label} unavailable on this platform.`
+type LicenseResult =
+  | { ok: true; text: string }
+  | { ok: false; errorKey: "settings.licenses.unavailable"; params: { label: string } }
+  | { ok: false; errorKey: "settings.licenses.loadFailed"; params: { label: string; error: string } }
+
+async function safeCall(fn: (() => Promise<string>) | undefined, label: string): Promise<LicenseResult> {
+  if (!fn) return { ok: false, errorKey: "settings.licenses.unavailable", params: { label } }
   try {
-    return await fn()
+    return { ok: true, text: await fn() }
   } catch (e) {
-    return `Couldn't load ${label}: ${e instanceof Error ? e.message : String(e)}`
+    return {
+      ok: false,
+      errorKey: "settings.licenses.loadFailed",
+      params: { label, error: e instanceof Error ? e.message : String(e) },
+    }
   }
 }
 
@@ -32,6 +41,9 @@ export const SettingsLicenses: Component = () => {
   const [license] = createResource(() => safeCall(platform.readLicense, "LICENSE"))
   const [notices] = createResource(() => safeCall(platform.readThirdPartyNotices, "THIRD_PARTY_NOTICES.md"))
 
+  const renderResult = (result: LicenseResult): string =>
+    result.ok ? result.text : language.t(result.errorKey, result.params)
+
   return (
     <SettingsList>
       <div class="flex flex-col gap-4 py-4">
@@ -40,10 +52,20 @@ export const SettingsLicenses: Component = () => {
           <p class="text-12-regular text-text-weak mb-2">
             {language.t("settings.licenses.app_description")}
           </p>
-          <Show when={license()} fallback={<pre class="text-12-regular text-text-weak">Loading…</pre>}>
-            <pre class="text-12-regular whitespace-pre-wrap bg-surface-subtle p-3 rounded border border-border-subtle max-h-[240px] overflow-auto">
-              {license()}
-            </pre>
+          <Show
+            when={license()}
+            fallback={
+              <pre class="text-12-regular text-text-weak">
+                {language.t("common.loading")}
+                {language.t("common.loading.ellipsis")}
+              </pre>
+            }
+          >
+            {(result) => (
+              <pre class="text-12-regular whitespace-pre-wrap bg-surface-subtle p-3 rounded border border-border-subtle max-h-[240px] overflow-auto">
+                {renderResult(result())}
+              </pre>
+            )}
           </Show>
         </section>
 
@@ -52,15 +74,30 @@ export const SettingsLicenses: Component = () => {
           <p class="text-12-regular text-text-weak mb-2">
             {language.t("settings.licenses.third_party_description")}
           </p>
-          <Show when={notices()} fallback={<pre class="text-12-regular text-text-weak">Loading…</pre>}>
-            <div
-              class="text-12-regular bg-surface-subtle p-3 rounded border border-border-subtle max-h-[60vh] overflow-auto"
-              // Markdown is rendered as preformatted text; the `<details>` tags
-              // embedded in THIRD_PARTY_NOTICES.md work natively in the browser
-              // so users can expand per-package license bodies without us
-              // shipping a markdown parser in this path.
-              innerHTML={markdownToHtml(notices() ?? "")}
-            />
+          <Show
+            when={notices()}
+            fallback={
+              <pre class="text-12-regular text-text-weak">
+                {language.t("common.loading")}
+                {language.t("common.loading.ellipsis")}
+              </pre>
+            }
+          >
+            {(result) => (
+              <Show
+                when={result().ok}
+                fallback={<pre class="text-12-regular text-text-weak">{renderResult(result())}</pre>}
+              >
+                <div
+                  class="text-12-regular bg-surface-subtle p-3 rounded border border-border-subtle max-h-[60vh] overflow-auto"
+                  // Markdown is rendered as preformatted text; the `<details>` tags
+                  // embedded in THIRD_PARTY_NOTICES.md work natively in the browser
+                  // so users can expand per-package license bodies without us
+                  // shipping a markdown parser in this path.
+                  innerHTML={markdownToHtml(result().ok ? (result() as { ok: true; text: string }).text : "")}
+                />
+              </Show>
+            )}
           </Show>
         </section>
       </div>
