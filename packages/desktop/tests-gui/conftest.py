@@ -563,28 +563,21 @@ def os_input():
     return client
 
 
-@pytest.fixture
-def git_project_dir(tmp_path):
-    """A tmp_path with a real git repo so the sidecar registers it as a project.
+def _unregister_project_paths(target_paths: set[str]) -> None:
+    """Delete any GPD-registered project whose directory matches target_paths.
 
-    Teardown unregisters any project whose directory matches tmp_path. If a
-    test navigated to /:dir/*, GPD's auto-register createEffect persists the
-    project reference even after pytest deletes tmp_path. Without this
-    cleanup, GPD's sidebar tries to refresh the gone directory and the
-    webview shows a red toast ``Couldn't refresh <name>: error sending
-    request for url (...)``. Cheap to call; silently no-ops on 404.
+    A test that navigates the webview to /:dir/* triggers GPD's auto-register
+    createEffect, which persists a project reference in the sidecar. When
+    pytest subsequently cleans up the tmpdir, GPD's sidebar refresh hits
+    the gone directory and surfaces a red toast ``Couldn't refresh <name>:
+    error sending request for url (...)``. Fixtures that produce such
+    tmpdirs should call this on teardown to keep GPD tidy.
+
+    Best-effort: swallows every failure so a teardown can't mask the
+    test's own assertion failure. macOS resolves tmp paths through a
+    symlink (/var/folders → /private/var/folders); both forms are
+    checked against the sidecar's stored worktree.
     """
-    import subprocess
-    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "commit", "--allow-empty", "-m", "init"],
-        check=True, capture_output=True,
-    )
-    yield tmp_path
-
-    # Best-effort cleanup — don't let teardown failures mask the test's own
-    # assertion failures. Resolve the tmp path to /private/var/... to match
-    # what the sidecar stores (macOS tmp paths symlink-through).
     try:
         from gpd_tests.drivers.opencode_http import (
             HTTPClient,
@@ -603,7 +596,6 @@ def git_project_dir(tmp_path):
             password=pw,
         )
         try:
-            target_paths = {str(tmp_path), str(tmp_path.resolve())}
             for proj in client.list_projects():
                 proj_dir = proj.get("worktree") or proj.get("directory") or ""
                 if proj_dir in target_paths:
@@ -615,6 +607,23 @@ def git_project_dir(tmp_path):
             client.close()
     except Exception:
         pass
+
+
+@pytest.fixture
+def git_project_dir(tmp_path):
+    """A tmp_path with a real git repo so the sidecar registers it as a project.
+
+    Teardown unregisters any project whose directory matches tmp_path so
+    GPD doesn't show a stale-project toast after pytest wipes the tmpdir.
+    """
+    import subprocess
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "--allow-empty", "-m", "init"],
+        check=True, capture_output=True,
+    )
+    yield tmp_path
+    _unregister_project_paths({str(tmp_path), str(tmp_path.resolve())})
 
 
 # --- Per-test setup: foreground activation + marker-driven reset --------

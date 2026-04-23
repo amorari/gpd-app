@@ -61,9 +61,15 @@ _SELECT_SERVER_TITLE_EN = "Servers"
 
 
 @pytest.fixture
-def prepared_project_path(tmp_path_factory) -> str:
-    """On-disk directory with a git repo that GPD treats as a project."""
+def prepared_project_path(tmp_path_factory):
+    """On-disk directory with a git repo that GPD treats as a project.
+
+    Teardown: unregister the project from GPD so the sidebar refresh
+    doesn't hit a gone directory after pytest cleans up the tmpdir
+    (see the ``_unregister_project_paths`` helper in root conftest).
+    """
     import subprocess
+    from conftest import _unregister_project_paths
 
     p = tmp_path_factory.mktemp("gpd_proj_dialogs_c")
     p = p.resolve()
@@ -79,7 +85,8 @@ def prepared_project_path(tmp_path_factory) -> str:
         check=True,
         capture_output=True,
     )
-    return str(p)
+    yield str(p)
+    _unregister_project_paths({str(p), str(p.resolve())})
 
 
 def _wait_for(probe: DOMProbe, js: str, timeout_s: float = _DIALOG_MOUNT_TIMEOUT_S) -> bool:
