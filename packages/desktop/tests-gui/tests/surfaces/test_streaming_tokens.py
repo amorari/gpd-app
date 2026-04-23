@@ -114,7 +114,6 @@ def _assistant_text_from_messages(msgs: list[dict]) -> str:
 
 @pytest.mark.surfaces
 @pytest.mark.real_backend
-@pytest.mark.xfail(strict=True, reason=_XFAIL_REASON)
 def test_streaming_tokens_append_incrementally(
     http, mcp, gpd_key, streaming_project_dir
 ):
@@ -186,7 +185,6 @@ def test_streaming_tokens_append_incrementally(
 
 @pytest.mark.surfaces
 @pytest.mark.real_backend
-@pytest.mark.xfail(strict=True, reason=_XFAIL_REASON)
 def test_streaming_cursor_indicator_present_during_stream(
     http, mcp, gpd_key, streaming_project_dir
 ):
@@ -267,7 +265,6 @@ def test_streaming_cursor_indicator_present_during_stream(
 
 @pytest.mark.surfaces
 @pytest.mark.real_backend
-@pytest.mark.xfail(strict=True, reason=_XFAIL_REASON)
 def test_streaming_scroll_anchors_to_bottom(
     http, mcp, gpd_key, streaming_project_dir
 ):

@@ -165,15 +165,12 @@ def test_permission_modal_renders_on_pending_request(mcp, http, prepared_project
     # Navigate first so the session surface is mounted when/if the modal spawns.
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
 
-    # Find (or create) a session id. We need a real one so the induced
-    # Permission.Request has somewhere to attach.
-    sessions = http.sessions()
-    if sessions:
-        session_id = sessions[0]["id"]
-    else:
-        created = http.create_session(directory=prepared_project_path)
-        session_id = created["id"]
-        http.patch_session(session_id, {"title": "permission-modal-test"})
+    # Always create a fresh session — reusing sessions[0] would skip the
+    # title round-trip and leak permissions across tests. Attach a known
+    # title so failures point to the right session.
+    created = http.create_session(directory=prepared_project_path)
+    session_id = created["id"]
+    http.patch_session(session_id, {"title": "permission-modal-test"})
 
     # Attempt to induce. Without the product hook, this raises and the test
     # fails — which, combined with xfail(strict=True), is the signal we want.
@@ -215,13 +212,9 @@ def test_permission_modal_allow_resolves_via_ui_click(
     """
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
 
-    sessions = http.sessions()
-    if sessions:
-        session_id = sessions[0]["id"]
-    else:
-        created = http.create_session(directory=prepared_project_path)
-        session_id = created["id"]
-        http.patch_session(session_id, {"title": "permission-allow-test"})
+    created = http.create_session(directory=prepared_project_path)
+    session_id = created["id"]
+    http.patch_session(session_id, {"title": "permission-allow-test"})
 
     perm_id = _induce_pending_permission(http, session_id, tool="bash")
 
@@ -261,13 +254,9 @@ def test_permission_modal_deny_aborts_via_ui_click(
     """Mirror of the Allow test: clicking Deny must send reply=reject and close."""
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
 
-    sessions = http.sessions()
-    if sessions:
-        session_id = sessions[0]["id"]
-    else:
-        created = http.create_session(directory=prepared_project_path)
-        session_id = created["id"]
-        http.patch_session(session_id, {"title": "permission-deny-test"})
+    created = http.create_session(directory=prepared_project_path)
+    session_id = created["id"]
+    http.patch_session(session_id, {"title": "permission-deny-test"})
 
     perm_id = _induce_pending_permission(http, session_id, tool="bash")
 
@@ -315,13 +304,9 @@ def test_permission_modal_arguments_render_as_text_not_html(
     """
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
 
-    sessions = http.sessions()
-    if sessions:
-        session_id = sessions[0]["id"]
-    else:
-        created = http.create_session(directory=prepared_project_path)
-        session_id = created["id"]
-        http.patch_session(session_id, {"title": "permission-xss-test"})
+    created = http.create_session(directory=prepared_project_path)
+    session_id = created["id"]
+    http.patch_session(session_id, {"title": "permission-xss-test"})
 
     payload = "<script>alert(1)</script>"
     perm_id = _induce_pending_permission(

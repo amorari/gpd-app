@@ -114,12 +114,13 @@ def _any_dialog_open(probe: DOMProbe) -> bool:
     )
 
 
-def _close_any_open_dialog(mcp, os_input) -> None:
+def _close_any_open_dialog(mcp, os_input, ax) -> None:
     """Precondition: command.tsx early-returns on mod+comma when a dialog
     is already stacked. Clear the modal stack before each test."""
     probe = DOMProbe(mcp)
     try:
         if _any_dialog_open(probe):
+            _ensure_frontmost(ax)
             os_input.press_key("escape")
             time.sleep(0.2)
     except ProbeSkip:
@@ -140,7 +141,7 @@ def test_cmd_comma_opens_settings_dialog(mcp, ax, os_input):
     independently.
     """
     Navigator(mcp).go(route_home(), timeout_s=5.0)
-    _close_any_open_dialog(mcp, os_input)
+    _close_any_open_dialog(mcp, os_input, ax)
     probe = DOMProbe(mcp)
 
     _ensure_frontmost(ax)
@@ -160,6 +161,7 @@ def test_cmd_comma_opens_settings_dialog(mcp, ax, os_input):
     assert opened, "settings dialog did not appear within 3s of Cmd+,"
 
     # Cleanup — don't leak an open dialog into the next test.
+    _ensure_frontmost(ax)
     os_input.press_key("escape")
     time.sleep(0.2)
 
@@ -175,7 +177,7 @@ def test_cmd_b_toggles_sidebar_visibility(mcp, ax, os_input):
     that aria attribute to observe the state change without touching internals.
     """
     Navigator(mcp).go(route_home(), timeout_s=5.0)
-    _close_any_open_dialog(mcp, os_input)
+    _close_any_open_dialog(mcp, os_input, ax)
     probe = DOMProbe(mcp)
 
     read_expanded = (
@@ -233,7 +235,7 @@ def test_cmd_n_opens_new_session_affordance(mcp, ax, os_input):
     the URL is the only reliable signal).
     """
     Navigator(mcp).go(route_home(), timeout_s=5.0)
-    _close_any_open_dialog(mcp, os_input)
+    _close_any_open_dialog(mcp, os_input, ax)
 
     url_before = mcp.current_url()
 
@@ -270,7 +272,7 @@ def test_esc_closes_top_dialog(mcp, ax, os_input):
     anchor disappears.
     """
     Navigator(mcp).go(route_home(), timeout_s=5.0)
-    _close_any_open_dialog(mcp, os_input)
+    _close_any_open_dialog(mcp, os_input, ax)
     probe = DOMProbe(mcp)
 
     _ensure_frontmost(ax)
@@ -288,6 +290,7 @@ def test_esc_closes_top_dialog(mcp, ax, os_input):
     if not opened:
         pytest.skip("settings dialog never opened — cannot test Escape close")
 
+    _ensure_frontmost(ax)
     os_input.press_key("escape")
 
     deadline = time.monotonic() + 3.0
@@ -321,7 +324,7 @@ def test_cmd_k_opens_file_picker(mcp, ax, http, os_input, git_project_dir):
     Navigator(mcp).go(
         route_session_in_project(dir_token, sid), timeout_s=8.0
     )
-    _close_any_open_dialog(mcp, os_input)
+    _close_any_open_dialog(mcp, os_input, ax)
 
     probe = DOMProbe(mcp)
     # Wait for prompt-input to mount — it's a proxy for "session view ready".
@@ -376,5 +379,6 @@ def test_cmd_k_opens_file_picker(mcp, ax, http, os_input, git_project_dir):
     assert opened, "Cmd+K did not open the file picker / command palette dialog within 3s"
 
     # Cleanup — don't leak the dialog into the next test.
+    _ensure_frontmost(ax)
     os_input.press_key("escape")
     time.sleep(0.2)

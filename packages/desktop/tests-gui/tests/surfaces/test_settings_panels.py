@@ -501,13 +501,16 @@ def test_settings_general_language_round_trip(mcp, ax, os_input):
 
         mutated_via_ui = _set_language_via_ui(dom, target)
         if not mutated_via_ui:
-            # Kobalte Select renders without a native <select> in some
-            # modes. Fall back to a direct localStorage write, which
-            # still exercises the Persist<->language round-trip on
-            # reload, and satisfies the "observable state changed"
-            # requirement for this test.
-            payload = json.dumps({"value": target, "version": "language.v1"})
-            _write_language_storage(dom, payload)
+            # Previously fell back to localStorage write, which made the
+            # assertion tautological (fallback wrote the value then the
+            # assertion read it back). If the Kobalte click path can't
+            # reach the option, that IS the product regression we want
+            # to catch — fail instead of faking success.
+            pytest.fail(
+                f"Kobalte language picker click path failed (target={target!r}). "
+                "Either the Select trigger is missing a role=combobox anchor, "
+                "the listbox is not opening, or the target option is not present."
+            )
 
         # Poll briefly: Persist writes are synchronous, but Solid's
         # effect graph may defer the flush one tick.
