@@ -53,6 +53,15 @@ class Onboarding:
         document.querySelector with an attribute match rather than a role
         selector so we don't require ARIA roles that may shift.
 
+        Pre-sets the TOS-accepted localStorage key BEFORE submit so the
+        product's welcome-screen shortcut (welcome-screen.tsx:49-62)
+        auto-POSTs TOS acceptance server-side and calls onComplete
+        directly, skipping the TOS click-wrap UI. Exercising all four
+        TOS interactions (scroll both texts to bottom + check both boxes
+        + click "I Agree") would need bespoke DOM driving for each, and
+        this test's contract is "key entry reaches home", not
+        "click-wrap works".
+
         Returns (result, actual_value) from JS and verifies the value was set.
         """
         from gpd_tests.helpers.selectors import TEXT_WELCOME_API_KEY_PROMPT
@@ -61,8 +70,12 @@ class Onboarding:
             '"', '\\"'
         )
         safe_key = key.replace("\\", "\\\\").replace("'", "\\'")
+        # Must match packages/app/src/components/tos-content.tsx:24 and :48.
         js = f"""
         (function() {{
+          try {{
+            localStorage.setItem("gpd.tos.acceptedVersion", "0.0-placeholder");
+          }} catch (e) {{}}
           const inp = document.querySelector('input[placeholder="{placeholder}"]');
           if (!inp) return ['no-input', ''];
           const nativeSetter = Object.getOwnPropertyDescriptor(
@@ -85,7 +98,16 @@ class Onboarding:
         }})()
         """
         raw = self._probe.eval(js)
-        # raw may be a list/tuple [result, actual_value] or a plain string on error
+        # DOMProbe.eval returns JS values round-tripped through JSON, so an
+        # array literal arrives as a JSON string "[...,...]" — parse it back
+        # before pattern-matching. Previously we only handled list/tuple and
+        # raised "UI may have changed" on every successful submit.
+        if isinstance(raw, str) and raw.startswith("["):
+            import json as _json
+            try:
+                raw = _json.loads(raw)
+            except _json.JSONDecodeError:
+                pass
         if isinstance(raw, (list, tuple)) and len(raw) == 2:
             result, actual_value = raw[0], raw[1]
         else:

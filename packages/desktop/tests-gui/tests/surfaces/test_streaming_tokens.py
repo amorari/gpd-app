@@ -127,8 +127,10 @@ def test_streaming_tokens_append_incrementally(
 
         t, errors = _send_async(http, sid, _LONG_PROMPT)
 
-        # Wait up to 2s for the bubble selector to appear.
-        deadline = time.monotonic() + 2.0
+        # Wait up to 10s for the bubble selector to appear. Real LLM
+        # first-byte latency under load regularly exceeds 2s; 2s was
+        # aspirational for a cached path that never shipped.
+        deadline = time.monotonic() + 10.0
         bubble_seen = False
         while time.monotonic() < deadline:
             try:
@@ -141,7 +143,7 @@ def test_streaming_tokens_append_incrementally(
 
         assert bubble_seen, (
             'missing selector: [data-slot="session-turn-assistant-content"] '
-            "did not appear within 2s while streaming"
+            "did not appear within 10s while streaming"
         )
 
         samples: list[int] = []
@@ -203,8 +205,10 @@ def test_streaming_cursor_indicator_present_during_stream(
             '(() => !!document.querySelector("' + _CURSOR_SELECTOR + '"))()'
         )
 
-        # Poll for indicator within 2s.
-        deadline = time.monotonic() + 2.0
+        # Poll for indicator within 10s. 2s was too tight under real LLM
+        # latency — first-byte from the backend can exceed 2s when the
+        # suite has thrashed the sidecar.
+        deadline = time.monotonic() + 10.0
         present_during = False
         while time.monotonic() < deadline:
             try:
