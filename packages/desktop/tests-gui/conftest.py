@@ -193,14 +193,25 @@ def _restore_auth_json_snapshot() -> None:
 
 @pytest.fixture
 def gpd_key() -> str:
-    """Return the GPD LiteLLM key from auth.json; skip if absent or empty."""
+    """Return the GPD LiteLLM key from auth.json; fall back to snapshot; skip if absent.
+
+    Falls back to the session-start snapshot (_AUTH_JSON_SNAPSHOT) so the
+    onboarding test can still provide a key to type even when its
+    clean_onboarding_state fixture has already deleted the on-disk copy.
+    """
     import json as _json
     auth_path = _auth_json_path()
+    key = ""
     try:
         data = _json.loads(auth_path.read_text())
         key = data.get("gpd", {}).get("key", "")
     except (FileNotFoundError, _json.JSONDecodeError):
-        key = ""
+        pass
+    if not key and _AUTH_JSON_SNAPSHOT is not None:
+        try:
+            key = _json.loads(_AUTH_JSON_SNAPSHOT).get("gpd", {}).get("key", "")
+        except _json.JSONDecodeError:
+            pass
     if not key:
         pytest.skip(f"GPD key not found in {auth_path}; skipping real-backend test")
     return key
@@ -623,14 +634,21 @@ def pytest_runtest_setup(item):
     except Exception as e:
         pytest.skip(f"GPD reset failed before test (tier={tier}): {e}")
 
-    # Tier-2 reset wipes auth.json (scripts/reset.py:58). If a test uses
-    # clean_onboarding_state, that fixture manages auth.json explicitly and
-    # will delete it again before the test body — restoring here is safe:
-    # the fixture runs AFTER pytest_runtest_setup, sees a present file,
-    # backs it up, and deletes it. Every other test that triggers a
-    # tier-2 reset would leave auth.json missing for the remainder of the
-    # session; this restore prevents that cascade.
-    _restore_auth_json_snapshot()
+    # Tier-2 reset wipes auth.json (scripts/reset.py:58). Restore from the
+    # session-start snapshot so subsequent real_backend tests see the key.
+    #
+    # EXCEPTION: the onboarding test uses clean_onboarding_state AND needs
+    # GPD to come up in first-run mode. Flow without the exception:
+    #   (1) tier-2 deletes auth.json, starts GPD.
+    #   (2) [bad] we restore auth.json before wait_launched completes.
+    #   (3) GPD reads auth.json, skips welcome → test fails because no
+    #       welcome screen.
+    # When the item declares clean_onboarding_state, let the tier-2 reset
+    # stand: GPD boots without auth.json, shows welcome, the test passes.
+    # clean_onboarding_state's teardown restores the pre-test backup (which
+    # this snapshot path doesn't need to touch).
+    if "clean_onboarding_state" not in getattr(item, "fixturenames", ()):
+        _restore_auth_json_snapshot()
     # Let the fresh app come up before the next fixture use. The driver
     # fixtures below are function-scoped so they rediscover socket path,
     # HTTP port, and creds on the next test.
