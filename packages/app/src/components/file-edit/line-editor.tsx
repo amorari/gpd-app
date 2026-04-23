@@ -157,12 +157,13 @@ export function LineEditor(props: LineEditorProps) {
       <div
         class="min-h-[1.75rem] overflow-x-auto rounded border border-border-weak bg-surface px-2 py-1 font-mono text-sm"
         ref={(el) => (hostEl = el)}
+        data-action="file-edit-line-input"
       />
       <div class="flex items-center justify-end gap-2">
         <span class="mr-auto text-xs text-text-weak">
           {language.t("file.edit.hint", { line: String(props.lineNumber) })}
         </span>
-        <Button size="small" variant="ghost" onClick={() => props.onCancel()} disabled={props.saving}>
+        <Button size="small" variant="ghost" onClick={() => props.onCancel()} disabled={props.saving} data-action="file-edit-cancel">
           {language.t("file.edit.cancel")}
         </Button>
         <Button
@@ -171,6 +172,7 @@ export function LineEditor(props: LineEditorProps) {
           onClick={() => save()}
           disabled={props.saving || !dirty()}
           aria-busy={props.saving ? "true" : "false"}
+          data-action="file-edit-save"
         >
           {props.saving ? language.t("common.saving") : language.t("file.edit.save")}
         </Button>

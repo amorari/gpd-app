@@ -72,6 +72,8 @@ pub struct TerminatedPayload {
 #[derive(Clone, Debug)]
 pub struct CommandChild {
     kill: mpsc::Sender<()>,
+    /// Raw OS process ID — used by force_kill() for synchronous kill on app exit.
+    pub pid: Option<u32>,
 }
 
 impl CommandChild {
@@ -79,6 +81,27 @@ impl CommandChild {
         self.kill
             .try_send(())
             .map_err(|e| std::io::Error::other(e.to_string()))
+    }
+
+    pub fn is_alive(&self) -> bool {
+        !self.kill.is_closed()
+    }
+
+    /// Kill the sidecar synchronously via the OS — belt-and-suspenders for
+    /// the RunEvent::Exit path where the Tokio runtime may shut down before
+    /// the async kill channel is processed.
+    #[cfg(unix)]
+    pub fn force_kill_sync(&self) {
+        if let Some(pid) = self.pid {
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+        }
+    }
+
+    #[cfg(not(unix))]
+    pub fn force_kill_sync(&self) {
+        let _ = self.kill();
     }
 }
 
@@ -482,6 +505,8 @@ pub fn spawn_command(
     }
 
     let mut child = wrap.spawn()?;
+    // Capture PID before moving child into the monitoring task.
+    let child_pid: Option<u32> = child.id();
     let guard = Arc::new(tokio::sync::RwLock::new(()));
     let (tx, rx) = mpsc::channel(256);
     let (kill_tx, mut kill_rx) = mpsc::channel(1);
@@ -539,7 +564,7 @@ pub fn spawn_command(
     let event_stream = ReceiverStream::new(rx);
     let event_stream = sqlite_migration::logs_middleware(app.clone(), event_stream);
 
-    Ok((event_stream, CommandChild { kill: kill_tx }))
+    Ok((event_stream, CommandChild { kill: kill_tx, pid: child_pid }))
 }
 
 fn signal_from_status(status: std::process::ExitStatus) -> Option<i32> {
