@@ -159,16 +159,43 @@ export const Instance = {
   async disposeAll() {
     if (disposal.all) return disposal.all
 
+    // 10s ceiling on the bootstrap + per-instance-dispose awaits. Without
+    // this, a single in-flight InstanceBootstrap (provider/plugin/storage
+    // init on a cold sidecar) would block disposeAll forever — which wedges
+    // POST /global/dispose and, on the frontend, the Change-API-Key flow
+    // that awaits that endpoint. The bug this guards against is a real
+    // prod incident on 1.1.12: auth.json was cleared but the subsequent
+    // await never returned so the reload that shows the welcome screen
+    // never fired.
+    const DISPOSE_TIMEOUT_MS = 10_000
+    const raceTimeout = <T,>(p: Promise<T>, label: string, key: string) =>
+      Promise.race([
+        p.then((v) => ({ kind: "ok" as const, value: v })),
+        new Promise<{ kind: "timeout" }>((resolve) =>
+          setTimeout(() => resolve({ kind: "timeout" }), DISPOSE_TIMEOUT_MS),
+        ),
+      ]).then((r) => {
+        if (r.kind === "timeout") {
+          Log.Default.warn("instance dispose timeout", { phase: label, key, timeoutMs: DISPOSE_TIMEOUT_MS })
+          return undefined
+        }
+        return r.value
+      })
+
     disposal.all = iife(async () => {
       Log.Default.info("disposing all instances")
       const entries = [...cache.entries()]
       for (const [key, value] of entries) {
         if (cache.get(key) !== value) continue
 
-        const ctx = await value.catch((error) => {
-          Log.Default.warn("instance dispose failed", { key, error })
-          return undefined
-        })
+        const ctx = await raceTimeout(
+          value.catch((error) => {
+            Log.Default.warn("instance dispose failed", { key, error })
+            return undefined
+          }),
+          "boot-await",
+          key,
+        )
 
         if (!ctx) {
           if (cache.get(key) === value) cache.delete(key)
@@ -177,9 +204,13 @@ export const Instance = {
 
         if (cache.get(key) !== value) continue
 
-        await context.provide(ctx, async () => {
-          await Instance.dispose()
-        })
+        await raceTimeout(
+          context.provide(ctx, async () => {
+            await Instance.dispose()
+          }),
+          "instance-dispose",
+          key,
+        )
       }
     }).finally(() => {
       disposal.all = undefined
