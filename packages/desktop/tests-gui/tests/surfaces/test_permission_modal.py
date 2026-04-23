@@ -23,7 +23,7 @@ Two product-side pieces are missing:
 
 2. **A sidecar test hook to *induce* a pending permission without a live
    tool call.**  GPD ships with ``permission: "allow"`` baked into
-   ``gpd_setup.rs:454``; opencode only produces a ``Permission.Request``
+   ``gpd_setup.rs:494``; opencode only produces a ``Permission.Request``
    when a model actually invokes a non-allow-listed tool. Without either
    a ``permission: ask`` override or an explicit ``POST /permission/__induce``
    harness route, the only way to produce one is to (a) flip user-visible
@@ -35,6 +35,8 @@ lands, the corresponding xfail flips to XPASS and pytest fails the run,
 forcing a deliberate un-gating commit rather than silent green drift.
 """
 from __future__ import annotations
+
+import time
 
 import pytest
 
@@ -63,7 +65,7 @@ _REASON_NO_MODAL = (
 
 _REASON_NO_INDUCE_HOOK = (
     "GPD ships with permission: 'allow' (packages/desktop/src-tauri/src/"
-    "gpd_setup.rs:454), so the sidecar never produces a Permission.Request in "
+    "gpd_setup.rs:494), so the sidecar never produces a Permission.Request in "
     "the default config a surfaces test runs against. Product hook missing: "
     "either (a) a ``permission: ask`` override flag we can flip per-test "
     "without mutating the seeded user config, or (b) a harness-only "
@@ -119,6 +121,28 @@ def _induce_pending_permission(http, session_id: str, tool: str = "bash", args: 
     return str(result["id"])
 
 
+def _poll_modal_gone(mcp, timeout_s: float = 3.0, interval_s: float = 0.1) -> bool:
+    """Poll the DOM for up to ``timeout_s`` for the permission-modal to unmount.
+
+    Click handlers that flip the modal closed do so asynchronously (event
+    bus -> signal -> re-render). Asserting immediately after ``btn.click()``
+    races the SolidJS scheduler and will flake. This helper polls with a short
+    interval so the assertion only fires once the DOM has had a chance to
+    converge — or once the deadline passes, at which point the caller asserts
+    ``False`` and fails with the expected message.
+    """
+    gone_js = (
+        '!document.querySelector(\'[data-component="permission-modal"]\')'
+    )
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        raw = str(mcp.execute_js(gone_js) or "").strip().lower()
+        if raw == "true":
+            return True
+        time.sleep(interval_s)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -143,12 +167,13 @@ def test_permission_modal_renders_on_pending_request(mcp, http, prepared_project
 
     # Find (or create) a session id. We need a real one so the induced
     # Permission.Request has somewhere to attach.
-    sessions = http.sessions_list()
+    sessions = http.sessions()
     if sessions:
         session_id = sessions[0]["id"]
     else:
-        created = http.session_create(title="permission-modal-test")
+        created = http.create_session(directory=prepared_project_path)
         session_id = created["id"]
+        http.patch_session(session_id, {"title": "permission-modal-test"})
 
     # Attempt to induce. Without the product hook, this raises and the test
     # fails — which, combined with xfail(strict=True), is the signal we want.
@@ -190,10 +215,13 @@ def test_permission_modal_allow_resolves_via_ui_click(
     """
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
 
-    sessions = http.sessions_list()
-    session_id = sessions[0]["id"] if sessions else http.session_create(
-        title="permission-allow-test"
-    )["id"]
+    sessions = http.sessions()
+    if sessions:
+        session_id = sessions[0]["id"]
+    else:
+        created = http.create_session(directory=prepared_project_path)
+        session_id = created["id"]
+        http.patch_session(session_id, {"title": "permission-allow-test"})
 
     perm_id = _induce_pending_permission(http, session_id, tool="bash")
 
@@ -210,11 +238,11 @@ def test_permission_modal_allow_resolves_via_ui_click(
     clicked = str(mcp.execute_js(click_js) or "").strip().lower()
     assert clicked == "true", "permission-allow button not found in modal"
 
-    # Modal should unmount and the sidecar list should drop the id.
-    gone_js = (
-        '!document.querySelector(\'[data-component="permission-modal"]\')'
-    )
-    assert str(mcp.execute_js(gone_js) or "").strip().lower() == "true", (
+    # Modal should unmount and the sidecar list should drop the id. The click
+    # handler is async (event bus -> signal -> re-render) so we poll briefly
+    # instead of asserting on the immediate post-click DOM — immediate-assert
+    # races SolidJS's scheduler and flakes.
+    assert _poll_modal_gone(mcp, timeout_s=3.0), (
         "permission-modal still mounted after Allow click"
     )
 
@@ -233,10 +261,13 @@ def test_permission_modal_deny_aborts_via_ui_click(
     """Mirror of the Allow test: clicking Deny must send reply=reject and close."""
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
 
-    sessions = http.sessions_list()
-    session_id = sessions[0]["id"] if sessions else http.session_create(
-        title="permission-deny-test"
-    )["id"]
+    sessions = http.sessions()
+    if sessions:
+        session_id = sessions[0]["id"]
+    else:
+        created = http.create_session(directory=prepared_project_path)
+        session_id = created["id"]
+        http.patch_session(session_id, {"title": "permission-deny-test"})
 
     perm_id = _induce_pending_permission(http, session_id, tool="bash")
 
@@ -251,10 +282,9 @@ def test_permission_modal_deny_aborts_via_ui_click(
     clicked = str(mcp.execute_js(click_js) or "").strip().lower()
     assert clicked == "true", "permission-deny button not found in modal"
 
-    gone_js = (
-        '!document.querySelector(\'[data-component="permission-modal"]\')'
-    )
-    assert str(mcp.execute_js(gone_js) or "").strip().lower() == "true", (
+    # Poll for unmount rather than asserting immediately — see allow-test for
+    # the async-scheduler rationale.
+    assert _poll_modal_gone(mcp, timeout_s=3.0), (
         "permission-modal still mounted after Deny click"
     )
 
@@ -285,10 +315,13 @@ def test_permission_modal_arguments_render_as_text_not_html(
     """
     Navigator(mcp).go(_session_route(prepared_project_path), timeout_s=5.0)
 
-    sessions = http.sessions_list()
-    session_id = sessions[0]["id"] if sessions else http.session_create(
-        title="permission-xss-test"
-    )["id"]
+    sessions = http.sessions()
+    if sessions:
+        session_id = sessions[0]["id"]
+    else:
+        created = http.create_session(directory=prepared_project_path)
+        session_id = created["id"]
+        http.patch_session(session_id, {"title": "permission-xss-test"})
 
     payload = "<script>alert(1)</script>"
     perm_id = _induce_pending_permission(
