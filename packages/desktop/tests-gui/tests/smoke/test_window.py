@@ -19,3 +19,16 @@ def test_main_window_has_expected_title_and_size(mcp):
     assert "GPD" in title, f"title missing 'GPD': {title!r}"
     assert w >= 800, f"window width too small: {w}"
     assert h >= 600, f"window height too small: {h}"
+
+
+@pytest.mark.smoke
+def test_main_window_has_painted_dom(mcp):
+    """Paint guard: window exists AND body has child elements."""
+    from gpd_tests.helpers.dom_probe import DOMProbe, ProbeSkip
+
+    probe = DOMProbe(mcp)
+    try:
+        count = probe.eval_int("document.body.childElementCount")
+    except ProbeSkip as e:
+        pytest.skip(f"execute_js unavailable ({e}); paint guard deferred")
+    assert count > 0, f"document.body.childElementCount == {count}; nothing painted"

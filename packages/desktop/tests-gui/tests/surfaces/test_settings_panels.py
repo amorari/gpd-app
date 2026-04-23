@@ -284,6 +284,11 @@ def _set_language_via_ui(dom: DOMProbe, locale: str) -> bool:
         '  const native = root.querySelector("select");'
         '  if (native) {'
         '    native.value = ' + encoded + ';'
+        # intentional: testing synthetic event path — Kobalte Select renders a
+        # visually-hidden native <select> for accessibility that OS-level input
+        # (cliclick/osascript) cannot target. Solid may false-green this write;
+        # the caller has an explicit localStorage fallback that preserves the
+        # round-trip assertion if the Kobalte->signal path doesn't fire.
         '    native.dispatchEvent(new Event("input", { bubbles: true }));'
         '    native.dispatchEvent(new Event("change", { bubbles: true }));'
         '    return true;'

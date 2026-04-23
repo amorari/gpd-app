@@ -204,6 +204,44 @@ def test_dialog_select_model_opens_reads_models_and_closes(
         # the observable contract.
         assert item_count >= 0, "list-item query returned negative count"
 
+        # Content assertions: heading text in any dialog (popover variant
+        # legitimately lacks h1/h2, so allow empty there) and at least one
+        # enabled actionable control inside the overlay.
+        try:
+            heading_text = probe.eval(
+                '(() => {'
+                '  const d = document.querySelector('
+                '    "[role=\\"dialog\\"]"'
+                '  );'
+                '  if (!d) return "__nopopover__";'
+                '  const h = d.querySelector("h1, h2");'
+                '  return h ? h.textContent.trim() : "";'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable mid-test ({e})")
+        if heading_text != "__nopopover__":
+            assert heading_text, "dialog heading (h1/h2) missing or empty"
+        try:
+            enabled_buttons = probe.eval_int(
+                '(() => {'
+                '  const overlay = document.querySelector('
+                '    "[data-component=\\"dialog\\"], '
+                '[role=\\"dialog\\"], [data-component=\\"popover\\"]"'
+                '  );'
+                '  if (!overlay) return 0;'
+                '  return overlay.querySelectorAll('
+                '    "button:not([disabled])"'
+                '  ).length;'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable mid-test ({e})")
+        assert enabled_buttons > 0, (
+            "expected at least one enabled button in model picker overlay, "
+            f"got {enabled_buttons}"
+        )
+
         # Close via Escape.
         try:
             os_input.press_key("escape")
@@ -250,7 +288,7 @@ def test_dialog_select_model_opens_reads_models_and_closes(
 @pytest.mark.surfaces
 @pytest.mark.xfail(
     reason="pending G5-dialog-select-provider-data-actions.patch",
-    strict=False,
+    strict=True,
 )
 def test_dialog_select_provider_opens_and_closes(
     mcp, os_input, prepared_project_path
@@ -384,6 +422,41 @@ def test_dialog_select_provider_opens_and_closes(
         assert opened, (
             f"dialog-select-provider title {_PROVIDER_DIALOG_TITLE_EN!r} "
             "did not render within 3s"
+        )
+
+        # Content assertions: heading present (h1/h2 inside [role=dialog])
+        # and at least one enabled actionable button.
+        try:
+            heading_text = probe.eval(
+                '(() => {'
+                '  const d = document.querySelector('
+                '    "[role=\\"dialog\\"]"'
+                '  );'
+                '  if (!d) return "";'
+                '  const h = d.querySelector("h1, h2");'
+                '  return h ? h.textContent.trim() : "";'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable mid-test ({e})")
+        assert heading_text, "provider dialog heading (h1/h2) missing or empty"
+        try:
+            enabled_buttons = probe.eval_int(
+                '(() => {'
+                '  const d = document.querySelector('
+                '    "[role=\\"dialog\\"]"'
+                '  );'
+                '  if (!d) return 0;'
+                '  return d.querySelectorAll('
+                '    "button:not([disabled])"'
+                '  ).length;'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable mid-test ({e})")
+        assert enabled_buttons > 0, (
+            "expected at least one enabled button in provider dialog, "
+            f"got {enabled_buttons}"
         )
 
         # Step 4: close via Escape.
@@ -547,6 +620,41 @@ def test_dialog_settings_opens_toggles_general_switch_and_closes(
         if not _open_settings_dialog(mcp, ax, os_input, probe):
             pytest.fail("settings dialog never appeared (General tab not found)")
 
+        # Content assertions: heading present (h1/h2 in role=dialog) and at
+        # least one enabled actionable button inside the settings dialog.
+        try:
+            heading_text = probe.eval(
+                '(() => {'
+                '  const d = document.querySelector('
+                '    "[role=\\"dialog\\"]"'
+                '  );'
+                '  if (!d) return "";'
+                '  const h = d.querySelector("h1, h2");'
+                '  return h ? h.textContent.trim() : "";'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable mid-test ({e})")
+        assert heading_text, "settings dialog heading (h1/h2) missing or empty"
+        try:
+            enabled_buttons = probe.eval_int(
+                '(() => {'
+                '  const d = document.querySelector('
+                '    "[role=\\"dialog\\"]"'
+                '  );'
+                '  if (!d) return 0;'
+                '  return d.querySelectorAll('
+                '    "button:not([disabled])"'
+                '  ).length;'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable mid-test ({e})")
+        assert enabled_buttons > 0, (
+            "expected at least one enabled button in settings dialog, "
+            f"got {enabled_buttons}"
+        )
+
         # General is the defaultValue of the Tabs -> read the switch directly.
         original = _read_switch_checked(probe, _TOGGLE_DATA_ACTION)
         if original is None:
@@ -578,6 +686,45 @@ def test_dialog_settings_opens_toggles_general_switch_and_closes(
             f"switch state did not change after click "
             f"(still {after!r}, expected !={original!r})"
         )
+
+        # Restore before asserting the close contract so the finally's
+        # best-effort restore path is still exercised even if we abort.
+        if toggled_once and original is not None:
+            current = _read_switch_checked(probe, _TOGGLE_DATA_ACTION)
+            if current is not None and current != original:
+                _click_switch(probe, _TOGGLE_DATA_ACTION)
+                deadline_restore = time.monotonic() + 1.5
+                while time.monotonic() < deadline_restore:
+                    now = _read_switch_checked(probe, _TOGGLE_DATA_ACTION)
+                    if now == original:
+                        break
+                    time.sleep(0.05)
+
+        # Escape closes dialog; assert the General tab element is gone.
+        try:
+            os_input.press_key("escape")
+        except Exception as e:
+            pytest.skip(f"os_input.press_key unavailable ({e})")
+        needle = _SETTINGS_GENERAL_TAB.replace('"', '\\"')
+        deadline_close = time.monotonic() + 2.0
+        closed = False
+        while time.monotonic() < deadline_close:
+            try:
+                still_open = probe.eval_bool(
+                    '(() => {'
+                    '  const tabs = Array.from(document.querySelectorAll('
+                    '    "[role=\\"tab\\"], [data-slot=\\"tabs-trigger\\"]"'
+                    '  ));'
+                    f'  return tabs.some(t => t.textContent.trim() === "{needle}");'
+                    '})()'
+                )
+            except ProbeSkip as e:
+                pytest.skip(f"execute_js unavailable mid-test ({e})")
+            if not still_open:
+                closed = True
+                break
+            time.sleep(0.1)
+        assert closed, "settings dialog did not close on Escape"
     finally:
         # Restore the original state before leaving the test.  Best-effort:
         # if the switch is already gone (dialog closed unexpectedly), we

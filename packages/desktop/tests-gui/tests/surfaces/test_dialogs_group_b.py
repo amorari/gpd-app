@@ -68,7 +68,7 @@ def _wait_for(probe: DOMProbe, js: str, timeout_s: float = _DIALOG_MOUNT_TIMEOUT
         "dialog has no data-component anchor and no data-action on the back/method/"
         "submit controls; product currently scores 3 on inventory testability rubric"
     ),
-    strict=False,
+    strict=True,
 )
 def test_dialog_connect_provider_has_stable_anchor(mcp):
     """Assert the connect-provider dialog exposes its contract anchors.
@@ -105,7 +105,27 @@ def test_dialog_connect_provider_has_stable_anchor(mcp):
     # The select-provider dialog opens first; click a provider row to reach
     # connect-provider. Since dialog-select-provider also lacks anchors we
     # fall through and look for any of the connect anchors the patch adds.
-    _wait_for(probe, _JS_ANY_DIALOG_OPEN)
+    opened = _wait_for(probe, _JS_ANY_DIALOG_OPEN)
+
+    # Content assertion: if a dialog opened, it must expose at least one
+    # actionable control (button / link / role=button) — an empty dialog
+    # is a product regression independent of the data-action patch status.
+    if opened:
+        has_action = probe.eval_bool(
+            '(() => {'
+            '  const d = document.querySelector('
+            '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+            '  );'
+            '  if (!d) return false;'
+            '  return !!d.querySelector('
+            '    "button, a, [role=\\"button\\"]"'
+            '  );'
+            '})()'
+        )
+        assert has_action, (
+            "dialog opened but exposes no actionable control "
+            "(button / link / role=button)"
+        )
 
     # Core contract: once the patch lands, the connect-provider dialog
     # exposes a unique data-component anchor.
@@ -139,7 +159,7 @@ def test_dialog_connect_provider_has_stable_anchor(mcp):
         "dialog has no data-component anchor on root and no data-action on per-"
         "model / per-provider toggle switches"
     ),
-    strict=False,
+    strict=True,
 )
 def test_dialog_manage_models_has_stable_anchor(mcp):
     """Assert the manage-models dialog exposes its contract anchors.
@@ -178,6 +198,24 @@ def test_dialog_manage_models_has_stable_anchor(mcp):
     if not _wait_for(probe, _JS_ANY_DIALOG_OPEN):
         pytest.skip("manage-models dialog never opened — upstream trigger flake")
 
+    # Content assertion: the opened dialog must expose at least one
+    # actionable control — an empty dialog is a product regression.
+    has_action = probe.eval_bool(
+        '(() => {'
+        '  const d = document.querySelector('
+        '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+        '  );'
+        '  if (!d) return false;'
+        '  return !!d.querySelector('
+        '    "button, a, [role=\\"button\\"], input, [role=\\"switch\\"]"'
+        '  );'
+        '})()'
+    )
+    assert has_action, (
+        "manage-models dialog opened but exposes no actionable control "
+        "(button / link / switch / input)"
+    )
+
     # Contract: manage-models exposes a unique data-component anchor and each
     # row toggle carries data-action="manage-model-toggle" once patch lands.
     js = (
@@ -212,7 +250,7 @@ def test_dialog_manage_models_has_stable_anchor(mcp):
         "has no data-component anchor on root and no data-action on per-server "
         "toggle rows"
     ),
-    strict=False,
+    strict=True,
 )
 def test_dialog_select_mcp_has_stable_anchor(mcp):
     """Assert the select-mcp dialog exposes its contract anchors.
@@ -247,6 +285,24 @@ def test_dialog_select_mcp_has_stable_anchor(mcp):
 
     if not _wait_for(probe, _JS_ANY_DIALOG_OPEN):
         pytest.skip("select-mcp dialog never opened — upstream trigger flake")
+
+    # Content assertion: the opened dialog must expose at least one
+    # actionable control — an empty dialog is a product regression.
+    has_action = probe.eval_bool(
+        '(() => {'
+        '  const d = document.querySelector('
+        '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+        '  );'
+        '  if (!d) return false;'
+        '  return !!d.querySelector('
+        '    "button, a, [role=\\"button\\"], input, [role=\\"switch\\"]"'
+        '  );'
+        '})()'
+    )
+    assert has_action, (
+        "select-mcp dialog opened but exposes no actionable control "
+        "(button / link / switch / input)"
+    )
 
     # Contract: select-mcp exposes a unique data-component anchor and each
     # server toggle carries data-action="mcp-toggle" once the patch lands.

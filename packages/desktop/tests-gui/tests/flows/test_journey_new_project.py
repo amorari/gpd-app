@@ -106,9 +106,18 @@ def _click_create_tile(probe: DOMProbe) -> bool:
     )
 
 
-def _set_name_input(probe: DOMProbe, name: str) -> bool:
-    """Type the project name into the TextField. Dispatches input event for Solid."""
-    script = (
+def _set_name_input(probe: DOMProbe, os_input, name: str) -> bool:
+    """Focus the project-name TextField and type via OS keystrokes.
+
+    SolidJS ignores synthetic input events from .dispatchEvent() on controlled
+    <input> elements (the framework listens for OS-level input events, not
+    programmatic ones).  Setting .value= + dispatchEvent would execute without
+    the onInput/onChange handlers firing — a false-green.  Instead we focus
+    the input via JS (select existing content so typing replaces it) and
+    drive it via os_input.type_text, which delivers real keystrokes that
+    Solid observes.
+    """
+    focus_script = (
         '(() => {'
         '  const el = document.querySelector('
         '    "[data-action=\\"openorcreate-name-input\\"] input, '
@@ -116,29 +125,31 @@ def _set_name_input(probe: DOMProbe, name: str) -> bool:
         '  );'
         '  const input = el && (el.tagName === "INPUT" ? el : el.querySelector("input"));'
         '  if (!input) return false;'
-        f'  input.value = {name!r};'
-        '  input.dispatchEvent(new Event("input", { bubbles: true }));'
-        '  input.dispatchEvent(new Event("change", { bubbles: true }));'
-        '  return true;'
+        '  input.focus();'
+        '  try { input.select(); } catch (e) {}'
+        '  return document.activeElement === input;'
         '})()'
     )
-    if probe.eval_bool(script):
+    if probe.eval_bool(focus_script):
+        os_input.type_text(name)
         return True
     # Fallback: find by placeholder text (i18n key home.combinedPicker.create.namePlaceholder).
-    fallback = (
+    fallback_focus = (
         '(() => {'
         '  const inputs = Array.from(document.querySelectorAll("input"));'
         '  const input = inputs.find(i => /curvature-flow|project name/i.test('
         '    (i.placeholder || "") + " " + (i.getAttribute("aria-label") || "")'
         '  ));'
         '  if (!input) return false;'
-        f'  input.value = {name!r};'
-        '  input.dispatchEvent(new Event("input", { bubbles: true }));'
-        '  input.dispatchEvent(new Event("change", { bubbles: true }));'
-        '  return true;'
+        '  input.focus();'
+        '  try { input.select(); } catch (e) {}'
+        '  return document.activeElement === input;'
         '})()'
     )
-    return probe.eval_bool(fallback)
+    if probe.eval_bool(fallback_focus):
+        os_input.type_text(name)
+        return True
+    return False
 
 
 def _stub_native_picker_and_set_parent(probe: DOMProbe, parent_path: str) -> bool:
@@ -218,7 +229,7 @@ def _wait_for_project_url(mcp, expected_token: str, *, timeout_s: float = 8.0) -
     ),
     strict=False,
 )
-def test_journey_new_project(mcp, http, tmp_path):
+def test_journey_new_project(mcp, http, os_input, tmp_path):
     """End-to-end: open dialog -> create project via UI -> land on home -> verify in list -> delete."""
     # Pick a unique sub-path so the finally cleanup is deterministic even if
     # the test reruns in the same session.
@@ -264,7 +275,7 @@ def test_journey_new_project(mcp, http, tmp_path):
                 pytest.fail("name input did not appear after mode switch")
 
             # 3. Enter the project name.
-            if not _set_name_input(probe, project_name):
+            if not _set_name_input(probe, os_input, project_name):
                 pytest.fail("could not type into project name input")
 
             # 4. Stub the native picker and click the parent-picker button.

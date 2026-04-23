@@ -290,6 +290,34 @@ def test_dialog_edit_project_opens_and_closes(
                 "appear within timeout — dynamic import or dialog mount failure"
             )
 
+        # Content verification: heading text non-empty + enabled button present.
+        try:
+            has_heading = probe.eval_bool(
+                '(() => {'
+                '  const dialog = document.querySelector('
+                '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+                '  );'
+                '  if (!dialog) return false;'
+                '  const h = dialog.querySelector('
+                '    "[data-slot=\\"dialog-title\\"], h1, h2"'
+                '  );'
+                '  return !!h && (h.textContent || "").trim().length > 0;'
+                '})()'
+            )
+            enabled_btn_count = probe.eval_int(
+                '(() => {'
+                '  const dialog = document.querySelector('
+                '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+                '  );'
+                '  if (!dialog) return 0;'
+                '  return dialog.querySelectorAll("button:not([disabled])").length;'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable mid-test ({e})")
+        assert has_heading, "dialog-edit-project has no non-empty heading"
+        assert enabled_btn_count > 0, "dialog-edit-project has no enabled button"
+
         # Structural assertions: name text-field and cancel/save buttons.
 
         # (a) An <input type="text"> should be present inside the dialog for
@@ -378,6 +406,10 @@ def test_dialog_edit_project_opens_and_closes(
 
 
 @pytest.mark.surfaces
+# TODO: flip strict=True once a stable DOM trigger exists (menu item or
+# data-action='open-release-notes'). Kept strict=False because no trigger
+# exists in the current UI — the test asserts "no trigger exists" by failing
+# fast at pytest.fail() during click discovery.
 @pytest.mark.xfail(
     reason=(
         "dialog-release-notes has no stable programmatic trigger: it is shown "
@@ -443,6 +475,34 @@ def test_dialog_release_notes_opens_and_closes(mcp, os_input):
         pytest.skip(f"execute_js unavailable ({e})")
 
     assert opened, "dialog-release-notes did not mount after clicking the trigger"
+
+    # Content verification: heading text non-empty + enabled button present.
+    try:
+        has_heading = probe.eval_bool(
+            '(() => {'
+            '  const dialog = document.querySelector('
+            '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+            '  );'
+            '  if (!dialog) return false;'
+            '  const h = dialog.querySelector('
+            '    "[data-slot=\\"dialog-title\\"], h1, h2"'
+            '  );'
+            '  return !!h && (h.textContent || "").trim().length > 0;'
+            '})()'
+        )
+        enabled_btn_count = probe.eval_int(
+            '(() => {'
+            '  const dialog = document.querySelector('
+            '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+            '  );'
+            '  if (!dialog) return 0;'
+            '  return dialog.querySelectorAll("button:not([disabled])").length;'
+            '})()'
+        )
+    except ProbeSkip as e:
+        pytest.skip(f"execute_js unavailable mid-test ({e})")
+    assert has_heading, "dialog-release-notes has no non-empty heading"
+    assert enabled_btn_count > 0, "dialog-release-notes has no enabled button"
 
     # Verify the dialog has non-empty text content.
     try:
@@ -565,6 +625,34 @@ def test_dialog_select_server_opens_and_closes(mcp, os_input):
                 f'dialog-select-server title "{_SELECT_SERVER_TITLE_EN}" did not '
                 "appear within timeout — dynamic import or dialog mount failure"
             )
+
+        # Content verification: heading text non-empty + enabled button present.
+        try:
+            has_heading = probe.eval_bool(
+                '(() => {'
+                '  const dialog = document.querySelector('
+                '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+                '  );'
+                '  if (!dialog) return false;'
+                '  const h = dialog.querySelector('
+                '    "[data-slot=\\"dialog-title\\"], h1, h2"'
+                '  );'
+                '  return !!h && (h.textContent || "").trim().length > 0;'
+                '})()'
+            )
+            enabled_btn_count = probe.eval_int(
+                '(() => {'
+                '  const dialog = document.querySelector('
+                '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+                '  );'
+                '  if (!dialog) return 0;'
+                '  return dialog.querySelectorAll("button:not([disabled])").length;'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable mid-test ({e})")
+        assert has_heading, "dialog-select-server has no non-empty heading"
+        assert enabled_btn_count > 0, "dialog-select-server has no enabled button"
 
         # Verify: the dialog has either at least one list item (configured
         # server) or the empty-state message "No servers yet".

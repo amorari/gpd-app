@@ -13,7 +13,7 @@ from gpd_tests.helpers.navigator import Navigator, route_home
 
 
 @pytest.mark.surfaces
-def test_open_or_create_project_dialog_opens_from_home(mcp):
+def test_open_or_create_project_dialog_opens_from_home(mcp, os_input):
     """Click the 'Open Existing / Create New' button and verify the dialog."""
     Navigator(mcp).go(route_home(), timeout_s=5.0)
     probe = DOMProbe(mcp)
@@ -76,3 +76,53 @@ def test_open_or_create_project_dialog_opens_from_home(mcp):
 
     if not found:
         pytest.fail("open-or-create dialog did not render within deadline")
+
+    # Content verification: heading text non-empty + enabled button present.
+    try:
+        has_heading = probe.eval_bool(
+            '(() => {'
+            '  const dialog = document.querySelector('
+            '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+            '  );'
+            '  if (!dialog) return false;'
+            '  const h = dialog.querySelector('
+            '    "[data-slot=\\"dialog-title\\"], h1, h2"'
+            '  );'
+            '  return !!h && (h.textContent || "").trim().length > 0;'
+            '})()'
+        )
+        enabled_btn_count = probe.eval_int(
+            '(() => {'
+            '  const dialog = document.querySelector('
+            '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+            '  );'
+            '  if (!dialog) return 0;'
+            '  return dialog.querySelectorAll("button:not([disabled])").length;'
+            '})()'
+        )
+    except ProbeSkip as e:
+        pytest.skip(f"execute_js unavailable mid-test ({e})")
+    assert has_heading, "open-or-create dialog has no non-empty heading"
+    assert enabled_btn_count > 0, "open-or-create dialog has no enabled button"
+
+    # Escape-close verification: dialog should be gone after press_key("escape").
+    try:
+        os_input.press_key("escape")
+    except Exception:
+        pytest.skip("os_input.press_key unavailable")
+    deadline_close = time.monotonic() + 2.0
+    closed = False
+    while time.monotonic() < deadline_close:
+        try:
+            still_open = probe.eval_bool(
+                '!!document.querySelector('
+                '"[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
+                ')'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable mid-test ({e})")
+        if not still_open:
+            closed = True
+            break
+        time.sleep(0.1)
+    assert closed, "open-or-create dialog did not close on Escape"

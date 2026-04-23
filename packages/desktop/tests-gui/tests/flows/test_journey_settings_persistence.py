@@ -106,6 +106,12 @@ def _write_ls(dom: DOMProbe, key: str, raw_value: str | None) -> None:
     what ``test_theme_switch.py`` does.
     """
     js_key = key.replace('"', '\\"')
+    # intentional: testing synthetic event path — the `storage` event is the
+    # browser's cross-context localStorage sync signal; ThemeProvider and
+    # LanguageProvider subscribe to it to rehydrate state without reload. It
+    # has no OS-level equivalent (there is no keystroke or click that produces
+    # a StorageEvent on the current window), so firing it via dispatchEvent is
+    # the only way to exercise the reactive pathway.
     if raw_value is None:
         js = (
             '(() => { localStorage.removeItem("' + js_key + '"); '

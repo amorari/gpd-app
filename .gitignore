@@ -31,3 +31,5 @@ logs/
 tsconfig.tsbuildinfo
 .planning/
 .claude/worktrees/
+packages/desktop/src-tauri/scripts/__pycache__/
+packages/src/

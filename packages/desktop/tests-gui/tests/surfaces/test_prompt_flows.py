@@ -106,6 +106,10 @@ def _inject_text(probe: DOMProbe, text: str) -> bool:
             f'  range.collapse(false);'
             f'  sel.removeAllRanges();'
             f'  sel.addRange(range);'
+            # intentional: testing synthetic event path — contenteditable div
+            # updates its Solid signal via the native `input` event; os_input
+            # keystrokes are rejected per the module docstring (unreliable when
+            # the webview is not frontmost and does not drive textContent writes).
             f'  el.dispatchEvent(new Event("input", {{ bubbles: true }}));'
             f'  return true;'
             f'}})()'
@@ -125,6 +129,7 @@ def _clear_editor(probe: DOMProbe) -> None:
             '  if (!el) return false;'
             '  el.focus();'
             '  el.textContent = "";'
+            # intentional: testing synthetic event path — see _inject_text for rationale.
             '  el.dispatchEvent(new Event("input", { bubbles: true }));'
             '  return true;'
             '})()'
@@ -145,6 +150,10 @@ def _press_escape(probe: DOMProbe) -> None:
             '  const evt = new KeyboardEvent("keydown", {'
             '    bubbles: true, cancelable: true, key: "Escape", code: "Escape"'
             '  });'
+            # intentional: testing synthetic event path — the popover's keydown
+            # handler is bound to the contenteditable node itself; os_input
+            # press_key("escape") would target the window's focused element and
+            # races webview focus when the webview is not frontmost.
             '  el.dispatchEvent(evt);'
             '  return true;'
             '})()'
