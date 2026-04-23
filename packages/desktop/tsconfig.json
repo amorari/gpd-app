@@ -18,5 +18,5 @@
     "types": ["vite/client"]
   },
   "references": [{ "path": "../app" }],
-  "include": ["src", "tests-gui/vendor", "package.json"]
+  "include": ["src", "package.json"]
 }

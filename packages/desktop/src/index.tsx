@@ -37,7 +37,6 @@ import { Channel } from "@tauri-apps/api/core"
 import { commands, events, type InitStep } from "./bindings"
 import { createMenu } from "./menu"
 import { showToast } from "@opencode-ai/ui/toast"
-import { setupPluginListeners } from "../tests-gui/vendor/tauri-plugin-mcp"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -455,8 +454,6 @@ const createPlatform = (): Platform => {
     },
   }
 }
-
-void setupPluginListeners()
 
 let menuTrigger = null as null | ((id: string) => void)
 createMenu((id) => {
