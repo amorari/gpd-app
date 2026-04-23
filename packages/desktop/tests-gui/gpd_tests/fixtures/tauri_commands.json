@@ -30,7 +30,7 @@
   {
     "name": "repair_gpd_venv",
     "file": "gpd_setup.rs",
-    "line": 143,
+    "line": 153,
     "signature": "pub async fn repair_gpd_venv(app: tauri::AppHandle) -> Result<(), String>",
     "async": true
   },
