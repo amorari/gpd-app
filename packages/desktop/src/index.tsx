@@ -470,7 +470,7 @@ void listenForDeepLinks()
 if (import.meta.env.DEV) {
   void (async () => {
     try {
-      const mcp = await import(/* @vite-ignore */ "tauri-plugin-mcp")
+      const mcp = await import(/* @vite-ignore */ "../tests-gui/vendor/tauri-plugin-mcp")
       await mcp.setupPluginListeners()
     } catch (err) {
       console.warn("tauri-plugin-mcp guest bridge not loaded:", err)
