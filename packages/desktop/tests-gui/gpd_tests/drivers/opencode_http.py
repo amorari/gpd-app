@@ -21,8 +21,16 @@ class HTTPClient:
         username: str,
         password: str,
         transport: httpx.BaseTransport | None = None,
-        timeout_s: float = 120.0,
+        timeout_s: float = 30.0,
     ) -> None:
+        # Default 30s is deliberately shorter than pytest's 120s per-test
+        # timeout. A blocking socket.recv cannot be interrupted by pytest-
+        # timeout's thread method, so a 120s httpx timeout equalled the
+        # pytest budget and let a single hung sidecar request kill the
+        # whole run. 30s lets httpx raise ReadTimeout cleanly so tests
+        # can handle the exception (poll / skip / retry) and the run
+        # continues. Tests that need longer explicit reads (SSE, stream)
+        # pass timeout_s=... or use the streaming-specific methods.
         # Stash the caller's transport + timeout so rediscover() can rebuild
         # the underlying httpx.Client without losing them (e.g. MockTransport
         # in unit tests, or the default transport the fixture built with).
