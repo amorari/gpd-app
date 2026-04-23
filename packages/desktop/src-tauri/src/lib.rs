@@ -416,20 +416,41 @@ fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String> {
         WslPathMode::Linux => "-u",
     };
 
-    let output = if path.starts_with('~') {
-        let suffix = path.strip_prefix('~').unwrap_or("");
-        let escaped = suffix.replace('"', "\\\"");
-        let cmd = format!("wslpath {flag} \"$HOME{escaped}\"");
-        Command::new("wsl")
-            .args(["-e", "sh", "-lc", &cmd])
+    // Previously the `~`-prefixed branch built a string and passed it
+    // through `sh -lc` so the shell would expand `$HOME`. That is a
+    // shell-injection sink: a path like `~$(calc.exe)` reaches
+    // `sh -lc "wslpath -u \"$HOME$(calc.exe)\""` and the command
+    // substitution runs before wslpath sees anything. Only `"` was
+    // escaped, so `$()`, backticks, `;`, `|`, `&&`, newlines were all
+    // exploitable from any caller that can reach `commands.wslPath`
+    // (the webview). Now: reject shell metachars up front, resolve
+    // `~` to the user's home via `wsl -e sh -c 'printf %s "$HOME"'`
+    // (a command that produces a value, separate from the path
+    // interpolation), and invoke `wslpath` with the concatenated
+    // absolute path as a single argv slot. No sh -lc on the hot path.
+    let safe_tail: String = if path.starts_with('~') {
+        let tail = path.strip_prefix('~').unwrap_or("");
+        if tail.chars().any(|c| matches!(c, '$' | '`' | ';' | '|' | '&' | '>' | '<' | '\n' | '\r' | '\\' | '"' | '\''))
+        {
+            return Err("Path contains shell metacharacters; use an absolute path instead.".to_string());
+        }
+        let home_out = Command::new("wsl")
+            .args(["-e", "sh", "-c", "printf %s \"$HOME\""])
             .output()
-            .map_err(|e| format!("Couldn't translate the file path for WSL. Try a simpler path. ({e})"))?
+            .map_err(|e| format!("Couldn't translate the file path for WSL. Try a simpler path. ({e})"))?;
+        if !home_out.status.success() {
+            return Err("Couldn't resolve $HOME in WSL. Try an absolute path instead.".to_string());
+        }
+        let home = String::from_utf8_lossy(&home_out.stdout).trim().to_string();
+        format!("{home}{tail}")
     } else {
-        Command::new("wsl")
-            .args(["-e", "wslpath", flag, &path])
-            .output()
-            .map_err(|e| format!("Couldn't translate the file path for WSL. Try a simpler path. ({e})"))?
+        path
     };
+
+    let output = Command::new("wsl")
+        .args(["-e", "wslpath", flag, &safe_tail])
+        .output()
+        .map_err(|e| format!("Couldn't translate the file path for WSL. Try a simpler path. ({e})"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
