@@ -31,3 +31,4 @@ logs/
 tsconfig.tsbuildinfo
 .planning/
 .claude/worktrees/
+.mcp.json

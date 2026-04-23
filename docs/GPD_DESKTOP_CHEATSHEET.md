@@ -75,6 +75,41 @@ cd ~/Documents/psi/repos/gpd-opencode-fresh/packages/desktop
 bun tauri dev
 ```
 
+### Enable Tauri MCP (Optional — for Claude Code / Cursor webview automation)
+
+The Rust plugin is already compiled into dev builds (gated by `#[cfg(debug_assertions)]` in `src-tauri/src/lib.rs`). The frontend JS bridge (`setupPluginListeners`) is gated behind `import.meta.env.DEV` and dynamically imports `tauri-plugin-mcp` — which is not in `packages/desktop/package.json` because the fork isn't published as an npm package yet. Without extra setup, dev builds log `tauri-plugin-mcp guest bridge not loaded: …` at startup and MCP `execute_js` / `query_page(map)` / etc. time out (only Rust-native tools like `take_screenshot` and `app_info` work).
+
+To wire the JS bridge for local dev:
+
+```bash
+# One-time: clone + build the fork's guest-js package
+mkdir -p ~/.local/share
+git clone https://github.com/psi-oss/tauri-plugin-mcp.git ~/.local/share/tauri-plugin-mcp
+cd ~/.local/share/tauri-plugin-mcp/mcp-server-ts && npm install && npm run build
+cd ~/.local/share/tauri-plugin-mcp && npm install && npm run build
+
+# Symlink the package into desktop/node_modules (not via package.json — keeps release clean)
+ln -s ~/.local/share/tauri-plugin-mcp \
+  ~/Documents/psi/repos/gpd-opencode-fresh/packages/desktop/node_modules/tauri-plugin-mcp
+
+# Configure Claude Code / Cursor MCP client (create .mcp.json at repo root — gitignored):
+cat > ~/Documents/psi/repos/gpd-opencode-fresh/.mcp.json <<'EOF'
+{
+  "mcpServers": {
+    "tauri-mcp": {
+      "command": "node",
+      "args": ["/Users/YOU/.local/share/tauri-plugin-mcp/mcp-server-ts/build/index.js"],
+      "env": {
+        "TAURI_MCP_IPC_PATH": "/var/folders/.../T/tauri-mcp.sock"
+      }
+    }
+  }
+}
+EOF
+```
+
+Release safety is unaffected: Rust side compiles out via `debug_assertions`, JS side dead-code-eliminates the whole branch at Vite prod build time, and the dynamic `import()` is never resolved in prod. Zero attack surface in shipped binaries.
+
 ### Check First-Run Logs
 ```bash
 # Latest log file
