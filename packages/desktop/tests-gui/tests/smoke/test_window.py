@@ -23,12 +23,25 @@ def test_main_window_has_expected_title_and_size(mcp):
 
 @pytest.mark.smoke
 def test_main_window_has_painted_dom(mcp):
-    """Paint guard: window exists AND body has child elements."""
+    """Shallow paint guard paired with window-level assertions.
+
+    Complements ``test_launch.test_webview_has_painted_dom`` (which does a
+    deeper content + text-length check). Here we only verify the SPA
+    produced *some* structural signal so that window-geometry failures
+    aren't masked by a blank shell: an OR of <nav>, a populated #root,
+    or >=10 DOM nodes total.
+    """
     from gpd_tests.helpers.dom_probe import DOMProbe, ProbeSkip
 
     probe = DOMProbe(mcp)
     try:
-        count = probe.eval_int("document.body.childElementCount")
+        has_spa_content = probe.eval_bool(
+            "!!(document.querySelector('nav')"
+            " || (document.querySelector('#root') && document.querySelector('#root').children.length > 0)"
+            " || document.querySelectorAll('*').length >= 10)"
+        )
     except ProbeSkip as e:
         pytest.skip(f"execute_js unavailable ({e}); paint guard deferred")
-    assert count > 0, f"document.body.childElementCount == {count}; nothing painted"
+    assert has_spa_content, (
+        "no SPA markers found: need <nav>, populated #root, or >=10 DOM nodes"
+    )
