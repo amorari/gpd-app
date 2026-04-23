@@ -1,6 +1,7 @@
 """LLM-tolerant assertions: shape-level only, no content matching."""
 from __future__ import annotations
 
+import time
 from typing import Any
 
 _MAX_REPR = 500
@@ -13,6 +14,41 @@ def assistant_text(response: dict[str, Any]) -> str:
         str(p.get("text", ""))
         for p in parts
         if isinstance(p, dict) and p.get("type") == "text"
+    )
+
+
+def wait_for_assistant_text(
+    http, session_id: str, *, timeout_s: float = 30.0, poll_s: float = 0.5
+) -> str:
+    """Poll /session/:id/message until the latest assistant turn has
+    non-empty text, or raise TimeoutError.
+
+    send_message returns once the sidecar has accepted the POST; the
+    assistant's reply streams asynchronously. Tests that read messages
+    immediately after send_message race the stream and see empty text.
+    Wrapping the read in this helper gives the stream time to settle.
+
+    Returns the concatenated assistant text across all assistant turns.
+    """
+    deadline = time.monotonic() + timeout_s
+    last_text = ""
+    while time.monotonic() < deadline:
+        try:
+            msgs = http.messages(session_id)
+        except Exception:
+            time.sleep(poll_s)
+            continue
+        assistant_msgs = [
+            m for m in msgs if (m.get("info") or {}).get("role") == "assistant"
+        ]
+        if assistant_msgs:
+            last_text = "".join(assistant_text(m) for m in assistant_msgs)
+            if last_text.strip():
+                return last_text
+        time.sleep(poll_s)
+    raise TimeoutError(
+        f"assistant text never became non-empty within {timeout_s}s "
+        f"for session {session_id} (last_text={last_text!r})"
     )
 
 

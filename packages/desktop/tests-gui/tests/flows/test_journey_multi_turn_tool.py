@@ -7,6 +7,7 @@ real on-disk artefact.
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -75,12 +76,26 @@ def test_journey_multi_turn_tool(http, gpd_key, tmp_path):
             }],
         )
 
-        msgs = http.messages(ses_id)
-        assistant_msgs = [
-            m for m in msgs if m.get("info", {}).get("role") == "assistant"
-        ]
+        # Poll up to 60s for all three assistant turns to stream in with
+        # non-empty text. send_message returns before the sidecar finishes
+        # streaming the assistant's reply; reading messages() immediately
+        # after the 3rd send can see fewer than 3 turns or empty text.
+        deadline = time.monotonic() + 60.0
+        assistant_msgs: list = []
+        while time.monotonic() < deadline:
+            msgs = http.messages(ses_id)
+            assistant_msgs = [
+                m for m in msgs if m.get("info", {}).get("role") == "assistant"
+            ]
+            if (
+                len(assistant_msgs) >= 3
+                and assistant_text(assistant_msgs[1]).strip()
+                and assistant_text(assistant_msgs[2]).strip()
+            ):
+                break
+            time.sleep(0.5)
         assert len(assistant_msgs) >= 3, (
-            f"expected 3 assistant turns, got {len(assistant_msgs)}: "
+            f"expected 3 assistant turns, got {len(assistant_msgs)} after 60s: "
             f"{assistant_msgs!r}"
         )
 

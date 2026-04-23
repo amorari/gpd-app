@@ -29,6 +29,7 @@ MARKERS = [
 
 
 def _ask_one(http, ses_id: str, marker: str) -> str:
+    import time as _time
     http.send_message(
         ses_id,
         parts=[{"type": "text", "text": f"Echo verbatim: {marker}"}],
@@ -36,12 +37,21 @@ def _ask_one(http, ses_id: str, marker: str) -> str:
         provider_id=PROVIDER,
         agent="default",
     )
-    msgs = http.messages(ses_id)
-    assistant_msgs = [m for m in msgs if m.get("info", {}).get("role") == "assistant"]
-    if not assistant_msgs:
-        return ""
-    # Use only the last assistant message to avoid false positives from earlier turns
-    return assistant_text(assistant_msgs[-1])
+    # Poll for a non-empty assistant reply — send_message returns before
+    # the stream settles, and reading too early yields '' which breaks the
+    # contamination assertions.
+    deadline = _time.monotonic() + 60.0
+    while _time.monotonic() < deadline:
+        msgs = http.messages(ses_id)
+        assistant_msgs = [
+            m for m in msgs if m.get("info", {}).get("role") == "assistant"
+        ]
+        if assistant_msgs:
+            txt = assistant_text(assistant_msgs[-1])
+            if txt.strip():
+                return txt
+        _time.sleep(0.5)
+    return ""
 
 
 @pytest.mark.flows
@@ -109,13 +119,23 @@ def test_three_parallel_multiturn_sessions_retain_context(http, gpd_key):
             provider_id=PROVIDER,
             agent="default",
         )
-        msgs = http.messages(ses_id)
-        assistant = [m for m in msgs if m.get("info", {}).get("role") == "assistant"]
-        if not assistant:
-            return ""
-        return "".join(
-            p.get("text", "") for p in assistant[-1].get("parts", []) if p.get("type") == "text"
-        )
+        # Poll for the 3rd assistant turn to stream in — reading messages()
+        # immediately after the 3rd send often sees 2 turns or empty text.
+        import time as _time
+        deadline = _time.monotonic() + 90.0
+        while _time.monotonic() < deadline:
+            msgs = http.messages(ses_id)
+            assistant = [m for m in msgs if m.get("info", {}).get("role") == "assistant"]
+            if len(assistant) >= 3:
+                txt = "".join(
+                    p.get("text", "")
+                    for p in assistant[-1].get("parts", [])
+                    if p.get("type") == "text"
+                )
+                if txt.strip():
+                    return txt
+            _time.sleep(0.5)
+        return ""
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gpd_tests.helpers.llm_tolerant import assistant_text
+from gpd_tests.helpers.llm_tolerant import wait_for_assistant_text
 
 
 @pytest.mark.flows
@@ -31,12 +31,10 @@ def test_assistant_reads_file_via_tool(http, gpd_key):
                 ),
             }],
         )
-        msgs = http.messages(ses_id)
-        assistant_msgs = [
-            m for m in msgs if m.get("info", {}).get("role") == "assistant"
-        ]
-        assert assistant_msgs, f"no assistant message in history: {msgs!r}"
-        full_text = "".join(assistant_text(m) for m in assistant_msgs)
+        # Poll up to 45s — the model needs to read the file (tool call
+        # round-trip) and then emit text. send_message returns before the
+        # assistant's final turn has streamed.
+        full_text = wait_for_assistant_text(http, ses_id, timeout_s=45.0)
         assert sentinel in full_text, (
             f"assistant didn't quote sentinel; full text: {full_text!r}"
         )
