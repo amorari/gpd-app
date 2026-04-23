@@ -257,11 +257,15 @@ def seed_onboarding_state(request):
         shutil.copy2(auth_path, auth_backup)
 
     def restore():
+        # SAFETY: only delete post-test artifacts this fixture itself
+        # created. A previous version had an ``elif auth_path.exists():
+        # auth_path.unlink()`` branch that would wipe a real user key if
+        # the seed fixture wrote one while no prior file existed. That
+        # delete-on-teardown is destructive and unrecoverable; callers
+        # can always clean their own writes explicitly.
         if auth_backup and auth_backup.exists():
             shutil.copy2(auth_backup, auth_path)
             auth_backup.unlink()
-        elif auth_path.exists():
-            auth_path.unlink()
         if created_sentinel and _sentinel_path.exists():
             _sentinel_path.unlink()
 

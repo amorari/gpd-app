@@ -37,6 +37,15 @@ def clean_onboarding_state(auth_json_path):
     Used by @pytest.mark.fresh_app onboarding tests — the tier-2 reset alone
     does NOT remove the sentinel (that's tier-3 territory), so this fixture
     handles it symmetrically with auth.json.
+
+    SAFETY: the teardown NEVER unlinks a post-test auth.json/sentinel that
+    the fixture didn't itself create. Previous versions had an
+    ``elif auth_json_path.exists(): auth_json_path.unlink()`` branch that
+    would silently wipe a real user key if the pre-test backup step was
+    skipped (file absent at start) but the test body or onboarding UI
+    created one. That is destructive and unrecoverable — the key only
+    exists in the installer flow or the user's head. The fixture now
+    leaves post-test artifacts alone unless it itself produced them.
     """
     import shutil
     from pathlib import Path
@@ -46,11 +55,16 @@ def clean_onboarding_state(auth_json_path):
     auth_backup: Path | None = None
     sentinel_backup: Path | None = None
 
-    if auth_json_path.exists():
+    # Track whether THIS fixture removed the pre-test file. Only files we
+    # ourselves removed may be re-created/cleaned up in teardown.
+    auth_preexisted = auth_json_path.exists()
+    sentinel_preexisted = sentinel_path.exists()
+
+    if auth_preexisted:
         auth_backup = auth_json_path.with_suffix(".json.bak-phase3")
         shutil.copy2(auth_json_path, auth_backup)
         auth_json_path.unlink()
-    if sentinel_path.exists():
+    if sentinel_preexisted:
         sentinel_backup = sentinel_path.with_suffix(
             sentinel_path.suffix + ".bak-phase3"
         )
@@ -60,13 +74,11 @@ def clean_onboarding_state(auth_json_path):
     try:
         yield auth_json_path
     finally:
+        # Restore pre-existing files from backup. Never delete a post-test
+        # file we didn't create — see SAFETY note above.
         if auth_backup and auth_backup.exists():
             shutil.copy2(auth_backup, auth_json_path)
             auth_backup.unlink()
-        elif auth_json_path.exists():
-            auth_json_path.unlink()
         if sentinel_backup and sentinel_backup.exists():
             shutil.copy2(sentinel_backup, sentinel_path)
             sentinel_backup.unlink()
-        elif sentinel_path.exists():
-            sentinel_path.unlink()
