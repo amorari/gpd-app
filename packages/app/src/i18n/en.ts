@@ -33,6 +33,7 @@ export const dict = {
     "Consent revoked. GPD will reload to the sign-in screen.",
   "settings.account.revokeConsent.errorNoKey":
     "No saved API key found. You can clear your sign-in from the Settings → Change API Key option.",
+  "settings.account.revokeConsent.errorHttp": "HTTP {{status}}{{detail}}",
   "command.category.suggested": "Suggested",
   "command.category.view": "View",
   "command.category.project": "Project",
@@ -540,6 +541,14 @@ export const dict = {
   "error.classified.invalidRequest": "The AI service rejected the request.",
   "error.classified.unknown": "Something went wrong. See details for more.",
 
+  "error.friendly.notFound": "That file or folder couldn't be found. It may have been moved or deleted.",
+  "error.friendly.permissionDenied": "GPD doesn't have permission to access that file or folder.",
+  "error.friendly.connectionRefused": "Couldn't connect — the service isn't reachable. Check your internet or try restarting GPD.",
+  "error.friendly.dnsFailure": "Couldn't reach that server. Check your internet connection.",
+  "error.friendly.timeout": "The request took too long. Try again or check your internet connection.",
+  "error.friendly.connectionReset": "The connection was interrupted. Try again in a moment.",
+  "error.http.status": "HTTP {{status}} {{statusText}}",
+
   "error.chain.unknown": "Something went wrong",
   "error.chain.permissionDenied":
     "GPD needs permission to access this folder. Open System Settings → Privacy & Security → Files and Folders to grant access.",
@@ -601,6 +610,7 @@ export const dict = {
   "session.tab.session": "Conversation",
   "session.tab.review": "Changes",
   "session.tab.context": "Memory",
+  "session.tab.unsavedInlineEdit": "Unsaved inline edit",
   "session.panel.reviewAndFiles": "Changes and files",
   "session.review.filesChanged": "{{count}} Files Changed",
   "session.review.change.one": "Change",
@@ -659,6 +669,7 @@ export const dict = {
   "session.newView.card.tour.description": "Learn what GPD can do for your research",
   "session.newView.card.arxiv": "Search arXiv",
   "session.newView.card.arxiv.description": "Find recent papers on any physics topic",
+  "session.newView.card.arxiv.insert": "Search arXiv for recent papers on ",
   "session.newView.card.allCommands": "All Commands",
   "session.newView.card.allCommands.description": "Browse the full list of GPD commands",
   "session.newView.chips.title": "Try a prompt",
@@ -837,6 +848,8 @@ export const dict = {
   "settings.licenses.third_party_title": "Third-party notices",
   "settings.licenses.third_party_description":
     "Every npm, Rust, Python, and bundled-binary dependency shipped inside GPD Desktop, with license text. Click any package to expand.",
+  "settings.licenses.unavailable": "{{label}} unavailable on this platform.",
+  "settings.licenses.loadFailed": "Couldn't load {{label}}: {{error}}",
   "settings.tab.general": "General",
   "settings.tab.shortcuts": "Shortcuts",
   "settings.desktop.section.wsl": "WSL",
@@ -1075,6 +1088,8 @@ export const dict = {
   "settings.dependencies.details": "Details",
   "settings.dependencies.loading": "Loading...",
   "settings.dependencies.noData": "No data available.",
+  "settings.dependencies.check.python": "Python",
+  "settings.dependencies.httpError": "HTTP {{status}} {{statusText}}",
   "settings.dependencies.summary": "{{ok}} OK · {{warn}} warning · {{fail}} missing · {{total}} total",
   "settings.dependencies.missing": "Missing: {{tools}}",
   "settings.dependencies.platform.macos": "macOS",
