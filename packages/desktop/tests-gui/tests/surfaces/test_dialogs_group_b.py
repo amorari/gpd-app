@@ -107,24 +107,26 @@ def test_dialog_connect_provider_has_stable_anchor(mcp):
     # fall through and look for any of the connect anchors the patch adds.
     opened = _wait_for(probe, _JS_ANY_DIALOG_OPEN)
 
-    # Content assertion: if a dialog opened, it must expose at least one
-    # actionable control (button / link / role=button) — an empty dialog
-    # is a product regression independent of the data-action patch status.
+    # Content assertion: connect-provider collects credentials, so the
+    # dialog must render at least one text input or textarea. Checking
+    # for "any button" would be tautological — Kobalte always renders a
+    # close button — so we assert on a dialog-specific control instead.
     if opened:
-        has_action = probe.eval_bool(
+        has_credential_input = probe.eval_bool(
             '(() => {'
             '  const d = document.querySelector('
             '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
             '  );'
             '  if (!d) return false;'
             '  return !!d.querySelector('
-            '    "button, a, [role=\\"button\\"]"'
+            '    "input[type=\\"text\\"], input[type=\\"password\\"], '
+            'input:not([type]), textarea"'
             '  );'
             '})()'
         )
-        assert has_action, (
-            "dialog opened but exposes no actionable control "
-            "(button / link / role=button)"
+        assert has_credential_input, (
+            "connect-provider dialog opened but exposes no credential "
+            "input (input[type=text|password] or textarea)"
         )
 
     # Core contract: once the patch lands, the connect-provider dialog
@@ -198,22 +200,24 @@ def test_dialog_manage_models_has_stable_anchor(mcp):
     if not _wait_for(probe, _JS_ANY_DIALOG_OPEN):
         pytest.skip("manage-models dialog never opened — upstream trigger flake")
 
-    # Content assertion: the opened dialog must expose at least one
-    # actionable control — an empty dialog is a product regression.
-    has_action = probe.eval_bool(
+    # Content assertion: manage-models presents per-model / per-provider
+    # toggles, so the dialog must render at least one switch or checkbox.
+    # Checking for "any button" would be tautological — Kobalte always
+    # renders a close button — so we assert on a dialog-specific control.
+    has_toggle = probe.eval_bool(
         '(() => {'
         '  const d = document.querySelector('
         '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
         '  );'
         '  if (!d) return false;'
         '  return !!d.querySelector('
-        '    "button, a, [role=\\"button\\"], input, [role=\\"switch\\"]"'
+        '    "[role=\\"switch\\"], input[type=\\"checkbox\\"]"'
         '  );'
         '})()'
     )
-    assert has_action, (
-        "manage-models dialog opened but exposes no actionable control "
-        "(button / link / switch / input)"
+    assert has_toggle, (
+        "manage-models dialog opened but exposes no toggle "
+        "([role=switch] or input[type=checkbox])"
     )
 
     # Contract: manage-models exposes a unique data-component anchor and each
@@ -286,22 +290,30 @@ def test_dialog_select_mcp_has_stable_anchor(mcp):
     if not _wait_for(probe, _JS_ANY_DIALOG_OPEN):
         pytest.skip("select-mcp dialog never opened — upstream trigger flake")
 
-    # Content assertion: the opened dialog must expose at least one
-    # actionable control — an empty dialog is a product regression.
-    has_action = probe.eval_bool(
+    # Content assertion: select-mcp lists MCP servers or an empty-state
+    # message, so the dialog must render a list container (role=list /
+    # ul / ol) or a non-empty text body. Checking for "any button" would
+    # be tautological — Kobalte always renders a close button — so we
+    # assert on a dialog-specific structural element.
+    has_list_or_empty_state = probe.eval_bool(
         '(() => {'
         '  const d = document.querySelector('
         '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
         '  );'
         '  if (!d) return false;'
-        '  return !!d.querySelector('
-        '    "button, a, [role=\\"button\\"], input, [role=\\"switch\\"]"'
-        '  );'
+        '  if (d.querySelector('
+        '    "[role=\\"list\\"], [role=\\"listbox\\"], ul, ol"'
+        '  )) return true;'
+        '  const body = d.querySelector('
+        '    "[data-component=\\"dialog-body\\"], .dialog-body"'
+        '  ) || d;'
+        '  const txt = (body.innerText || "").trim();'
+        '  return txt.length > 0 && /(no |empty|none|add|configure|install)/i.test(txt);'
         '})()'
     )
-    assert has_action, (
-        "select-mcp dialog opened but exposes no actionable control "
-        "(button / link / switch / input)"
+    assert has_list_or_empty_state, (
+        "select-mcp dialog opened but exposes no list container "
+        "(role=list / ul / ol) and no empty-state message"
     )
 
     # Contract: select-mcp exposes a unique data-component anchor and each
