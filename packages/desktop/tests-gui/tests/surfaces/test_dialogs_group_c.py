@@ -290,7 +290,10 @@ def test_dialog_edit_project_opens_and_closes(
                 "appear within timeout — dynamic import or dialog mount failure"
             )
 
-        # Content verification: heading text non-empty + enabled button present.
+        # Content verification: heading text non-empty. The definitive content
+        # checks for this dialog are the structural assertions below
+        # (input[type=text] + Save button) — a generic "any enabled button"
+        # count is redundant with those stronger, dialog-specific assertions.
         try:
             has_heading = probe.eval_bool(
                 '(() => {'
@@ -304,19 +307,9 @@ def test_dialog_edit_project_opens_and_closes(
                 '  return !!h && (h.textContent || "").trim().length > 0;'
                 '})()'
             )
-            enabled_btn_count = probe.eval_int(
-                '(() => {'
-                '  const dialog = document.querySelector('
-                '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
-                '  );'
-                '  if (!dialog) return 0;'
-                '  return dialog.querySelectorAll("button:not([disabled])").length;'
-                '})()'
-            )
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable mid-test ({e})")
         assert has_heading, "dialog-edit-project has no non-empty heading"
-        assert enabled_btn_count > 0, "dialog-edit-project has no enabled button"
 
         # Structural assertions: name text-field and cancel/save buttons.
 
@@ -406,10 +399,10 @@ def test_dialog_edit_project_opens_and_closes(
 
 
 @pytest.mark.surfaces
-# TODO: flip strict=True once a stable DOM trigger exists (menu item or
-# data-action='open-release-notes'). Kept strict=False because no trigger
-# exists in the current UI — the test asserts "no trigger exists" by failing
-# fast at pytest.fail() during click discovery.
+# TODO: flip to strict=True when Help > Release Notes menu item lands.
+# Kept strict=False because no trigger exists in the current UI — the test
+# asserts "no trigger exists" by failing fast at pytest.fail() during click
+# discovery (auditor-confirmed: see packages/desktop/src/menu.ts).
 @pytest.mark.xfail(
     reason=(
         "dialog-release-notes has no stable programmatic trigger: it is shown "
@@ -626,7 +619,11 @@ def test_dialog_select_server_opens_and_closes(mcp, os_input):
                 "appear within timeout — dynamic import or dialog mount failure"
             )
 
-        # Content verification: heading text non-empty + enabled button present.
+        # Content verification: heading text non-empty. The structural
+        # assertion below (list container OR "Add server" button) is the
+        # definitive content check — a generic "any enabled button" count
+        # would pass trivially because Cancel/close buttons are always
+        # present on an empty dialog shell, and is therefore redundant.
         try:
             has_heading = probe.eval_bool(
                 '(() => {'
@@ -640,46 +637,40 @@ def test_dialog_select_server_opens_and_closes(mcp, os_input):
                 '  return !!h && (h.textContent || "").trim().length > 0;'
                 '})()'
             )
-            enabled_btn_count = probe.eval_int(
-                '(() => {'
-                '  const dialog = document.querySelector('
-                '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
-                '  );'
-                '  if (!dialog) return 0;'
-                '  return dialog.querySelectorAll("button:not([disabled])").length;'
-                '})()'
-            )
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable mid-test ({e})")
         assert has_heading, "dialog-select-server has no non-empty heading"
-        assert enabled_btn_count > 0, "dialog-select-server has no enabled button"
 
-        # Verify: the dialog has either at least one list item (configured
-        # server) or the empty-state message "No servers yet".
-        # The List component renders [data-slot="list-item"] for each server.
-        # The empty message is language.t("dialog.server.empty") == "No servers yet".
+        # Structural assertion: the dialog must contain a list container
+        # ([data-slot="list"] or [data-slot="list-item"]) OR an explicit
+        # "Add server" button. The List component renders
+        # [data-slot="list-item"] for each configured server; the empty
+        # state still renders an "Add server" CTA button.
         try:
-            has_content = probe.eval_bool(
+            has_list_or_add = probe.eval_bool(
                 '(() => {'
                 '  const dialog = document.querySelector('
                 '    "[data-component=\\"dialog\\"], [role=\\"dialog\\"]"'
                 '  );'
                 '  if (!dialog) return false;'
-                # At least one list item present (configured server), OR
-                # the empty-state message text is present.
-                '  const hasItems = !!dialog.querySelector("[data-slot=\\"list-item\\"]");'
-                '  const text = (dialog.textContent || "").toLowerCase();'
-                '  const hasEmpty = text.includes("no servers");'
-                # Add-server button is always present in list mode.
-                '  const hasAddBtn = !!dialog.querySelector("button");'
-                '  return hasItems || hasEmpty || hasAddBtn;'
+                # List container or at least one list item.
+                '  const hasList = !!dialog.querySelector('
+                '    "[data-slot=\\"list\\"], [data-slot=\\"list-item\\"]"'
+                '  );'
+                # "Add server" button — text match is resilient to minor
+                # label changes and matches the empty-state CTA.
+                '  const btns = Array.from(dialog.querySelectorAll("button"));'
+                '  const hasAddServer = btns.some('
+                '    b => /add.*server/i.test((b.textContent || "").trim())'
+                '  );'
+                '  return hasList || hasAddServer;'
                 '})()'
             )
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable mid-test ({e})")
-        assert has_content, (
-            "dialog-select-server opened but has neither server list items, "
-            "an empty-state message, nor any button"
+        assert has_list_or_add, (
+            "dialog-select-server is missing both a list container "
+            "([data-slot='list'|'list-item']) and an 'Add server' button"
         )
 
         # Close via Escape.
