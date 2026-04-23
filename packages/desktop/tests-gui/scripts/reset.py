@@ -111,12 +111,20 @@ def _launch_binary(app_path: str, name: str) -> None:
 
 def stop_gpd() -> None:
     name = _app_name()
-    subprocess.run(
-        ["osascript", "-e", f'tell application "{name}" to quit'],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    # Bound osascript: a native modal (NSOpenPanel, etc.) blocks the quit
+    # event forever. pytest-timeout cannot interrupt a blocking subprocess,
+    # so leaving this unbounded deadlocks the whole suite. On timeout the
+    # SIGKILL fallback below cleans up.
+    try:
+        subprocess.run(
+            ["osascript", "-e", f'tell application "{name}" to quit'],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=8.0,
+        )
+    except subprocess.TimeoutExpired:
+        pass
     # macOS pgrep -f silently fails on paths with spaces; use _ps_pids instead.
     pattern = re.escape(f"{name}.app/Contents/MacOS/")
     # Poll up to 10 s for graceful exit.
