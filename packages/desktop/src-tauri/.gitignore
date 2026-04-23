@@ -8,6 +8,3 @@
 
 sidecars
 uv-bundle
-
-# cargo-llvm-cov HTML reports (redundant with /target/ above but kept for clarity)
-target/llvm-cov/

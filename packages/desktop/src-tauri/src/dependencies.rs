@@ -127,70 +127,33 @@ pub fn linux_install_hint(tool: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    // --- linux_install_hint ---
+    use super::linux_install_hint;
 
     #[test]
-    fn known_tool_git_returns_nonempty_hint() {
-        let hint = linux_install_hint("git".to_string());
-        assert!(!hint.is_empty(), "expected a non-empty hint for 'git', got empty string");
-        assert!(hint.contains("git"), "expected hint to mention 'git', got: {hint:?}");
+    fn known_tools_return_distinguishing_package_names() {
+        assert!(linux_install_hint("git".into()).contains("git"));
+        assert!(linux_install_hint("python".into()).contains("python3"));
+        assert!(linux_install_hint("python-venv".into()).contains("python3-venv"));
+        assert!(linux_install_hint("latex".into()).contains("texlive"));
+        assert!(linux_install_hint("pdf-tools".into()).contains("poppler-utils"));
     }
 
     #[test]
-    fn known_tool_python_returns_nonempty_hint() {
-        let hint = linux_install_hint("python".to_string());
-        assert!(!hint.is_empty(), "expected a non-empty hint for 'python'");
-        assert!(hint.contains("python3"), "expected hint to mention 'python3', got: {hint:?}");
+    fn tectonic_returns_docs_url_not_package() {
+        let hint = linux_install_hint("tectonic".into());
+        assert!(hint.contains("tectonic-typesetting.github.io"));
+        assert!(!hint.starts_with("sudo apt"));
     }
 
     #[test]
-    fn known_tool_python_venv_returns_nonempty_hint() {
-        let hint = linux_install_hint("python-venv".to_string());
-        assert!(!hint.is_empty(), "expected a non-empty hint for 'python-venv'");
-        assert!(hint.contains("python3-venv"), "expected hint to mention 'python3-venv', got: {hint:?}");
+    fn unknown_tool_returns_empty() {
+        assert_eq!(linux_install_hint("unknown".into()), "");
+        assert_eq!(linux_install_hint("".into()), "");
     }
 
     #[test]
-    fn known_tool_latex_returns_nonempty_hint() {
-        let hint = linux_install_hint("latex".to_string());
-        assert!(!hint.is_empty(), "expected a non-empty hint for 'latex'");
-        assert!(hint.contains("texlive"), "expected hint to mention 'texlive', got: {hint:?}");
-    }
-
-    #[test]
-    fn known_tool_tectonic_returns_nonempty_hint() {
-        let hint = linux_install_hint("tectonic".to_string());
-        assert!(!hint.is_empty(), "expected a non-empty hint for 'tectonic'");
-        assert!(hint.contains("tectonic"), "expected hint to mention 'tectonic', got: {hint:?}");
-    }
-
-    #[test]
-    fn known_tool_pdf_tools_returns_nonempty_hint() {
-        let hint = linux_install_hint("pdf-tools".to_string());
-        assert!(!hint.is_empty(), "expected a non-empty hint for 'pdf-tools'");
-        assert!(hint.contains("poppler"), "expected hint to mention 'poppler', got: {hint:?}");
-    }
-
-    #[test]
-    fn unknown_tool_returns_empty_string() {
-        let hint = linux_install_hint("nonexistent-tool".to_string());
-        assert!(hint.is_empty(), "expected empty string for unknown tool, got: {hint:?}");
-    }
-
-    #[test]
-    fn unknown_tool_empty_string_returns_empty() {
-        let hint = linux_install_hint("".to_string());
-        assert!(hint.is_empty(), "expected empty string for empty tool name, got: {hint:?}");
-    }
-
-    #[test]
-    fn tool_lookup_is_case_sensitive() {
-        // "Git" (capital G) is not a registered key — should return ""
-        let hint_upper = linux_install_hint("Git".to_string());
-        let hint_lower = linux_install_hint("git".to_string());
-        assert!(hint_upper.is_empty(), "expected empty for 'Git' (wrong case), got: {hint_upper:?}");
-        assert!(!hint_lower.is_empty(), "expected non-empty for 'git', got: {hint_lower:?}");
+    fn is_case_sensitive() {
+        assert_eq!(linux_install_hint("GIT".into()), "");
+        assert_eq!(linux_install_hint("Python".into()), "");
     }
 }
