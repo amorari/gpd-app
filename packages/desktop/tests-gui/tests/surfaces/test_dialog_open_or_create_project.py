@@ -44,35 +44,23 @@ def test_open_or_create_project_dialog_opens_from_home(mcp, os_input):
     # of how this test exits (pass, fail, or skip).
     found = False
     deadline = time.monotonic() + 3.0
-    try:
-        while time.monotonic() < deadline:
-            try:
-                found = probe.eval_bool(
-                    '(() => {'
-                    '  const txt = document.body ? document.body.innerText : "";'
-                    '  return ('
-                    '    /open or create/i.test(txt) ||'
-                    '    /open existing folder/i.test(txt) ||'
-                    '    /create new folder/i.test(txt)'
-                    '  );'
-                    '})()'
-                )
-            except ProbeSkip as e:
-                pytest.skip(f"execute_js unavailable ({e})")
-            if found:
-                break
-            time.sleep(0.1)
-    finally:
-        # Dismiss any open native dialog so GPD's event loop is unblocked for
-        # the next test. This is a no-op when no dialog is open.
-        import subprocess as _sp
-        import time as _t
-        _sp.run(
-            ["osascript", "-e",
-             "tell application \"System Events\" to key code 53"],
-            capture_output=True, check=False, timeout=5.0,
-        )
-        _t.sleep(0.3)
+    while time.monotonic() < deadline:
+        try:
+            found = probe.eval_bool(
+                '(() => {'
+                '  const txt = document.body ? document.body.innerText : "";'
+                '  return ('
+                '    /open or create/i.test(txt) ||'
+                '    /open existing folder/i.test(txt) ||'
+                '    /create new folder/i.test(txt)'
+                '  );'
+                '})()'
+            )
+        except ProbeSkip as e:
+            pytest.skip(f"execute_js unavailable ({e})")
+        if found:
+            break
+        time.sleep(0.1)
 
     if not found:
         pytest.fail("open-or-create dialog did not render within deadline")
@@ -86,9 +74,16 @@ def test_open_or_create_project_dialog_opens_from_home(mcp, os_input):
             '  );'
             '  if (!dialog) return false;'
             '  const h = dialog.querySelector('
-            '    "[data-slot=\\"dialog-title\\"], h1, h2"'
+            '    "[data-slot=\\"dialog-title\\"], [data-component=\\"dialog-title\\"], '
+            'h1, h2, h3, [role=\\"heading\\"]"'
             '  );'
-            '  return !!h && (h.textContent || "").trim().length > 0;'
+            '  if (h && (h.textContent || "").trim().length > 0) return true;'
+            '  const lid = dialog.getAttribute("aria-labelledby");'
+            '  if (lid) {'
+            '    const by = document.getElementById(lid);'
+            '    if (by && (by.textContent || "").trim().length > 0) return true;'
+            '  }'
+            '  return (dialog.getAttribute("aria-label") || "").trim().length > 0;'
             '})()'
         )
         enabled_btn_count = probe.eval_int(

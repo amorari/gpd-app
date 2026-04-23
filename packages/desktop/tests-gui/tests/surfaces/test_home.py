@@ -29,7 +29,6 @@ def test_home_route_reachable(mcp):
             '(() => {'
             '  const body = document.body;'
             '  if (!body) return false;'
-            '  // Any real element (not just text nodes or scripts).'
             '  return body.querySelectorAll("div, main, nav, aside, section, header, footer").length > 0;'
             '})()'
         )

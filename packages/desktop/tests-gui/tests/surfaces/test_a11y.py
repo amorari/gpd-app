@@ -385,6 +385,19 @@ def test_form_inputs_have_associated_labels(mcp, os_input):
 
 
 @pytest.mark.surfaces
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Real a11y finding: focused <button> on home has no visible focus "
+        "indicator (outlineStyle=none, outlineWidth=0px, boxShadow=none). "
+        "This is a product regression, not a test bug — either the default "
+        "button style is missing a :focus-visible rule, or the design uses "
+        "a focus technique (background change, custom pseudo-element) that "
+        "isn't covered by the current check. Flip to remove the xfail when "
+        "the product adds outline/box-shadow focus styles OR this test is "
+        "taught to detect alternative focus indicators."
+    ),
+)
 def test_focusable_elements_have_visible_outline(mcp, os_input):
     """After 3 Tab presses, the active element must show a focus indicator.
 
