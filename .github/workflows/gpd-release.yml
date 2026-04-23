@@ -141,29 +141,68 @@ jobs:
           esac
           echo "Sidecar version (get-physics-done): $SIDECAR_VERSION"
 
-          # Desktop version can be overridden independently of the sidecar so
-          # desktop-only patch releases can ship (the auto-updater only
-          # promotes a proper semver increase, so -N pre-release suffixes
-          # cannot be used to reach existing installs).
+          # Desktop version resolution:
+          #
+          # Default (no inputs.version): auto-compute the next patch-bumped
+          # X.Y.Z from the repo's own release history. The sidecar version is
+          # NOT the correct seed here — desktop releases (1.1.10 … 1.1.13)
+          # have diverged from the sidecar's pinned pyproject.toml (still
+          # 1.1.0), so following the sidecar would collide with the legacy
+          # 1.1.0-N scheme and produce pre-release suffixes that the Tauri
+          # auto-updater rejects for in-place upgrades.
+          #
+          # Algorithm: pick the highest existing X.Y.Z desktop tag in the
+          # repo (draft OR published). If it's a draft, join it — this
+          # preserves retry-friendliness (partial-upload re-dispatch lands
+          # on the same draft). If it's published, bump the patch by one.
+          # If there are no existing desktop releases at all, fall back to
+          # the sidecar version as the seed.
+          #
+          # An explicit inputs.version override uses that value exactly
+          # (with the collision loop below handling rare races where a
+          # draft was published between resolve and build).
+          REPO="${{ github.repository }}"
           if [ -n "${{ inputs.version }}" ]; then
             BASE_VERSION="${{ inputs.version }}"
             RESOLVE_SOURCE="manual"
             echo "Desktop version override: $BASE_VERSION"
           else
-            BASE_VERSION="$SIDECAR_VERSION"
-            RESOLVE_SOURCE="$SOURCE"
-            echo "Desktop version follows sidecar: $BASE_VERSION"
+            HIGHEST=$(gh release list --repo "$REPO" --limit 100 --json tagName --jq '.[].tagName' \
+              | grep -oE '^gpd-desktop-v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sed 's/^gpd-desktop-v//' \
+              | sort -V \
+              | tail -1 || true)
+            if [ -z "$HIGHEST" ]; then
+              BASE_VERSION="$SIDECAR_VERSION"
+              RESOLVE_SOURCE="auto-seed-sidecar"
+              echo "No existing X.Y.Z desktop release; seeding from sidecar: $BASE_VERSION"
+            else
+              HIGHEST_IS_DRAFT=$(gh api "repos/$REPO/releases/tags/gpd-desktop-v$HIGHEST" --jq '.draft' 2>/dev/null || echo false)
+              if [ "$HIGHEST_IS_DRAFT" = "true" ]; then
+                BASE_VERSION="$HIGHEST"
+                RESOLVE_SOURCE="auto-join-draft"
+                echo "Highest desktop release $HIGHEST is a draft; joining it (retry-friendly)."
+              else
+                MAJOR=$(echo "$HIGHEST" | cut -d. -f1)
+                MINOR=$(echo "$HIGHEST" | cut -d. -f2)
+                PATCH=$(echo "$HIGHEST" | cut -d. -f3)
+                BASE_VERSION="$MAJOR.$MINOR.$((PATCH+1))"
+                RESOLVE_SOURCE="auto-bump-patch"
+                echo "Highest desktop release $HIGHEST is published; bumping patch to $BASE_VERSION."
+              fi
+            fi
           fi
 
-          REPO="${{ github.repository }}"
+          # Collision loop (applies to both override and auto paths).
+          # - Exact match + draft: join.
+          # - Exact match + published: bump patch for semver bases; fall
+          #   back to -N suffix for non-semver bases (pre-releases,
+          #   release candidates, etc.) so an explicit `version=X.Y.Z-rc1`
+          #   override still has an escape hatch.
+          # - No tag: fresh draft.
           CANDIDATE="$BASE_VERSION"
           RESOLVED=""
           for N in {0..100}; do
-            if [ "$N" -eq 0 ]; then
-              CANDIDATE="$BASE_VERSION"
-            else
-              CANDIDATE="$BASE_VERSION-$N"
-            fi
             TAG="gpd-desktop-v$CANDIDATE"
             if RJ=$(gh api "repos/$REPO/releases/tags/$TAG" 2>/dev/null); then
               IS_DRAFT=$(printf '%s' "$RJ" | python3 -c "import sys,json; print(json.load(sys.stdin).get('draft', False))")
@@ -172,7 +211,15 @@ jobs:
                 RESOLVED="$CANDIDATE"
                 break
               fi
-              echo "Tag $TAG is already published; trying next suffix."
+              echo "Tag $TAG is already published; trying next candidate."
+              if echo "$CANDIDATE" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                C_MAJOR=$(echo "$CANDIDATE" | cut -d. -f1)
+                C_MINOR=$(echo "$CANDIDATE" | cut -d. -f2)
+                C_PATCH=$(echo "$CANDIDATE" | cut -d. -f3)
+                CANDIDATE="$C_MAJOR.$C_MINOR.$((C_PATCH+1))"
+              else
+                CANDIDATE="$BASE_VERSION-$((N+1))"
+              fi
             else
               echo "Tag $TAG does not exist; will create a fresh draft."
               RESOLVED="$CANDIDATE"
@@ -181,12 +228,11 @@ jobs:
           done
 
           if [ -z "$RESOLVED" ]; then
-            echo "::error::Exhausted -N suffixes 1..100 for $BASE_VERSION. Pass an explicit version input."
+            echo "::error::Could not resolve a usable tag for $BASE_VERSION after 100 iterations. Pass an explicit version input."
             exit 1
           fi
-          CANDIDATE="$RESOLVED"
 
-          VERSION="$CANDIDATE"
+          VERSION="$RESOLVED"
           echo "Resolved desktop release: $VERSION (tag: gpd-desktop-v$VERSION, base: $BASE_VERSION, sidecar: $SIDECAR_VERSION, source: $RESOLVE_SOURCE)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
