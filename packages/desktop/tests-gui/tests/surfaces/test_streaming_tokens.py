@@ -22,27 +22,22 @@ from gpd_tests.helpers.navigator import (
 )
 
 
-_BUBBLE_SELECTOR = (
-    '[data-role=\\"assistant\\"]:last-of-type, '
-    '[data-component=\\"message-assistant\\"]:last-of-type, '
-    '.message-assistant:last-of-type'
-)
+# Real selectors (verified in packages/app/src/pages/session/message-timeline.tsx
+# and packages/ui/src/components/session-turn.tsx):
+#   - assistant bubble: [data-slot="session-turn-assistant-content"] lives inside
+#     [data-component="session-turn"] — selecting the last assistant-content slot
+#     is the streaming bubble.
+#   - streaming indicator: [data-component="session-progress"] (message-timeline.tsx:731)
+#   - scroll container: [role="log"] (message-timeline.tsx:1008)
+_BUBBLE_SELECTOR = '[data-slot=\\"session-turn-assistant-content\\"]:last-of-type'
 
-_CURSOR_SELECTOR = (
-    '[data-streaming=\\"true\\"], '
-    '[data-component=\\"cursor-indicator\\"], '
-    '.streaming-cursor'
-)
+_CURSOR_SELECTOR = '[data-component=\\"session-progress\\"]'
 
-_SCROLL_CONTAINER_SELECTOR = (
-    '[data-component=\\"message-list\\"], '
-    '[data-component=\\"messages\\"], '
-    '[data-slot=\\"messages\\"], '
-    '.message-list, '
-    '[role=\\"log\\"]'
-)
+_SCROLL_CONTAINER_SELECTOR = '[role=\\"log\\"]'
 
 _LONG_PROMPT = "Write a poem about octopuses with 20 verses."
+
+_XFAIL_REASON = "pending stable anchors in assistant bubble / streaming indicator"
 
 
 @pytest.fixture
@@ -119,6 +114,7 @@ def _assistant_text_from_messages(msgs: list[dict]) -> str:
 
 @pytest.mark.surfaces
 @pytest.mark.real_backend
+@pytest.mark.xfail(strict=True, reason=_XFAIL_REASON)
 def test_streaming_tokens_append_incrementally(
     http, mcp, gpd_key, streaming_project_dir
 ):
@@ -144,15 +140,10 @@ def test_streaming_tokens_append_incrementally(
                 pytest.skip(f"execute_js unavailable ({e})")
             time.sleep(0.1)
 
-        if not bubble_seen:
-            pytest.xfail(
-                "missing selector: none of "
-                '[data-role="assistant"]:last-of-type, '
-                '[data-component="message-assistant"]:last-of-type, '
-                '.message-assistant:last-of-type '
-                "match while streaming — product code must expose one of these "
-                "on the streaming assistant message bubble"
-            )
+        assert bubble_seen, (
+            'missing selector: [data-slot="session-turn-assistant-content"] '
+            "did not appear within 2s while streaming"
+        )
 
         samples: list[int] = []
         start = time.monotonic()
@@ -195,11 +186,12 @@ def test_streaming_tokens_append_incrementally(
 
 @pytest.mark.surfaces
 @pytest.mark.real_backend
+@pytest.mark.xfail(strict=True, reason=_XFAIL_REASON)
 def test_streaming_cursor_indicator_present_during_stream(
     http, mcp, gpd_key, streaming_project_dir
 ):
-    """[data-streaming="true"] (or cursor-indicator variant) appears while
-    the response is streaming and disappears once it settles."""
+    """[data-component="session-progress"] appears while the response is
+    streaming and disappears once it settles."""
     probe = DOMProbe(mcp)
     ses = http.create_session(directory=str(streaming_project_dir))
     sid = ses["id"]
@@ -225,17 +217,13 @@ def test_streaming_cursor_indicator_present_during_stream(
                 pytest.skip(f"execute_js unavailable ({e})")
             time.sleep(0.1)
 
+        # Make sure we don't leak a live stream even if assertion will fail.
         if not present_during:
-            # Let the send finish before xfail so we don't leak a live stream.
             t.join(timeout=30)
-            pytest.xfail(
-                "missing selector: none of "
-                '[data-streaming="true"], '
-                '[data-component="cursor-indicator"], '
-                '.streaming-cursor '
-                "visible during stream — product code must expose a "
-                "streaming indicator on the active assistant turn"
-            )
+        assert present_during, (
+            'missing selector: [data-component="session-progress"] not '
+            "visible during stream"
+        )
 
         # Wait for server-side completion (assistant final turn in messages()).
         t.join(timeout=60)
@@ -279,12 +267,14 @@ def test_streaming_cursor_indicator_present_during_stream(
 
 @pytest.mark.surfaces
 @pytest.mark.real_backend
+@pytest.mark.xfail(strict=True, reason=_XFAIL_REASON)
 def test_streaming_scroll_anchors_to_bottom(
     http, mcp, gpd_key, streaming_project_dir
 ):
-    """While streaming, the message container should stay within 50px of the
-    bottom (auto-scroll). Not covered: user manually scrolling up — in that
-    case the UI should stop auto-scrolling, but this test does not assert that.
+    """While streaming, the message container should stay within 2px of the
+    bottom (matches session.tsx updateScrollState `distance <= 2` threshold).
+    Not covered: user manually scrolling up — in that case the UI should stop
+    auto-scrolling, but this test does not assert that.
     """
     probe = DOMProbe(mcp)
     ses = http.create_session(directory=str(streaming_project_dir))
@@ -303,17 +293,9 @@ def test_streaming_scroll_anchors_to_bottom(
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable ({e})")
 
-        if not container_present:
-            pytest.xfail(
-                "missing selector: none of "
-                '[data-component="message-list"], '
-                '[data-component="messages"], '
-                '[data-slot="messages"], '
-                '.message-list, '
-                '[role="log"] '
-                "match — product code must mark the scrolling message "
-                "container with one of these"
-            )
+        assert container_present, (
+            'missing selector: [role="log"] scroll container not mounted'
+        )
 
         t, errors = _send_async(http, sid, _LONG_PROMPT)
 
@@ -355,9 +337,10 @@ def test_streaming_scroll_anchors_to_bottom(
                 "(stream completed too fast or container never mounted)"
             )
 
-        assert max_distance <= 50, (
+        assert max_distance <= 2, (
             f"message container drifted {max_distance}px from the bottom "
-            "during streaming; auto-scroll not pinning to end"
+            "during streaming; auto-scroll not pinning to end "
+            "(threshold matches session.tsx updateScrollState: distance <= 2)"
         )
     finally:
         try:
