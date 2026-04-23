@@ -62,6 +62,9 @@ def _project_path(tmp_path_factory) -> str:
 
     The sidecar only registers directories it recognises as valid git project
     roots; a plain directory without .git will be silently ignored.
+
+    Project cleanup is handled by the autouse
+    ``_auto_unregister_tmpdir_projects`` fixture in root conftest.
     """
     p = tmp_path_factory.mktemp("reg_session_ui_sync")
     (p / "README.md").write_text("# regression test project\n")

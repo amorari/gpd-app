@@ -563,20 +563,19 @@ def os_input():
     return client
 
 
-def _unregister_project_paths(target_paths: set[str]) -> None:
-    """Delete any GPD-registered project whose directory matches target_paths.
+def _unregister_projects_matching(predicate) -> None:
+    """Delete every GPD-registered project whose worktree matches predicate.
 
     A test that navigates the webview to /:dir/* triggers GPD's auto-register
     createEffect, which persists a project reference in the sidecar. When
     pytest subsequently cleans up the tmpdir, GPD's sidebar refresh hits
     the gone directory and surfaces a red toast ``Couldn't refresh <name>:
-    error sending request for url (...)``. Fixtures that produce such
-    tmpdirs should call this on teardown to keep GPD tidy.
+    error sending request for url (...)``. Teardown walks the sidecar's
+    project list, matches against ``predicate(worktree: str) -> bool``,
+    and DELETEs everything that matches.
 
     Best-effort: swallows every failure so a teardown can't mask the
-    test's own assertion failure. macOS resolves tmp paths through a
-    symlink (/var/folders → /private/var/folders); both forms are
-    checked against the sidecar's stored worktree.
+    test's own assertion failure.
     """
     try:
         from gpd_tests.drivers.opencode_http import (
@@ -598,7 +597,7 @@ def _unregister_project_paths(target_paths: set[str]) -> None:
         try:
             for proj in client.list_projects():
                 proj_dir = proj.get("worktree") or proj.get("directory") or ""
-                if proj_dir in target_paths:
+                if predicate(proj_dir):
                     try:
                         client.delete_project(proj["id"])
                     except Exception:
@@ -609,12 +608,63 @@ def _unregister_project_paths(target_paths: set[str]) -> None:
         pass
 
 
+def _unregister_project_paths(target_paths: set[str]) -> None:
+    """Back-compat wrapper: delete projects whose worktree exactly matches."""
+    _unregister_projects_matching(lambda d: d in target_paths)
+
+
+@pytest.fixture(autouse=True)
+def _auto_unregister_tmpdir_projects(request, tmp_path_factory):
+    """On every test teardown, unregister any GPD project rooted under the
+    pytest tmpdir tree.
+
+    Structural fix for the ``Couldn't refresh <tmpdir>: error sending
+    request for url (...)`` toast: whenever a test registers a project
+    by navigating the webview to ``/:dir/*``, pytest later wipes that
+    directory but GPD keeps the reference. A teardown that walks the
+    project list and DELETEs anything rooted under pytest's per-session
+    tmpdir root catches every such registration — no per-fixture
+    patching needed, and new tests are automatically covered.
+
+    Checks both the direct path (``/var/folders/...``) and the resolved
+    path (``/private/var/folders/...``) because macOS symlinks the former
+    to the latter; the sidecar stores the resolved form.
+
+    Tests marked @pytest.mark.harness_selftest opt out — those assert
+    on raw project state and must not have teardown mutations.
+    """
+    yield
+    if "harness_selftest" in {m.name for m in request.node.iter_markers()}:
+        return
+    try:
+        base = tmp_path_factory.getbasetemp()
+    except Exception:
+        return
+    roots = {str(base)}
+    try:
+        roots.add(str(base.resolve()))
+    except Exception:
+        pass
+    # Path.is_relative_to would be cleaner but costs a Path conversion per
+    # project; string-prefix matching with a trailing "/" is cheap and safe
+    # because the sidecar always stores absolute directory paths.
+    def _under_tmpdir(worktree: str) -> bool:
+        if not worktree:
+            return False
+        return any(
+            worktree == r or worktree.startswith(r + "/") for r in roots
+        )
+    _unregister_projects_matching(_under_tmpdir)
+
+
 @pytest.fixture
 def git_project_dir(tmp_path):
     """A tmp_path with a real git repo so the sidecar registers it as a project.
 
-    Teardown unregisters any project whose directory matches tmp_path so
-    GPD doesn't show a stale-project toast after pytest wipes the tmpdir.
+    Project cleanup is handled by the autouse
+    ``_auto_unregister_tmpdir_projects`` fixture — any GPD project rooted
+    under pytest's tmpdir gets DELETEd on teardown, so this fixture
+    doesn't need its own unregister step.
     """
     import subprocess
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
@@ -622,8 +672,7 @@ def git_project_dir(tmp_path):
         ["git", "-C", str(tmp_path), "commit", "--allow-empty", "-m", "init"],
         check=True, capture_output=True,
     )
-    yield tmp_path
-    _unregister_project_paths({str(tmp_path), str(tmp_path.resolve())})
+    return tmp_path
 
 
 # --- Per-test setup: foreground activation + marker-driven reset --------

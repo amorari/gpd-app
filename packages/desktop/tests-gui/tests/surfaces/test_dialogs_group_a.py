@@ -47,19 +47,15 @@ _PROVIDER_DIALOG_TITLE_EN = "Connect AI service"
 
 
 @pytest.fixture
-def prepared_project_path(tmp_path_factory):
+def prepared_project_path(tmp_path_factory) -> str:
     """On-disk directory that GPD will treat as a project (for session route).
 
-    Teardown: unregister the project from GPD so the sidebar refresh
-    doesn't hit a gone directory after pytest cleans up the tmpdir
-    (see the ``_unregister_project_paths`` helper in root conftest).
+    Project cleanup is handled by the autouse
+    ``_auto_unregister_tmpdir_projects`` fixture in root conftest.
     """
-    from conftest import _unregister_project_paths
-
     p = tmp_path_factory.mktemp("gpd_proj_dialogs_a")
     (p / "README.md").write_text("# dialogs group A test project\n")
-    yield str(p)
-    _unregister_project_paths({str(p), str(p.resolve())})
+    return str(p)
 
 
 def _session_route(path: str) -> str:
