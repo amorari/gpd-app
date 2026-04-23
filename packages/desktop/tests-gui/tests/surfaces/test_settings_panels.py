@@ -269,31 +269,50 @@ def _write_language_storage(dom: DOMProbe, raw_value: str | None) -> None:
 def _set_language_via_ui(dom: DOMProbe, locale: str) -> bool:
     """Drive the ``data-action="settings-language"`` Select to *locale*.
 
-    Kobalte ``Select`` renders a hidden native ``<select>`` for
-    accessibility; we set its value + dispatch ``input``/``change`` so
-    the Solid signal wired to ``onSelect`` fires. Falls back to
-    writing localStorage directly if no native select is found
-    (returns True in that fallback path too, since the observable
-    effect — localStorage mutation — is identical).
+    Uses Kobalte Select's real user path: click the trigger button
+    (``[role="combobox"]``) to open the listbox, then click the option
+    whose ``data-key`` matches *locale*. The listbox content renders in
+    a portal at document level, not inside the trigger's subtree, so
+    the option lookup scans the whole document.
+
+    Returns True if the click path found + clicked a matching option.
+    Callers may fall back to a direct localStorage write if False.
     """
     encoded = json.dumps(locale)
     js = (
         '(() => {'
         '  const root = document.querySelector("[data-action=\\"settings-language\\"]");'
         '  if (!root) return false;'
-        '  const native = root.querySelector("select");'
-        '  if (native) {'
-        '    native.value = ' + encoded + ';'
-        # intentional: testing synthetic event path — Kobalte Select renders a
-        # visually-hidden native <select> for accessibility that OS-level input
-        # (cliclick/osascript) cannot target. Solid may false-green this write;
-        # the caller has an explicit localStorage fallback that preserves the
-        # round-trip assertion if the Kobalte->signal path doesn't fire.
-        '    native.dispatchEvent(new Event("input", { bubbles: true }));'
-        '    native.dispatchEvent(new Event("change", { bubbles: true }));'
-        '    return true;'
+        # Kobalte renders the trigger as <button role="combobox"> inside
+        # the Select root. Click it to open the listbox.
+        '  const trigger = root.querySelector("[role=\\"combobox\\"]")'
+        '    || root.querySelector("button");'
+        '  if (!trigger) return false;'
+        '  trigger.click();'
+        # The listbox mounts in a portal; poll briefly for the option
+        # keyed to the target locale. Kobalte sets data-key to the
+        # optionValue string.
+        '  const target = ' + encoded + ';'
+        '  const deadline = Date.now() + 1500;'
+        '  let option = null;'
+        '  while (Date.now() < deadline) {'
+        '    option = document.querySelector('
+        '      "[role=\\"option\\"][data-key=\\"" + target + "\\"]"'
+        '    );'
+        '    if (option) break;'
         '  }'
-        '  return false;'
+        '  if (!option) {'
+        # Fallback: match by option text among any visible listbox items.
+        '    const items = document.querySelectorAll("[role=\\"option\\"]");'
+        '    for (const it of items) {'
+        '      if ((it.getAttribute("data-key") || "").trim() === target) {'
+        '        option = it; break;'
+        '      }'
+        '    }'
+        '  }'
+        '  if (!option) return false;'
+        '  option.click();'
+        '  return true;'
         '})()'
     )
     try:
