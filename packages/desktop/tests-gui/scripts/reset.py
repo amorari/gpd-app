@@ -44,10 +44,17 @@ _TIER_1 = [
 
 
 def _tier_2_extras() -> list[Path]:
-    """Return tier-2 extra paths, using the bundle ID derived from GPD_APP_PATH.
+    """Return tier-2 extra paths — app state caches + webkit.
 
-    Previously hardcoded to inc.psi.gpd, which made the tier-2 reset a no-op
-    on debug builds (inc.psi.gpd.dev). Now derived dynamically.
+    Bundle ID derived from GPD_APP_PATH (debug builds use inc.psi.gpd.dev;
+    hardcoded values made tier-2 a no-op on debug builds).
+
+    auth.json lives in tier-3, not tier-2. Fresh_app tests want a clean
+    sqlite / cache / webkit state; they do NOT want to nuke the user's
+    credential. Only the onboarding test — which explicitly drives
+    first-run UX — should wipe the credential, and that test opts into
+    tier-3. Moving auth.json to tier-3 removes the need for a
+    session-snapshot + restore dance in conftest.py.
     """
     bid = _bundle_id()
     return [
@@ -55,14 +62,14 @@ def _tier_2_extras() -> list[Path]:
         HOME / "Library/WebKit" / bid,
         HOME / "Library/Caches" / bid,
         HOME / "Library/Logs" / bid,
-        _XDG_DATA_HOME / "opencode/auth.json",
     ]
 
 
 def _tier_3_extras() -> list[Path]:
-    """Return tier-3 extra paths, respecting XDG_CONFIG_HOME."""
+    """Return tier-3 extra paths — onboarding sentinel + credential."""
     return [
         _XDG_CONFIG_HOME / "gpd/.gpd-initialized",
+        _XDG_DATA_HOME / "opencode/auth.json",
     ]
 
 

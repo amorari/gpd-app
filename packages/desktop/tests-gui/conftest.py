@@ -159,20 +159,20 @@ def _auth_json_path() -> Path:
     return base / "opencode" / "auth.json"
 
 
-# Snapshot of auth.json bytes captured at session start. Used to restore
-# the credential after a mid-session tier-2/3 reset wipes it. scripts/reset
-# lists auth.json as a tier-2 path (scripts/reset.py:58) because the
-# onboarding test wants it gone; but the single onboarding test ran among
-# dozens of real_backend tests means every downstream test saw a wiped
-# auth.json and skipped with "GPD key not found". This snapshot lets the
-# harness restore auth.json after each reset so only the onboarding test
-# (which explicitly uses clean_onboarding_state to manage auth around its
-# own body) sees it absent.
+# Snapshot of auth.json bytes captured at session start. Kept in memory
+# so the onboarding test's gpd_key fixture can still produce a key VALUE
+# to type even after tier-3 reset has wiped the on-disk file.
+#
+# Note: auth.json lives in tier-3 (scripts/reset.py), not tier-2 — the
+# credential is not "app state" that fresh_app tests want to wipe. Only
+# the tier-3 onboarding test ever deletes it, so there's no need to
+# restore to disk; the in-memory snapshot covers the one caller that
+# still needs the value.
 _AUTH_JSON_SNAPSHOT: bytes | None = None
 
 
 def pytest_sessionstart(session):
-    """Snapshot auth.json at session start so tier-2 resets can restore it."""
+    """Capture auth.json bytes so gpd_key has a fallback for tier-3 tests."""
     global _AUTH_JSON_SNAPSHOT
     auth_path = _auth_json_path()
     try:
@@ -181,14 +181,38 @@ def pytest_sessionstart(session):
         _AUTH_JSON_SNAPSHOT = None
 
 
-def _restore_auth_json_snapshot() -> None:
-    """Rewrite auth.json from the session-start snapshot. No-op if none."""
-    if _AUTH_JSON_SNAPSHOT is None:
+# Current TOS version the product gates against
+# (packages/app/src/components/tos-content.tsx:24). Keep in sync when
+# the product bumps it; mismatch causes TosUpgradeGate to render a full-
+# viewport block that hides every surface the tests rely on.
+_TOS_VERSION = "0.0-placeholder"
+_TOS_STORAGE_KEY = "gpd.tos.acceptedVersion"
+
+
+def _accept_tos_via_webview() -> None:
+    """Set the TOS-accepted localStorage key so the gate doesn't render.
+
+    The click-wrap TOS gate (welcome step 2 + TosUpgradeGate on version
+    bump) checks ``localStorage[gpd.tos.acceptedVersion] === CURRENT_TOS_VERSION``.
+    Setting this before a test runs keeps the gate from blocking surfaces,
+    flows, and stress tests. localStorage lives in the WebKit data dir
+    which tier-2 wipes, so this must be re-applied after every reset.
+
+    Best-effort: swallows MCP failures so a stale socket / mid-launch
+    webview never breaks a test's setup.
+    """
+    try:
+        from gpd_tests.drivers.mcp import MCPClient, MCPError, MCPTimeout
+    except Exception:
         return
-    auth_path = _auth_json_path()
-    auth_path.parent.mkdir(parents=True, exist_ok=True)
-    auth_path.write_bytes(_AUTH_JSON_SNAPSHOT)
-    auth_path.chmod(0o600)
+    try:
+        MCPClient(timeout_s=3.0).execute_js(
+            f'localStorage.setItem("{_TOS_STORAGE_KEY}", "{_TOS_VERSION}")'
+        )
+    except (MCPError, MCPTimeout, FileNotFoundError, ConnectionRefusedError):
+        pass
+    except Exception:
+        pass
 
 
 @pytest.fixture
@@ -567,6 +591,15 @@ def pytest_runtest_setup(item):
     if _is_skipped(item):
         return
 
+    # Always re-seed the TOS-accepted key before a test runs. The product
+    # gates the entire UI on localStorage[gpd.tos.acceptedVersion] ===
+    # CURRENT_TOS_VERSION; if the key is missing, TosUpgradeGate renders a
+    # full-viewport block that hides everything the test looks for. This
+    # is a no-op if the key is already set. Skip for onboarding tests so
+    # the welcome flow can still be exercised.
+    if "clean_onboarding_state" not in getattr(item, "fixturenames", ()):
+        _accept_tos_via_webview()
+
     # Activate GPD for any test that uses the MCP bridge.
     markers = {m.name for m in item.iter_markers()}
     if not markers.isdisjoint({"smoke", "surfaces", "ipc", "flows",
@@ -633,22 +666,6 @@ def pytest_runtest_setup(item):
         reset.run(tier=tier, dry_run=False, stop_app=True, start_app=True)
     except Exception as e:
         pytest.skip(f"GPD reset failed before test (tier={tier}): {e}")
-
-    # Tier-2 reset wipes auth.json (scripts/reset.py:58). Restore from the
-    # session-start snapshot so subsequent real_backend tests see the key.
-    #
-    # EXCEPTION: the onboarding test uses clean_onboarding_state AND needs
-    # GPD to come up in first-run mode. Flow without the exception:
-    #   (1) tier-2 deletes auth.json, starts GPD.
-    #   (2) [bad] we restore auth.json before wait_launched completes.
-    #   (3) GPD reads auth.json, skips welcome → test fails because no
-    #       welcome screen.
-    # When the item declares clean_onboarding_state, let the tier-2 reset
-    # stand: GPD boots without auth.json, shows welcome, the test passes.
-    # clean_onboarding_state's teardown restores the pre-test backup (which
-    # this snapshot path doesn't need to touch).
-    if "clean_onboarding_state" not in getattr(item, "fixturenames", ()):
-        _restore_auth_json_snapshot()
     # Let the fresh app come up before the next fixture use. The driver
     # fixtures below are function-scoped so they rediscover socket path,
     # HTTP port, and creds on the next test.
@@ -661,6 +678,13 @@ def pytest_runtest_setup(item):
     if _session_app_state is not None:
         _session_app_state.refresh_launched_pid()
     fresh_state.wait_launched(timeout_s=20.0)
+
+    # Tier-2 wipes ~/Library/WebKit/<bundle>/ which holds localStorage, so
+    # the TOS-accepted flag is gone. Re-seed it so the TosUpgradeGate
+    # full-viewport block doesn't cover the surfaces the next test needs.
+    # Skip for onboarding tests that want to exercise the welcome flow.
+    if "clean_onboarding_state" not in getattr(item, "fixturenames", ()):
+        _accept_tos_via_webview()
 
 
 # --- Reporting hooks -----------------------------------------------------
