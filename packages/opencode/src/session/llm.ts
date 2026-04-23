@@ -97,6 +97,36 @@ export namespace LLM {
             { concurrency: "unbounded" },
           )
 
+          // Short-circuit when we'd otherwise dispatch a keyless request.
+          // Triggered when auth.json lost the provider entry between
+          // onboarding and send (observed on GPD 1.1.12: auth.json=`{}`,
+          // localStorage still saved, user hits send, sidecar forwards
+          // `Authorization: undefined` to LiteLLM, proxy returns 401, UI
+          // classifies as auth error). A structured error here preserves
+          // the same UX but avoids the roundtrip and puts the provider
+          // ID in the sidecar log so the next regression is diagnosable.
+          //
+          // Triggers only when every known key-source came up empty:
+          //   * `info` from auth.json — absent
+          //   * `item.source === "env"` — no, so no env-var resolution
+          //   * `item.key` — config-set literal key, absent
+          //   * `item.env` declarations — none (empty means SDK won't
+          //      pick up a key from process.env at resolve time)
+          //   * `item.options.apiKey` — explicit config override, absent
+          // This is exactly the shape of GPD when auth.json is empty.
+          // Providers that legitimately need no key typically set
+          // `options.apiKey: "n/a"` (or similar sentinel) or use env-
+          // source registration; neither path is caught here.
+          const willAuth =
+            info !== undefined ||
+            item.source === "env" ||
+            typeof item.key === "string" ||
+            (Array.isArray(item.env) && item.env.length > 0) ||
+            typeof item.options?.apiKey === "string"
+          if (!willAuth) {
+            return yield* Effect.fail(new Provider.AuthMissingError({ providerID: input.model.providerID }))
+          }
+
           // TODO: move this to a proper hook
           const isOpenaiOauth = item.id === "openai" && info?.type === "oauth"
 

@@ -1734,4 +1734,19 @@ export namespace Provider {
       providerID: ProviderID.zod,
     }),
   )
+
+  // Thrown from the stream entry path when a provider that requires a key
+  // resolves to no key at request time — i.e. auth.json lost the entry
+  // between onboarding and send. Without this, the SDK emits a keyless
+  // request and LiteLLM (or the upstream) returns a generic 401 that
+  // `classifyError` guesses into "Sign-in failed" — the UX is identical
+  // but one network roundtrip is wasted and the log doesn't show why.
+  // Mapped to 400 in server/middleware.ts so the frontend classifier
+  // routes through the same `error.classified.auth` i18n key.
+  export const AuthMissingError = NamedError.create(
+    "ProviderAuthMissingError",
+    z.object({
+      providerID: ProviderID.zod,
+    }),
+  )
 }

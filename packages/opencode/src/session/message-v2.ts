@@ -9,10 +9,10 @@ import { SyncEvent } from "../sync"
 import { Database, NotFoundError, and, desc, eq, inArray, lt, or } from "@/storage/db"
 import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProviderError } from "@/provider/error"
+import { Provider } from "@/provider/provider"
 import { iife } from "@/util/iife"
 import { errorMessage } from "@/util/error"
 import type { SystemError } from "bun"
-import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect } from "effect"
 import { EffectLogger } from "@/effect/logger"
@@ -967,6 +967,18 @@ export namespace MessageV2 {
           {
             providerID: ctx.providerID,
             message: e.message,
+          },
+          { cause: e },
+        ).toObject()
+      // Local fail-fast from LLM.run when no auth source is available.
+      // Wrap into ProviderAuthError so the frontend classifier maps it
+      // to `error.classified.auth` (via the "api key" substring) rather
+      // than `error.classified.unknown`.
+      case Provider.AuthMissingError.isInstance(e):
+        return new MessageV2.AuthError(
+          {
+            providerID: ctx.providerID,
+            message: `API key missing for ${ctx.providerID}. Sign in via Settings.`,
           },
           { cause: e },
         ).toObject()
