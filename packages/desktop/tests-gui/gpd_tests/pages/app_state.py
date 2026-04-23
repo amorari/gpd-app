@@ -210,11 +210,36 @@ class AppState:
         )
 
     def quit(self) -> None:
-        subprocess.run(
-            ["osascript", "-e", f'tell application "{_APP_NAME}" to quit'],
-            capture_output=True,
-            check=False,
-        )
+        # Graceful quit via osascript. Bound the wait: if GPD is showing a
+        # native modal (NSOpenPanel, unsaved-changes sheet, etc.), osascript
+        # blocks forever — that deadlocks pytest because the thread-method
+        # test timeout cannot interrupt a blocking subprocess call. If the
+        # graceful path times out, SIGTERM then SIGKILL the PIDs directly.
+        try:
+            subprocess.run(
+                ["osascript", "-e", f'tell application "{_APP_NAME}" to quit'],
+                capture_output=True,
+                check=False,
+                timeout=8.0,
+            )
+        except subprocess.TimeoutExpired:
+            pass
+
+        if not wait_until(lambda: not self.is_running(), timeout_s=5.0):
+            pids = _pgrep(_PGREP_PATTERN)
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            if not wait_until(lambda: not self.is_running(), timeout_s=3.0):
+                pids = _pgrep(_PGREP_PATTERN)
+                for pid in pids:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
         self.wait_quit()
         self._launched_pid = None
 
