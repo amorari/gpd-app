@@ -51,19 +51,26 @@ export const AuthMiddleware: MiddlewareHandler = (c, next) => {
 }
 
 export const LoggerMiddleware: MiddlewareHandler = async (c, next) => {
+  // Single structured line per request, level selected by final status.
+  // Prod sidecar runs with --log-level WARN (see desktop/src-tauri/cli.rs)
+  // so the previous info-only logging was invisible when a request blew
+  // up (observed 1.1.12: hang on /global/dispose left zero diagnostic
+  // trail). Emitting 4xx as warn and 5xx as error gets failure visibility
+  // without lowering the global log floor.
   const skip = c.req.path === "/log"
-  if (!skip) {
-    log.info("request", {
-      method: c.req.method,
-      path: c.req.path,
-    })
-  }
-  const timer = log.time("request", {
+  const started = Date.now()
+  await next()
+  if (skip) return
+  const status = c.res.status
+  const fields = {
     method: c.req.method,
     path: c.req.path,
-  })
-  await next()
-  if (!skip) timer.stop()
+    status,
+    duration: Date.now() - started,
+  }
+  if (status >= 500) log.error("request", fields)
+  else if (status >= 400) log.warn("request", fields)
+  else log.info("request", fields)
 }
 
 export function CorsMiddleware(opts?: { cors?: string[] }): MiddlewareHandler {

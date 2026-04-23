@@ -95,10 +95,22 @@ export namespace Log {
   }
 
   function formatError(error: Error, depth = 0): string {
-    const result = error.message
-    return error.cause instanceof Error && depth < 10
-      ? result + " Caused by: " + formatError(error.cause, depth + 1)
-      : result
+    // Legacy formatter emitted only `error.message`, which for our
+    // NamedErrors is the name alone (super(name) in NamedError.create)
+    // and for native Errors can be empty — that's why production log
+    // lines on the 1.1.12 Change-Key hang read `error= failed` with no
+    // payload. Include name + message + stack + cause chain so the
+    // next regression gives us something to work with. Embedded \n in
+    // stack traces are fine; each build() call is one logical entry
+    // regardless of line count in its value.
+    const head =
+      error.name && error.message && error.message !== error.name
+        ? `${error.name}: ${error.message}`
+        : error.name || error.message || error.toString() || "<empty Error>"
+    const stack = error.stack ? "\n" + error.stack : ""
+    const caused =
+      error.cause instanceof Error && depth < 10 ? " Caused by: " + formatError(error.cause, depth + 1) : ""
+    return head + caused + stack
   }
 
   let last = Date.now()
