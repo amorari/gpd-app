@@ -26,6 +26,7 @@ export namespace AppFileSystem {
     readonly existsSafe: (path: string) => Effect.Effect<boolean>
     readonly readJson: (path: string) => Effect.Effect<unknown, Error>
     readonly writeJson: (path: string, data: unknown, mode?: number) => Effect.Effect<void, Error>
+    readonly writeJsonAtomic: (path: string, data: unknown, mode?: number) => Effect.Effect<void, Error>
     readonly ensureDir: (path: string) => Effect.Effect<void, Error>
     readonly writeWithDirs: (path: string, content: string | Uint8Array, mode?: number) => Effect.Effect<void, Error>
     readonly readDirectoryEntries: (path: string) => Effect.Effect<DirEntry[], Error>
@@ -81,6 +82,40 @@ export namespace AppFileSystem {
         const content = JSON.stringify(data, null, 2)
         yield* fs.writeFileString(path, content)
         if (mode) yield* fs.chmod(path, mode)
+      })
+
+      // Writes JSON through a sibling `.tmp` file and atomically renames it
+      // into place. Use this for files whose partial contents would be
+      // confused with "empty" or "valid but missing entries" — auth.json
+      // is the canonical case: a crash/SIGKILL between open and write with
+      // plain writeJson leaves 0-byte or truncated JSON on disk and the
+      // next reader silently treats every provider as unauthed. Rename on
+      // the same filesystem is atomic on POSIX; Windows does the right
+      // thing when the destination already exists because NFS.rename
+      // (fs/promises) uses MoveFileExW with REPLACE_EXISTING under the
+      // hood via Node's uv_fs_rename. We write the tmp with the same mode
+      // as the target so rename doesn't widen permissions.
+      const writeJsonAtomic = Effect.fn("FileSystem.writeJsonAtomic")(function* (
+        path: string,
+        data: unknown,
+        mode?: number,
+      ) {
+        const content = JSON.stringify(data, null, 2)
+        const tmp = `${path}.tmp.${process.pid}.${Date.now().toString(36)}`
+        yield* fs.writeFileString(tmp, content)
+        if (mode) yield* fs.chmod(tmp, mode)
+        // Rename failure leaves the tmp file behind; unlink it best-
+        // effort so a series of failed writes doesn't accumulate N
+        // copies next to the target. We still surface the original
+        // rename error to the caller unchanged.
+        yield* Effect.tryPromise({
+          try: () => NFS.rename(tmp, path),
+          catch: (cause) => new FileSystemError({ method: "writeJsonAtomic", cause }),
+        }).pipe(
+          Effect.tapError(() =>
+            Effect.promise(() => NFS.unlink(tmp).catch(() => undefined)),
+          ),
+        )
       })
 
       const ensureDir = Effect.fn("FileSystem.ensureDir")(function* (path: string) {
@@ -168,6 +203,7 @@ export namespace AppFileSystem {
         readDirectoryEntries,
         readJson,
         writeJson,
+        writeJsonAtomic,
         ensureDir,
         writeWithDirs,
         findUp,

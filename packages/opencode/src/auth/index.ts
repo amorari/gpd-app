@@ -71,7 +71,7 @@ export namespace Auth {
         if (norm !== key) delete data[key]
         delete data[norm + "/"]
         yield* fsys
-          .writeJson(file, { ...data, [norm]: info }, 0o600)
+          .writeJsonAtomic(file, { ...data, [norm]: info }, 0o600)
           .pipe(Effect.mapError(fail("Failed to write auth data")))
       })
 
@@ -80,7 +80,7 @@ export namespace Auth {
         const data = yield* all()
         delete data[key]
         delete data[norm]
-        yield* fsys.writeJson(file, data, 0o600).pipe(Effect.mapError(fail("Failed to write auth data")))
+        yield* fsys.writeJsonAtomic(file, data, 0o600).pipe(Effect.mapError(fail("Failed to write auth data")))
       })
 
       return Service.of({ get, all, set, remove })
