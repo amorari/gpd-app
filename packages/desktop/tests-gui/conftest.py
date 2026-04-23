@@ -565,14 +565,56 @@ def os_input():
 
 @pytest.fixture
 def git_project_dir(tmp_path):
-    """A tmp_path with a real git repo so the sidecar registers it as a project."""
+    """A tmp_path with a real git repo so the sidecar registers it as a project.
+
+    Teardown unregisters any project whose directory matches tmp_path. If a
+    test navigated to /:dir/*, GPD's auto-register createEffect persists the
+    project reference even after pytest deletes tmp_path. Without this
+    cleanup, GPD's sidebar tries to refresh the gone directory and the
+    webview shows a red toast ``Couldn't refresh <name>: error sending
+    request for url (...)``. Cheap to call; silently no-ops on 404.
+    """
     import subprocess
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
     subprocess.run(
         ["git", "-C", str(tmp_path), "commit", "--allow-empty", "-m", "init"],
         check=True, capture_output=True,
     )
-    return tmp_path
+    yield tmp_path
+
+    # Best-effort cleanup — don't let teardown failures mask the test's own
+    # assertion failures. Resolve the tmp path to /private/var/... to match
+    # what the sidecar stores (macOS tmp paths symlink-through).
+    try:
+        from gpd_tests.drivers.opencode_http import (
+            HTTPClient,
+            discover_sidecar_port,
+            discover_sidecar_credentials,
+        )
+        from gpd_tests.pages.app_state import AppState
+        pid = AppState().sidecar_pid()
+        if pid is None:
+            return
+        port = discover_sidecar_port(pid=pid, timeout_s=3.0)
+        user, pw = discover_sidecar_credentials(pid)
+        client = HTTPClient(
+            base_url=f"http://127.0.0.1:{port}",
+            username=user,
+            password=pw,
+        )
+        try:
+            target_paths = {str(tmp_path), str(tmp_path.resolve())}
+            for proj in client.list_projects():
+                proj_dir = proj.get("worktree") or proj.get("directory") or ""
+                if proj_dir in target_paths:
+                    try:
+                        client.delete_project(proj["id"])
+                    except Exception:
+                        pass
+        finally:
+            client.close()
+    except Exception:
+        pass
 
 
 # --- Per-test setup: foreground activation + marker-driven reset --------
