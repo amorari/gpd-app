@@ -358,7 +358,20 @@ function SetupGate(props: ParentProps) {
   // provider-connected effect re-promote hasKey. Without this, the two
   // effects ping-pong: eff343 sees gpd connected → hasKey=true → eff411
   // sees null key → hasKey=false → eff343 re-promotes → infinite loop.
-  const [reonboardLatched, setReonboardLatched] = createSignal(false)
+  //
+  // Pre-latch on post-reset reloads: when the "Change API key" / revoke flow
+  // writes the "gpd.key.resetting" sentinel before reloading, we start the
+  // new page already latched. Reason: auth.json has been cleared by the
+  // synchronous `platform.removeGpdKey` call, but the sidecar's in-memory
+  // `provider.connected` cache may still report gpd for one refresh tick
+  // (the pre-reload `global.dispose()` is intentionally not awaited to avoid
+  // hangs — see onResetKey comments). Without this pre-latch, eff343 would
+  // see stale `connected=["gpd"]`, promote `hasKey=true`, write
+  // `gpd.key.saved=true` back to localStorage, and route the user back to
+  // the main IDE — exactly the "flash welcome → snap back to main" bug.
+  const justReset = localStorage.getItem("gpd.key.resetting") === "1"
+  if (justReset) localStorage.removeItem("gpd.key.resetting")
+  const [reonboardLatched, setReonboardLatched] = createSignal(justReset)
 
   createEffect(() => {
     if (!globalSync.ready) return

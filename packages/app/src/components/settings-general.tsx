@@ -544,10 +544,15 @@ export const SettingsGeneral: Component = () => {
       // sidecar state. The sidecar's HTTP `auth.remove` endpoint was
       // unreliable here — if the sidecar was mid-dispose or wedged on
       // a request, the await blocked indefinitely and the reload never
-      // ran, so the button appeared dead. Even when it did complete,
-      // racing `global.dispose` meant provider.connected could still
-      // include "gpd" on the next launch and re-promote the user past
-      // the welcome screen.
+      // ran, so the button appeared dead. Even when it completed, a
+      // racing `global.dispose` left provider.connected still reporting
+      // "gpd" on the next launch and re-promoted the user past the
+      // welcome screen (visible as "entry page flashes then snaps back
+      // to the main IDE"). That re-promotion race is now closed by the
+      // "gpd.key.resetting" sentinel written below: app.tsx consumes it
+      // at mount to pre-latch reonboardLatched, so the stale
+      // provider.connected tick can't re-promote hasKey before the
+      // sidecar catches up to the just-emptied auth.json.
       if (platform.removeGpdKey) {
         try {
           await platform.removeGpdKey()
@@ -573,6 +578,12 @@ export const SettingsGeneral: Component = () => {
         console.error("[gpd] global.dispose failed:", e),
       )
       localStorage.removeItem("gpd.key.saved")
+      // Sentinel read by app.tsx on the next mount: pre-latches
+      // reonboardLatched so the provider-connected effect can't
+      // re-promote hasKey from the sidecar's stale in-memory cache
+      // before its /provider read catches up to the just-emptied
+      // auth.json. See app.tsx reonboardLatched doc.
+      localStorage.setItem("gpd.key.resetting", "1")
       window.location.reload()
     }
 
@@ -612,6 +623,9 @@ export const SettingsGeneral: Component = () => {
         // pseudonymize identifying fields + purge GCS/BQ data.
         localStorage.removeItem("gpd.key.saved")
         localStorage.removeItem("gpd.tos.acceptedVersion")
+        // Same pre-latch rationale as handleChangeApiKey — block stale
+        // sidecar provider.connected from re-promoting hasKey post-reload.
+        localStorage.setItem("gpd.key.resetting", "1")
         window.alert(language.t("settings.account.revokeConsent.success"))
         window.location.reload()
       } catch (e) {

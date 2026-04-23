@@ -1149,6 +1149,13 @@ export default function Layout(props: ParentProps) {
             console.error("[gpd] global.dispose failed:", e),
           )
           localStorage.removeItem("gpd.key.saved")
+          // Sentinel read by app.tsx on the next mount: pre-latches
+          // reonboardLatched so the provider-connected effect cannot
+          // re-promote hasKey from the sidecar's stale in-memory cache
+          // before its /provider read catches up to the just-emptied
+          // auth.json. Parallel to sidebar onResetKey and settings
+          // handleChangeApiKey. See app.tsx reonboardLatched doc.
+          localStorage.setItem("gpd.key.resetting", "1")
           window.location.reload()
         },
       },
@@ -2538,6 +2545,12 @@ export default function Layout(props: ParentProps) {
           console.error("[gpd] global.dispose failed:", e),
         )
         localStorage.removeItem("gpd.key.saved")
+        // Sentinel read by app.tsx on the next mount: pre-latches
+        // reonboardLatched so the provider-connected effect can't
+        // re-promote hasKey from the sidecar's stale in-memory cache
+        // before its /provider read catches up to the just-emptied
+        // auth.json. See app.tsx reonboardLatched doc.
+        localStorage.setItem("gpd.key.resetting", "1")
         window.location.reload()
       }}
       resetKeyLabel={() => language.t("sidebar.resetKey")}
