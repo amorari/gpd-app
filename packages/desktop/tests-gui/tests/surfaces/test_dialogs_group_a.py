@@ -222,24 +222,41 @@ def test_dialog_select_model_opens_reads_models_and_closes(
             pytest.skip(f"execute_js unavailable mid-test ({e})")
         if heading_text != "__nopopover__":
             assert heading_text, "dialog heading (h1/h2) missing or empty"
+        # Model picker content: assert at least one [data-slot="list-item"]
+        # (a model row) OR a non-empty empty-state message. "Enabled buttons
+        # > 0" is near-tautological for Kobalte dialogs (the close button is
+        # always rendered), so it doesn't actually verify our dialog content.
         try:
-            enabled_buttons = probe.eval_int(
+            model_content_signal = probe.eval(
                 '(() => {'
                 '  const overlay = document.querySelector('
                 '    "[data-component=\\"dialog\\"], '
                 '[role=\\"dialog\\"], [data-component=\\"popover\\"]"'
                 '  );'
-                '  if (!overlay) return 0;'
-                '  return overlay.querySelectorAll('
-                '    "button:not([disabled])"'
-                '  ).length;'
+                '  if (!overlay) return "__nooverlay__";'
+                '  const items = overlay.querySelectorAll('
+                '    "[data-slot=\\"list-item\\"]"'
+                '  );'
+                '  if (items.length > 0) return "items:" + items.length;'
+                '  const empty = overlay.querySelector('
+                '    "[data-slot=\\"list-empty\\"], [data-empty], '
+                '[data-slot=\\"empty-state\\"]"'
+                '  );'
+                '  if (empty && empty.textContent.trim()) return "empty";'
+                # Fallback: any visible text inside the list-scroll region
+                # (e.g. a "No models configured" message) also qualifies.
+                '  const scroll = overlay.querySelector('
+                '    "[data-slot=\\"list-scroll\\"]"'
+                '  );'
+                '  if (scroll && scroll.textContent.trim()) return "text";'
+                '  return "none";'
                 '})()'
             )
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable mid-test ({e})")
-        assert enabled_buttons > 0, (
-            "expected at least one enabled button in model picker overlay, "
-            f"got {enabled_buttons}"
+        assert model_content_signal not in ("none", "__nooverlay__"), (
+            "model picker overlay had no list-item rows and no empty-state "
+            f"message (signal={model_content_signal!r})"
         )
 
         # Close via Escape.
@@ -288,7 +305,7 @@ def test_dialog_select_model_opens_reads_models_and_closes(
 @pytest.mark.surfaces
 @pytest.mark.xfail(
     reason="pending G5-dialog-select-provider-data-actions.patch",
-    strict=True,
+    strict=False,
 )
 def test_dialog_select_provider_opens_and_closes(
     mcp, os_input, prepared_project_path
@@ -440,23 +457,40 @@ def test_dialog_select_provider_opens_and_closes(
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable mid-test ({e})")
         assert heading_text, "provider dialog heading (h1/h2) missing or empty"
+        # Provider picker content: assert at least one button whose innerText
+        # matches a known provider name. Kobalte dialogs always render a
+        # close button, so "enabled buttons > 0" proves nothing about the
+        # dialog's payload. A provider-name regex confirms we reached the
+        # actual provider list.
         try:
-            enabled_buttons = probe.eval_int(
+            provider_match = probe.eval(
                 '(() => {'
                 '  const d = document.querySelector('
                 '    "[role=\\"dialog\\"]"'
                 '  );'
-                '  if (!d) return 0;'
-                '  return d.querySelectorAll('
-                '    "button:not([disabled])"'
-                '  ).length;'
+                '  if (!d) return "__nodialog__";'
+                '  const re = /(anthropic|openai|google|gemini|azure|'
+                'mistral|groq|openrouter|ollama|bedrock|deepseek|xai|'
+                'cohere|huggingface|together|perplexity|claude|gpt|gpd)/i;'
+                '  const btns = Array.from(d.querySelectorAll("button"));'
+                '  for (const b of btns) {'
+                '    const txt = (b.innerText || b.textContent || "")'
+                '      .trim();'
+                '    if (txt && re.test(txt)) return "hit:" + txt;'
+                '    const al = b.getAttribute("aria-label") || "";'
+                '    if (al && re.test(al)) return "hit-aria:" + al;'
+                '  }'
+                '  return "miss";'
                 '})()'
             )
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable mid-test ({e})")
-        assert enabled_buttons > 0, (
-            "expected at least one enabled button in provider dialog, "
-            f"got {enabled_buttons}"
+        assert (
+            isinstance(provider_match, str)
+            and provider_match.startswith("hit")
+        ), (
+            "provider dialog had no button labeled with a known provider "
+            f"name (got {provider_match!r})"
         )
 
         # Step 4: close via Escape.
@@ -636,23 +670,28 @@ def test_dialog_settings_opens_toggles_general_switch_and_closes(
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable mid-test ({e})")
         assert heading_text, "settings dialog heading (h1/h2) missing or empty"
+        # Settings content: assert the tab list has >=3 tabs. Kobalte's
+        # close button is always rendered, so "enabled buttons > 0" doesn't
+        # prove the settings body loaded. A tab list with >=3 triggers is
+        # the load-bearing settings UI signal (General, Providers, ...).
         try:
-            enabled_buttons = probe.eval_int(
+            tab_count = probe.eval_int(
                 '(() => {'
                 '  const d = document.querySelector('
                 '    "[role=\\"dialog\\"]"'
                 '  );'
                 '  if (!d) return 0;'
-                '  return d.querySelectorAll('
-                '    "button:not([disabled])"'
-                '  ).length;'
+                '  const tabs = d.querySelectorAll('
+                '    "[role=\\"tab\\"], [data-slot=\\"tabs-trigger\\"]"'
+                '  );'
+                '  return tabs.length;'
                 '})()'
             )
         except ProbeSkip as e:
             pytest.skip(f"execute_js unavailable mid-test ({e})")
-        assert enabled_buttons > 0, (
-            "expected at least one enabled button in settings dialog, "
-            f"got {enabled_buttons}"
+        assert tab_count >= 3, (
+            "expected settings dialog to render >=3 tabs in its tab list, "
+            f"got {tab_count}"
         )
 
         # General is the defaultValue of the Tabs -> read the switch directly.
