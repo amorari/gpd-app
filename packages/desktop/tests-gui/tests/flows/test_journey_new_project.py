@@ -18,15 +18,15 @@ Steps exercised:
 Why xfail (as of 2026-04-20):
   The DialogOpenOrCreateProject has no `data-action` anchors — the only
   trigger paths are visible text (i18n-fragile) or Kobalte component tags
-  (which don't distinguish Create from Open tiles). Staged patch:
-  docs/gpd-app-patches/G6-openorcreate-data-actions.patch. The parent-picker
-  additionally invokes a native OS dialog that MCP cannot automate; even
-  with anchors, a test-only override for platform.openDirectoryPickerDialog
-  is required. Both requirements are noted in the patch's trailing comment.
+  (which don't distinguish Create from Open tiles). Needs a product-side
+  change to `packages/app/src/components/dialog-open-or-create-project.tsx`.
+  The parent-picker additionally invokes a native OS dialog that MCP cannot
+  automate; even with anchors, a test-only override for
+  platform.openDirectoryPickerDialog is required.
 
-Once the patch lands and the native-picker stub is available (or we fall
-back to driving the create path via the `project_fs` Tauri command and then
-verifying the sidebar list), drop the xfail.
+Once both requirements land (or we fall back to driving the create path
+via the `project_fs` Tauri command and then verifying the sidebar list),
+drop the xfail.
 """
 from __future__ import annotations
 

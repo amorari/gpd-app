@@ -4,9 +4,10 @@ One interaction test per dialog covering: open -> interact -> close ->
 observe state.
 
 - dialog-select-model      via [data-action="prompt-model"] on prompt-input
-- dialog-select-provider   via [data-action="provider-connect"] (staged in
-                           docs/gpd-app-patches/G5-dialog-select-provider-
-                           data-actions.patch; xfail until patch lands)
+- dialog-select-provider   via [data-action="provider-connect"] (needs a
+                           product-side change to
+                           packages/app/src/components/dialog-select-provider.tsx;
+                           xfail until the anchor lands)
 - dialog-settings          via Cmd+,  (reuses the F11 settle-wait + dialog-
                            dismiss pre-step from test_dialog_settings.py),
                            toggles one innocuous Switch and restores.
