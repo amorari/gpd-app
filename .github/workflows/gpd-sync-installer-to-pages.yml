@@ -1,0 +1,112 @@
+name: GPD Sync Installer Scripts to Pages
+
+# Publishes install-gpd/install and install-gpd/windows_11/install.ps1
+# to the gh-pages branch served at download.gpd.psi.inc, alongside a
+# SHA256SUMS.txt manifest users can verify before execution.
+#
+# Trust anchor: once this workflow runs, users who install via
+# `curl | bash` / `irm | iex` can verify the installer content they're
+# about to execute against a hash published on a PSI-owned domain.
+# Example verify flow:
+#
+#   # macOS / Linux
+#   curl -fsSL https://download.gpd.psi.inc/install -o /tmp/gpd-install
+#   curl -fsSL https://download.gpd.psi.inc/SHA256SUMS.txt \
+#     | awk '$2 == "install" {print $1"  /tmp/gpd-install"}' | shasum -a 256 -c
+#
+#   # Windows PowerShell
+#   Invoke-WebRequest https://download.gpd.psi.inc/install.ps1 -OutFile $env:TEMP\gpd-install.ps1
+#   $sums = (Invoke-WebRequest https://download.gpd.psi.inc/SHA256SUMS.txt).Content
+#   $expected = ($sums -split "`n" | Where-Object { $_ -match 'install\.ps1$' } | ForEach-Object { $_.Split()[0] })
+#   $actual = (Get-FileHash $env:TEMP\gpd-install.ps1 -Algorithm SHA256).Hash.ToLower()
+#   if ($expected -ne $actual) { throw "SHA256 mismatch" }
+#
+# This does NOT cover the binary artifacts (opencode-cli, desktop .exe /
+# .dmg / .deb) which are fetched by the installer at runtime — those
+# need per-release SHA256SUMS published on the GitHub release and
+# verified in-script. Tracked as a follow-up.
+
+on:
+  push:
+    branches: [gpd]
+    paths:
+      - "install-gpd/install"
+      - "install-gpd/windows_11/install.ps1"
+      - ".github/workflows/gpd-sync-installer-to-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # Only one sync in flight at a time. If two pushes land within seconds
+  # the second cancels the first; the final state is whatever's on the
+  # triggering SHA, which is what we want.
+  group: gpd-installer-pages-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source (triggering SHA on gpd)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: src
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: pages
+
+      - name: Stage installer files + compute SHA256SUMS.txt
+        working-directory: pages
+        run: |
+          set -euo pipefail
+          # Copy installer scripts from source into the gh-pages tree.
+          # Target names match the URL paths users are instructed to
+          # fetch:
+          #   https://download.gpd.psi.inc/install
+          #   https://download.gpd.psi.inc/install.ps1
+          install -m 0755 ../src/install-gpd/install ./install
+          install -m 0644 ../src/install-gpd/windows_11/install.ps1 ./install.ps1
+
+          # Generate SHA256SUMS.txt with deterministic (sorted) ordering
+          # so the file is stable across runs when only one entry
+          # changes. Two columns: `<hash>  <filename>` — the coreutils
+          # format accepted by `sha256sum -c` and `shasum -a 256 -c`.
+          {
+            sha256sum install
+            sha256sum install.ps1
+          } | sort -k2 > SHA256SUMS.txt
+
+          # Record the source commit so users / auditors can reproduce
+          # the build. Not used for verification, just for traceability.
+          echo "source_commit=${GITHUB_SHA}" > SHA256SUMS.meta
+          echo "source_ref=${GITHUB_REF}" >> SHA256SUMS.meta
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> SHA256SUMS.meta
+
+      - name: Commit and push if changed
+        working-directory: pages
+        env:
+          # Use the actions bot identity so history shows the commit
+          # came from CI, not a human. Matches the existing
+          # gpd-download-page.yml workflow's commit author.
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
+          GIT_COMMITTER_NAME: "github-actions[bot]"
+          GIT_COMMITTER_EMAIL: "github-actions[bot]@users.noreply.github.com"
+        run: |
+          set -euo pipefail
+          git add install install.ps1 SHA256SUMS.txt SHA256SUMS.meta
+          if git diff --cached --quiet; then
+            echo "No installer changes; nothing to publish."
+            exit 0
+          fi
+          # Short commit message referencing the source SHA so the
+          # gh-pages history is auditable against the gpd branch.
+          short_sha="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          git commit -m "Sync installer scripts to pages (source ${short_sha})"
+          git push

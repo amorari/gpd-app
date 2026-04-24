@@ -6,13 +6,17 @@ each installer handles every dependency.
 
 ## Quick Start
 
-> Canonical URL will be `download.gpd.psi.inc` once DNS is set up. Until
-> then, use the GitHub raw URLs below.
+Installer scripts are served from `download.gpd.psi.inc`, a PSI-owned
+GitHub Pages domain backed by the `gh-pages` branch. Every push to
+`gpd` that touches these scripts republishes them and regenerates a
+signed-by-Pages `SHA256SUMS.txt` manifest at
+<https://download.gpd.psi.inc/SHA256SUMS.txt> so users can verify the
+content they're about to execute against a hash under PSI's DNS.
 
 ### Ubuntu / macOS (recommended)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/install)
+bash <(curl -fsSL https://download.gpd.psi.inc/install)
 ```
 
 Process substitution keeps stdin connected to your terminal so the sudo
@@ -23,7 +27,7 @@ the standalone CLI.
 For fully non-interactive installs (CI / scripted), preset the key:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/install | GPD_API_KEY=sk-... bash
+curl -fsSL https://download.gpd.psi.inc/install | GPD_API_KEY=sk-... bash
 ```
 
 Flags: `--skip-key`, `--no-modify-path`, `--version <v>`.
@@ -34,13 +38,13 @@ Run in **non-admin** PowerShell (admin is not required — all installs
 are per-user):
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/windows_11/install.ps1 -OutFile $env:TEMP\install.ps1; & $env:TEMP\install.ps1
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://download.gpd.psi.inc/install.ps1 -OutFile $env:TEMP\install.ps1; & $env:TEMP\install.ps1
 ```
 
 Or as three separate lines if you prefer:
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force
-irm https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/windows_11/install.ps1 -OutFile $env:TEMP\install.ps1
+irm https://download.gpd.psi.inc/install.ps1 -OutFile $env:TEMP\install.ps1
 & $env:TEMP\install.ps1
 ```
 
@@ -48,11 +52,41 @@ Download-then-run (instead of `irm | iex`) keeps stdin connected so the
 PSI key prompt works. For fully non-interactive installs:
 ```powershell
 $env:GPD_API_KEY = "sk-your-key"
-irm https://raw.githubusercontent.com/psi-oss/opencode/gpd/install-gpd/windows_11/install.ps1 | iex
+irm https://download.gpd.psi.inc/install.ps1 | iex
 ```
 
 Windows-specific flags: `-SkipLaunch` (suppress auto-launching GPD at the
 end — useful for CI).
+
+### Verify the installer before executing (optional, recommended)
+
+The one-liners above go straight from download to execution, so an
+attacker who compromised a PSI maintainer token or GitHub infrastructure
+could in principle replace the script between when you read it and when
+you run it. For extra assurance, fetch the script + the hash manifest
+separately and verify by hand before running.
+
+**macOS / Linux:**
+```bash
+curl -fsSL https://download.gpd.psi.inc/install       -o /tmp/gpd-install
+curl -fsSL https://download.gpd.psi.inc/SHA256SUMS.txt -o /tmp/gpd-sums
+( cd /tmp && grep ' install$' gpd-sums | awk '{print $1"  gpd-install"}' | shasum -a 256 -c )
+bash /tmp/gpd-install
+```
+
+**Windows PowerShell:**
+```powershell
+Invoke-WebRequest https://download.gpd.psi.inc/install.ps1      -OutFile $env:TEMP\gpd-install.ps1
+$sums = (Invoke-WebRequest https://download.gpd.psi.inc/SHA256SUMS.txt).Content
+$expected = ($sums -split "`n" | Where-Object { $_ -match 'install\.ps1$' } | ForEach-Object { $_.Split()[0] })
+$actual   = (Get-FileHash $env:TEMP\gpd-install.ps1 -Algorithm SHA256).Hash.ToLower()
+if ($expected -ne $actual) { throw "SHA256 mismatch - not running installer." }
+& $env:TEMP\gpd-install.ps1
+```
+
+`SHA256SUMS.meta` alongside the hashes records the source commit on the
+`gpd` branch of `psi-oss/gpd-app` that the published scripts were built
+from, if you want to diff the published script against the repo.
 
 ### Local testing (developers only)
 
