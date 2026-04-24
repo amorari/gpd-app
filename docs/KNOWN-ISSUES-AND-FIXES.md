@@ -1,10 +1,13 @@
-# Annoying Things — subtle bugs, their causes, and the fixes that stuck
+# Known Issues and Fixes
 
-Running log of bugs that were non-obvious at first glance. Entries lead with the symptom, explain the root cause, and record the fix that shipped — so future debugging sessions don't rediscover the same coherence issues from scratch.
+Running log of non-obvious bugs that required deeper investigation than the
+symptom suggested. Entries lead with the symptom, explain the root cause, and
+record the fix that shipped — so future debugging sessions don't rediscover
+the same coherence issues from scratch.
 
 ---
 
-## 2026-04-23 — "Change API key" flashes welcome screen then snaps back to main IDE
+## "Change API key" flashes welcome screen then snaps back to main IDE
 
 ### Symptom
 
@@ -49,6 +52,6 @@ Flow post-fix:
 
 Any **new** reset-and-reload path must also write the sentinel. The "eliminate the reload" refactor (mirror `handleApiKeySaved`'s signal-flip pattern) would remove this discipline requirement — tracked as a future improvement but not blocking.
 
-### Evidence artifacts
+### Fix-candidate evaluation
 
-Three parallel review agents evaluated four fix candidates (sentinel / auth.json cross-check / sidecar freshness / no-reload). Verdict 2–1 for the sentinel approach; dissent favored the no-reload refactor as structurally cleaner but larger-scope. See session transcript 2026-04-22 / 2026-04-23.
+Four fix candidates were considered (sentinel / auth.json cross-check / sidecar freshness / no-reload). The sentinel approach landed. The no-reload refactor was noted as structurally cleaner but larger-scope; deferred.

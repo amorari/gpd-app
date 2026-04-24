@@ -1,5 +1,10 @@
 # GPD Desktop App — Developer Cheatsheet
 
+> **Scope note.** Concrete URLs, project UUIDs, and admin commands
+> below reflect PSI-GPD's operational deployment. Downstream forks
+> running their own GPD substitute their own Railway project, proxy
+> URL, and API key identifiers.
+
 ## Quick Reference
 
 ### Key Paths

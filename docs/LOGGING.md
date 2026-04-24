@@ -6,6 +6,14 @@ single source of truth for *why* the logging stack looks the way it does and
 `infra/litellm/README.md`, `infra/bigquery/README.md`, and the scripts under
 `scripts/`.
 
+> **Scope note for forks.** Concrete infrastructure names below
+> (Railway service URL, GCP project `gpd-desktop`, bucket
+> `gpd-desktop-logs`, BigQuery dataset `gpd_logs`) reflect PSI-GPD's
+> operational deployment. A downstream fork running its own GPD
+> substitutes its own names — the script defaults read from the
+> `GPD_LITELLM_BASE`, `GPD_LOG_BUCKET`, `GPD_BQ_PROJECT`, and
+> `GPD_BQ_DATASET` env vars so nothing is hard-coded at runtime.
+
 > **Legal prerequisite:** every user must accept the GPD Terms of Service
 > before any session data is logged. The in-app gate
 > (`packages/app/src/components/welcome-screen.tsx` +

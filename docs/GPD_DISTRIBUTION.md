@@ -1,5 +1,10 @@
 # GPD Distribution System — Complete Reference
 
+> **Scope note.** Concrete URLs, project UUIDs, and admin commands
+> below reflect PSI-GPD's operational deployment. Downstream forks
+> running their own GPD substitute their own Railway project, proxy
+> URL, and API key identifiers.
+
 **Last updated:** April 16, 2026
 **Status:** Production. Desktop and sidecar versions are decoupled — the release workflow accepts an explicit `version` input for desktop-only patches and always reports the bundled sidecar version in the release body. Latest shipped desktop build: `gpd-desktop-v1.1.2` (bundled sidecar: `get-physics-done 1.1.0`).
 

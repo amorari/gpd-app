@@ -53,18 +53,26 @@ an eviction message and workers SUBSCRIBE on startup.
 
 ## One-time GCP setup
 
+Set your project ID and bucket name as shell variables first, then run the
+commands below. The bucket name you pick here becomes the `GPD_LOG_BUCKET`
+env var the server reads at runtime.
+
 ```bash
+# Replace with your own values:
+GCP_PROJECT=<your-gcp-project-id>
+LOG_BUCKET=<your-bucket-name>        # e.g. <project>-gpd-desktop-logs
+
 # SA scoped to write-only on one bucket — no list, no read, no delete.
-gcloud iam service-accounts create gpd-log-writer --project=gpd-desktop \
+gcloud iam service-accounts create gpd-log-writer --project="$GCP_PROJECT" \
   --display-name="GPD LiteLLM-side log writer"
 
-gcloud storage buckets add-iam-policy-binding gs://gpd-desktop-logs \
-  --member=serviceAccount:gpd-log-writer@gpd-desktop.iam.gserviceaccount.com \
+gcloud storage buckets add-iam-policy-binding "gs://$LOG_BUCKET" \
+  --member="serviceAccount:gpd-log-writer@$GCP_PROJECT.iam.gserviceaccount.com" \
   --role=roles/storage.objectCreator
 
 gcloud iam service-accounts keys create /tmp/gpd-log-writer-key.json \
-  --iam-account=gpd-log-writer@gpd-desktop.iam.gserviceaccount.com \
-  --project=gpd-desktop
+  --iam-account="gpd-log-writer@$GCP_PROJECT.iam.gserviceaccount.com" \
+  --project="$GCP_PROJECT"
 
 # Print for pasting into Railway:
 cat /tmp/gpd-log-writer-key.json | jq -c .   # single-line JSON for env var
@@ -78,7 +86,7 @@ shred -u /tmp/gpd-log-writer-key.json         # destroy local copy
 2. **Add env vars** (Settings → Variables):
    ```
    GOOGLE_APPLICATION_CREDENTIALS_JSON = <paste SA JSON from step above>
-   GPD_LOG_BUCKET = gpd-desktop-logs
+   GPD_LOG_BUCKET = <the bucket name you created above>
    GPD_USER_HASH_PEPPER = <64 hex chars — generate once, NEVER rotate>
    GPD_LOG_BYTES_PER_DAY = 10737418240   # 10 GiB/day/key (optional; default)
 
@@ -102,7 +110,7 @@ After deploy, with a valid LiteLLM virtual key:
 
 ```bash
 KEY=sk-<your-key>
-BASE=https://litellm-production-46bb.up.railway.app
+BASE=<your-litellm-base-url>   # e.g. https://<service>.up.railway.app
 SEQ=$(python -c 'import secrets, time; import string; \
   alpha="0123456789ABCDEFGHJKMNPQRSTVWXYZ"; \
   print("".join(secrets.choice(alpha) for _ in range(26)))')
@@ -119,7 +127,7 @@ echo '{"kind":"test","ts":1}' | gzip | curl -sS -X POST \
 # Expected: {"ok": true, "path": "user=.../session=ses_test/parts/<SEQ>.jsonl.gz", "bytes": N}
 
 # Check the object landed
-gcloud storage cat "gs://gpd-desktop-logs/user=*/date=$(date -u +%Y-%m-%d)/session=ses_test/parts/$SEQ.jsonl.gz" \
+gcloud storage cat "gs://$GPD_LOG_BUCKET/user=*/date=$(date -u +%Y-%m-%d)/session=ses_test/parts/$SEQ.jsonl.gz" \
   | gunzip
 ```
 
@@ -147,11 +155,11 @@ Client POSTs `POST /gpd/log` with:
 
 The server writes the object to:
 ```
-gs://gpd-desktop-logs/user=<hashed_user_id>/date=YYYY-MM-DD/session=<root_id>/parts/<seq>.jsonl.gz
+gs://$GPD_LOG_BUCKET/user=<hashed_user_id>/date=YYYY-MM-DD/session=<root_id>/parts/<seq>.jsonl.gz
 ```
 or for subagents:
 ```
-gs://gpd-desktop-logs/user=<hashed_user_id>/date=YYYY-MM-DD/session=<root_id>/subagents/agent-<child_id>/parts/<seq>.jsonl.gz
+gs://$GPD_LOG_BUCKET/user=<hashed_user_id>/date=YYYY-MM-DD/session=<root_id>/subagents/agent-<child_id>/parts/<seq>.jsonl.gz
 ```
 
 A nightly compactor (separate service) fuses `parts/*.jsonl.gz` into
@@ -170,7 +178,7 @@ package:
 ```bash
 cat infra/litellm/scripts/create-tos-table.sql | \
   railway ssh --service litellm \
-    --project 0ddad766-1ee1-44ed-95c2-f8f7d9cb5515 \
+    --project "$RAILWAY_PROJECT_ID" \
     'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f -'
 ```
 
@@ -179,8 +187,8 @@ Idempotent — safe to re-run.
 ### TOS endpoint verification
 
 ```bash
-KEY=sk-<your-key>                                    # must carry a user_id (non-admin)
-BASE=https://litellm-production-46bb.up.railway.app
+KEY=sk-<your-key>                   # must carry a user_id (non-admin)
+BASE=<your-litellm-base-url>
 
 curl -sS -X POST \
   "$BASE/gpd/tos-accept?tos_version=0.0-placeholder&app_version=1.1.10" \

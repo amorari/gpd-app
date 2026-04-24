@@ -78,13 +78,19 @@ export namespace McpAuth {
       const set = Effect.fn("McpAuth.set")(function* (mcpName: string, entry: Entry, serverUrl?: string) {
         const data = yield* all()
         if (serverUrl) entry.serverUrl = serverUrl
-        yield* fs.writeJson(filepath, { ...data, [mcpName]: entry }, 0o600).pipe(Effect.orDie)
+        // Atomic tmp+rename so a crash/SIGKILL mid-write can't leave a
+        // truncated or 0-byte mcp-auth.json — matching the crash-safety
+        // contract already held by main auth.json (see filesystem/index.ts
+        // writeJsonAtomic docstring). Concurrent-writer races across
+        // sidecars are NOT fixed by this; that requires a separate file
+        // lock (tracked under the main auth.json lock work).
+        yield* fs.writeJsonAtomic(filepath, { ...data, [mcpName]: entry }, 0o600).pipe(Effect.orDie)
       })
 
       const remove = Effect.fn("McpAuth.remove")(function* (mcpName: string) {
         const data = yield* all()
         delete data[mcpName]
-        yield* fs.writeJson(filepath, data, 0o600).pipe(Effect.orDie)
+        yield* fs.writeJsonAtomic(filepath, data, 0o600).pipe(Effect.orDie)
       })
 
       const updateField = <K extends keyof Entry>(field: K, spanName: string) =>

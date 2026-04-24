@@ -30,5 +30,6 @@ logs/
 *.bun-build
 tsconfig.tsbuildinfo
 .planning/
+.tmp-plan/
 .claude/worktrees/
 .mcp.json

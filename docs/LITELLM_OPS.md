@@ -4,6 +4,12 @@ Companion to `docs/LOGGING.md` and `infra/litellm/README.md`. Captures why
 we pin the LiteLLM image, what regression the pin introduced, and the
 literal-key workaround we apply on top.
 
+> **Scope.** This document describes PSI's operational GPD deployment.
+> Concrete values (the Railway service, the LiteLLM version pin, specific
+> CVE references) reflect PSI-GPD's deploy at the time of writing.
+> Downstream forks running their own GPD will substitute their own
+> Railway project, version pin, and operational cadence.
+
 ## Why the pin
 
 `infra/litellm/Dockerfile` pins `FROM ghcr.io/berriai/litellm:v1.83.7-stable`
@@ -51,7 +57,7 @@ Reproduction:
 
 ```bash
 KEY=<any valid virtual key>
-BASE=https://litellm-production-46bb.up.railway.app
+BASE=<your-litellm-base-url>   # e.g. https://<service>.up.railway.app
 
 curl -sS "$BASE/v1/chat/completions" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
@@ -121,7 +127,7 @@ unless the env values changed.
 
 ```bash
 KEY=<any virtual key>
-BASE=https://litellm-production-46bb.up.railway.app
+BASE=<your-litellm-base-url>   # e.g. https://<service>.up.railway.app
 for m in claude-haiku-4-5 gpt-4.1-mini gemini-3-flash-preview; do
   echo "== $m =="
   curl -sS "$BASE/v1/chat/completions" \

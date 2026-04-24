@@ -11,7 +11,7 @@ outside a transaction block, so DDL persists as you'd expect.
 Usage (from repo root):
     B64=$(base64 -i infra/litellm/scripts/apply-tos-ddl.py | tr -d '\\n') && \\
       railway ssh --service litellm \\
-        --project 0ddad766-1ee1-44ed-95c2-f8f7d9cb5515 \\
+        --project "$RAILWAY_PROJECT_ID" \\
         "echo '$B64' | base64 -d > /tmp/apply-tos-ddl.py && python /tmp/apply-tos-ddl.py"
 
 Idempotent: each CREATE uses IF NOT EXISTS.

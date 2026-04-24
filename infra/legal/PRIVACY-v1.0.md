@@ -1,3 +1,12 @@
+<!--
+  NOTE FOR DOWNSTREAM FORKS: this is PSI's product-specific Privacy
+  Policy for the PSI-operated GPD product. It describes data PSI
+  collects, PSI's retention, and PSI's contact points. A downstream
+  fork running its own instance collects different data through
+  different infrastructure — draft your own policy with your own
+  counsel.
+-->
+
 PSI
 
 Get Physics Done (GPD)

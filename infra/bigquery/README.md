@@ -1,5 +1,9 @@
 # BigQuery analytics for GPD session logs
 
+> **Scope note.** Bucket / project names below reflect PSI-GPD's
+> operational deployment. Downstream forks substitute their own GCS
+> bucket, BigQuery project, and dataset name.
+
 Two-layer pipeline:
 
 1. **External table** `gpd_logs.sessions_external` — queries NDJSON objects

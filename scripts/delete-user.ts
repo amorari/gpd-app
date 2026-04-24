@@ -3,8 +3,8 @@
  * GDPR per-user deletion.
  *
  * Purges a user's data from every persistence layer:
- *   1. GCS: rm -r gs://gpd-desktop-logs/user=<hash>/
- *   2. BigQuery: DELETE FROM gpd_logs.sessions WHERE user_hash = <hash>
+ *   1. GCS: rm -r gs://$GPD_LOG_BUCKET/user=<hash>/
+ *   2. BigQuery: DELETE FROM <project>.<dataset>.sessions WHERE user_hash = <hash>
  *   3. LiteLLM Postgres: DELETE FROM gpd_tos_acceptance WHERE user_id = <id>
  *      (requires plain user_id; indexed by id, not hash)
  *   4. LiteLLM: POST /user/delete (removes virtual keys, spend records)
@@ -13,9 +13,19 @@
  * prevent accidents; defaults to dry-run so you can see what would be
  * deleted first.
  *
+ * Configuration: defaults read from env vars so operators don't have to
+ * bake deployment-specific names into every invocation. Every value can
+ * also be overridden via CLI flag.
+ *
+ *   GPD_LITELLM_BASE      (default: empty — must be passed via --litellm-base)
+ *   GPD_LOG_BUCKET        (default: empty — must be passed via --bucket)
+ *   GPD_BQ_PROJECT        (default: empty — must be passed via --bq-project)
+ *   GPD_BQ_DATASET        (default: "gpd_logs")
+ *
  * Usage:
- *   bun scripts/delete-user.ts --user-id=<plain user id>
- *   bun scripts/delete-user.ts --user-hash=<16 hex chars>
+ *   GPD_LITELLM_BASE=https://... GPD_LOG_BUCKET=... GPD_BQ_PROJECT=... \
+ *     bun scripts/delete-user.ts --user-id=<plain user id>
+ *   bun scripts/delete-user.ts --user-hash=<16 hex chars> --litellm-base=... --bucket=... --bq-project=...
  *
  *   Add --confirm to actually delete.
  *   Add --litellm-master-key=<sk-...> to also purge the LiteLLM records.
@@ -55,10 +65,14 @@ const userId = arg("user-id")
 const userHashArg = arg("user-hash")
 const confirm = flag("confirm")
 const litellmMasterKey = arg("litellm-master-key") ?? process.env.LITELLM_MASTER_KEY
-const litellmBase = arg("litellm-base") ?? "https://litellm-production-46bb.up.railway.app"
-const bucket = arg("bucket") ?? "gpd-desktop-logs"
-const bqProject = arg("bq-project") ?? "gpd-desktop"
-const bqDataset = arg("bq-dataset") ?? "gpd_logs"
+const litellmBase = arg("litellm-base") ?? process.env.GPD_LITELLM_BASE
+const bucket = arg("bucket") ?? process.env.GPD_LOG_BUCKET
+const bqProject = arg("bq-project") ?? process.env.GPD_BQ_PROJECT
+const bqDataset = arg("bq-dataset") ?? process.env.GPD_BQ_DATASET ?? "gpd_logs"
+
+if (!litellmBase) die("pass --litellm-base=... or set GPD_LITELLM_BASE")
+if (!bucket) die("pass --bucket=... or set GPD_LOG_BUCKET")
+if (!bqProject) die("pass --bq-project=... or set GPD_BQ_PROJECT")
 
 if (!userId && !userHashArg) die("pass --user-id=<id> OR --user-hash=<hash>")
 if (userHashArg && !/^[0-9a-f]{16}$/.test(userHashArg)) {

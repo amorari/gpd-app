@@ -1,5 +1,8 @@
 # GPD Desktop App — Rigorous Testing Loop
 
+> **Scope note.** Concrete URLs below reflect PSI-GPD's operational
+> deployment. Downstream forks substitute their own proxy URL.
+
 ## Prerequisites
 - `bun tauri dev` running from `packages/desktop/` in `gpd-opencode-fresh`
 - Tauri MCP plugin connected (or alternative automation method)
