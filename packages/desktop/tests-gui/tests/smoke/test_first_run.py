@@ -15,7 +15,6 @@ def _auth_json_path() -> Path:
 
 
 @pytest.mark.smoke
-@pytest.mark.tier(3)
 def test_welcome_screen_renders_when_sentinel_absent(mcp):
     """If `.gpd-initialized` is absent AND auth.json is absent, welcome text
     should be in the DOM.
@@ -26,12 +25,11 @@ def test_welcome_screen_renders_when_sentinel_absent(mcp):
     present with sentinel absent is a post-onboarding-failure state, not a
     first-run state — the welcome surface won't render there.
 
-    Marked tier(3) so the conftest setup hook wipes onboarding sentinel +
-    auth.json and relaunches GPD cold before the test runs. Without tier(3)
-    the test was racy: a webview that previously mounted with auth.json
-    present keeps the post-first-run UI cached in memory even after the
-    file is deleted, producing a false negative on a suite run that
-    exercised auth-dependent tests earlier.
+    This test does NOT delete either file (that would force first-run for
+    all subsequent tests); it only checks the current state. The dedicated
+    first-run flow test in tests/flows/test_onboarding.py actively forces
+    the state via @pytest.mark.tier(3) paired with clean_onboarding_state
+    to restore auth.json on teardown.
     """
     if sentinel_path().exists():
         pytest.skip("already initialized; no welcome gate to check")
