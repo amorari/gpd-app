@@ -22,7 +22,14 @@ _PKG_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_mutmut_imports_cleanly() -> None:
-    """mutmut must be importable in the dev environment."""
+    """mutmut must be importable when the dev extras are installed.
+
+    Skipped on a base ``uv sync`` install (no ``--extra dev``). Unit tests
+    should not force contributors to pull mutation-testing tooling just to
+    run the fast suite; the dedicated ``scripts/run_mutation_test.sh``
+    wrapper still requires the dev extras at invocation time.
+    """
+    pytest.importorskip("mutmut")
     mod = importlib.import_module("mutmut")
     # Sanity: the module object has a name. We don't assert on version/shape
     # because mutmut's public surface drifts across majors.
