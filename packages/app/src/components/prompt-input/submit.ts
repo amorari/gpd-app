@@ -27,6 +27,32 @@ type PendingPrompt = {
 
 const pending = new Map<string, PendingPrompt>()
 
+/**
+ * Aborts every in-flight prompt submission across every session.
+ *
+ * Used by the TOS-revoke handler so the window between the user clicking
+ * Revoke and `window.location.reload()` firing doesn't leave active LLM
+ * streams running against the key they just revoked. Without this,
+ * anything the sidecar already flushed to the provider continues
+ * streaming back after localStorage + auth.json are both cleared, and
+ * the response either silently drops on reload or (pre-revoke-gate)
+ * lands tokens against a logged-as-revoked user.
+ *
+ * Safe to call from anywhere — just aborts what exists. No-op if the
+ * Map is empty.
+ */
+export function abortAllPending(): void {
+  for (const entry of pending.values()) {
+    entry.abort.abort()
+    try {
+      entry.cleanup()
+    } catch {
+      /* cleanup failures are best-effort; reload is imminent anyway */
+    }
+  }
+  pending.clear()
+}
+
 export type FollowupDraft = {
   sessionID: string
   sessionDirectory: string

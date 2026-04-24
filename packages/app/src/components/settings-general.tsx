@@ -26,6 +26,7 @@ import { decode64 } from "@/utils/base64"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
+import { abortAllPending } from "./prompt-input/submit"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -592,6 +593,11 @@ export const SettingsGeneral: Component = () => {
       if (!confirmed) return
       setRevokeError(undefined)
       setRevoking(true)
+      // Abort all in-flight prompt streams BEFORE anything else. Closes
+      // the window where the sidecar keeps streaming tokens against the
+      // (about-to-be-revoked) key after the user clicks Revoke. This
+      // fires immediately — don't hold it behind the POST latency.
+      abortAllPending()
       try {
         const key = platform.readGpdKey ? await platform.readGpdKey() : null
         if (!key) {
@@ -622,6 +628,25 @@ export const SettingsGeneral: Component = () => {
               detail: detail ? `: ${detail}` : "",
             }),
           )
+        }
+        // Delete the GPD entry from auth.json on disk before clearing
+        // localStorage. Without this step the LiteLLM virtual key
+        // persists on disk post-revoke; a second CLI process (or
+        // anyone with filesystem access) can keep calling LiteLLM with
+        // that key. The server-side consent gate (infra/litellm/
+        // gpd_consent) is the authoritative enforcement surface —
+        // calls will now 403 — but defence-in-depth says remove the
+        // credential too. platform.removeGpdKey writes via atomic
+        // tmp+rename (lib.rs:remove_gpd_key) so a concurrent sidecar
+        // read sees either the full file or the post-delete shape,
+        // never a torn state. Best-effort: a failure here still
+        // reloads the UI, the server gate still blocks future calls.
+        if (platform.removeGpdKey) {
+          try {
+            await platform.removeGpdKey()
+          } catch (e) {
+            console.warn("revoke: removeGpdKey failed (continuing):", e)
+          }
         }
         // Clear local sign-in state. Server has a revocation row; operator
         // runs `scripts/delete-user.ts --user-id=... --confirm` to
