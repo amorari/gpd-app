@@ -19,14 +19,16 @@ Related work:
     * G4.3 (``tests/ipc/test_tectonic_markdown_cli.py``) covers the ``<script>``
       XSS vector — extended here with iframe / onerror / javascript-URL vectors.
 
-Findings (as of 2026-04-20):
-    * The markdown renderer runs comrak with ``render.r#unsafe = true``
-      (``packages/desktop/src-tauri/src/markdown.rs:50``). That flag lets raw
-      ``<iframe>``, ``<img onerror=...>`` and ``javascript:`` URLs pass
-      through unchanged. Tests below assert sanitization; if they fail, that
-      IS the bug. Fix direction: toggle the unsafe flag off in
-      ``packages/desktop/src-tauri/src/markdown.rs`` and add an allow-list
-      for the HTML tags the product actually needs.
+Status (as of 2026-04-24):
+    * Raw-HTML pass-through in the markdown renderer was fixed by commit
+      ``536658fcc4`` ("security: disable raw HTML pass-through in
+      parse_markdown_command"). comrak now runs with ``render.r#unsafe =
+      false`` (``packages/desktop/src-tauri/src/markdown.rs:50``) and
+      replaces ``<iframe>`` / ``<img onerror=...>`` with the standard
+      ``<!-- raw HTML omitted -->`` sentinel. The Rust-side regression
+      lock lives in ``src-tauri/src/markdown.rs`` under the ``tests``
+      module ("raw_html_*_not_passed_through"). The Python tests below
+      assert the same invariants end-to-end through the IPC boundary.
 
 Destructive commands are NEVER actually executed — we construct payloads
 that WOULD delete / leak data if the product were vulnerable, and assert
