@@ -740,7 +740,16 @@ async fn initialize(app: AppHandle) {
     });
 
     // Watchdog: detect unexpected sidecar death and respawn automatically.
-    // Runs until the app shuts down (stopping flag set by kill_sidecar).
+    //
+    // Debug-only. In release builds a dead sidecar is an unrecoverable
+    // error from the webview's perspective — the cached base URL and
+    // basic-auth password are both stale after respawn, and we have no
+    // frontend channel to push new credentials, so silent autoheal would
+    // leave users staring at "failed to fetch" forever. Instead, release
+    // builds let the sidecar die loudly so the existing error surface
+    // runs. The test harness (which only runs against debug builds) still
+    // exercises sidecar respawn via tests/lifecycle/test_sidecar_respawn.py.
+    #[cfg(debug_assertions)]
     {
         let watchdog_app = app.clone();
         let watchdog_child = Arc::clone(&server_child_arc);
@@ -748,6 +757,13 @@ async fn initialize(app: AppHandle) {
         tokio::spawn(async move {
             // Give the initial sidecar time to start before monitoring begins.
             tokio::time::sleep(Duration::from_secs(10)).await;
+            // Exponential backoff across consecutive respawn failures.
+            // Starts at 1s, doubles on each unhealthy respawn, caps at 60s,
+            // resets on a healthy respawn. Prevents a sidecar that
+            // crashloops at startup from thrashing port allocation and
+            // flooding logs.
+            let mut backoff = Duration::from_secs(1);
+            let backoff_cap = Duration::from_secs(60);
             loop {
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 if watchdog_stopping.load(std::sync::atomic::Ordering::Relaxed) {
@@ -759,23 +775,49 @@ async fn initialize(app: AppHandle) {
                     .as_ref()
                     .map(|c| c.is_alive())
                     .unwrap_or(false);
-                if !alive {
-                    tracing::warn!("Sidecar died unexpectedly, respawning");
-                    let new_port = get_sidecar_port();
-                    let new_password = uuid::Uuid::new_v4().to_string();
-                    let env_refs: Vec<(&str, String)> = stable_env
-                        .iter()
-                        .map(|(k, v)| (k.as_str(), v.clone()))
-                        .collect();
-                    let (new_child, _hc) = server::spawn_local_server(
-                        watchdog_app.clone(),
-                        "127.0.0.1".to_string(),
-                        new_port,
-                        new_password,
-                        &env_refs,
-                    );
-                    *watchdog_child.lock().unwrap() = Some(new_child);
-                    tracing::info!(new_port, "Sidecar respawned successfully");
+                if alive {
+                    continue;
+                }
+
+                tracing::warn!(?backoff, "Sidecar died unexpectedly, backing off before respawn");
+                tokio::time::sleep(backoff).await;
+                if watchdog_stopping.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+
+                let new_port = get_sidecar_port();
+                let new_password = uuid::Uuid::new_v4().to_string();
+                let env_refs: Vec<(&str, String)> = stable_env
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.clone()))
+                    .collect();
+                let (new_child, health_check) = server::spawn_local_server(
+                    watchdog_app.clone(),
+                    "127.0.0.1".to_string(),
+                    new_port,
+                    new_password,
+                    &env_refs,
+                );
+                *watchdog_child.lock().unwrap() = Some(new_child);
+
+                // Await the health check before declaring the respawn
+                // successful. If the new sidecar fails to become healthy,
+                // the next loop iteration will observe `is_alive() == false`
+                // again and double the backoff — preventing a tight
+                // crashloop on a genuinely broken binary.
+                match health_check.0.await {
+                    Ok(Ok(())) => {
+                        tracing::info!(new_port, "Sidecar respawned and healthy");
+                        backoff = Duration::from_secs(1);
+                    }
+                    Ok(Err(err)) => {
+                        tracing::error!(%err, "Respawned sidecar failed health check");
+                        backoff = (backoff * 2).min(backoff_cap);
+                    }
+                    Err(err) => {
+                        tracing::error!(%err, "Respawned sidecar health check task panicked");
+                        backoff = (backoff * 2).min(backoff_cap);
+                    }
                 }
             }
         });
