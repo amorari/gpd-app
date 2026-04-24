@@ -9,12 +9,11 @@ Covers:
 Each test drives the dialog via a programmatic trigger (execute_js) and
 asserts a stable `data-component` / `data-action` anchor is present on the
 rendered dialog. None of those anchors exist in the product tree yet, so
-every test is marked ``xfail`` pointing at the staged patch that would add
-them. When the patch lands on the product branch these tests flip green and
-become regression guards — a single commit removes each xfail.
+every test is marked ``xfail`` pointing at the ``packages/app/src/components/``
+dialog that would need the anchor. When the product-side change lands these
+tests flip green and become regression guards — a single commit removes each
+xfail.
 
-The patches live under ``packages/desktop/tests-gui/docs/gpd-app-patches/``
-following the ``G5-dialog-<slug>-data-actions.patch`` naming convention.
 This file is harness-only; it touches no product code.
 """
 from __future__ import annotations

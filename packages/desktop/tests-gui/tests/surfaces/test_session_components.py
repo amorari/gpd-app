@@ -16,9 +16,9 @@ Stable anchors used:
   [data-session-id="<id>"] a   — the inner A-tag with href=/<slug>/session/<id>
 
 Rename + delete UI flows (tests 3 + 4) require product-side data-action
-anchors that don't exist yet. The accompanying staged patch lives at
-docs/gpd-app-patches/G5.5-session-rename-data-action.patch; until it lands,
-those tests are xfail(strict=False) + pytest.skip on the UI path while the
+anchors that don't exist yet (needs changes to
+packages/app/src/components/sidebar-items.tsx). Until that lands, those
+tests are xfail(strict=False) + pytest.skip on the UI path while the
 data-layer side (HTTP confirm / HTTP delete) runs unconditionally so the
 shape of the assertion is exercised.
 """
@@ -194,8 +194,8 @@ def test_session_item_click_navigates_to_session_route(
     reason=(
         "UI rename path lacks a stable data-action anchor on the "
         "more-options dropdown trigger, Rename menu item, and inline title "
-        "input. Staged patch: docs/gpd-app-patches/"
-        "G5.5-session-rename-data-action.patch."
+        "input. Needs a product-side change to "
+        "packages/app/src/components/sidebar-items.tsx."
     ),
 )
 def test_session_rename_via_ui_persists_via_sidecar(

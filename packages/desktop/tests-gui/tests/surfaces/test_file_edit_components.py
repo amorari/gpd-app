@@ -27,9 +27,9 @@ Stable UI anchors used:
   [data-action="file-edit-cancel"]         — STAGED (G5.6 patch)
   [data-action="file-edit-line-input"]     — STAGED (G5.6 patch)
 
-The staged product-side patch lives at
-``docs/gpd-app-patches/G5.6-file-edit-data-action.patch``. Until that
-patch lands on gpd-app main, the three UI-driven tests xfail on the
+The product-side affordance (adding the `data-action` anchors listed
+above to `packages/app/src/components/file-edit.tsx`) has not yet landed
+on gpd-app main. Until it does, the three UI-driven tests xfail on the
 missing anchor, but the *product contract* (POST /file/edit-line writes
 to disk) is still exercised via the sidecar so the assertion has real
 value today.
@@ -146,10 +146,11 @@ def _edit_line_via_http(
 
 _XFAIL_REASON = (
     "UI inline-edit flow lacks stable data-action anchors on the hotspot "
-    "pencil, line editor host, Save button, and Cancel button. Staged "
-    "patch: docs/gpd-app-patches/G5.6-file-edit-data-action.patch. Until it "
-    "lands, the UI-driven halves of these tests skip on the missing anchor; "
-    "the product-contract half (POST /file/edit-line round-trip against a "
+    "pencil, line editor host, Save button, and Cancel button. Expected "
+    "anchors listed above; needs a product-side change to "
+    "packages/app/src/components/file-edit.tsx. Until it lands, the "
+    "UI-driven halves of these tests skip on the missing anchor; the "
+    "product-contract half (POST /file/edit-line round-trip against a "
     "tmp_path fixture) runs unconditionally."
 )
 

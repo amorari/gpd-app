@@ -179,15 +179,9 @@ bash packages/desktop/tests-gui/scripts/run_mutation_test.sh <module>
 
 **Build-skew detector:** auto-runs at session start via the harness fixtures — no explicit invocation needed. If the active `GPD_APP_PATH` bundle diverges from the source tree (stale build), tests will emit a warning up front so you don't chase ghost failures.
 
-## Product-side changes: `docs/gpd-app-patches/`
+## Product-side changes
 
-This branch follows a strict **harness-only** rule: no edits to product source (`packages/desktop/src/**`, `packages/desktop/src-tauri/**`) land here. When a test needs a product-side affordance (e.g., a `data-action=*` selector, a new test hook, a security hardening), the change is **staged as a `.patch` file** under:
-
-```
-packages/desktop/tests-gui/docs/gpd-app-patches/
-```
-
-Each patch corresponds to a standalone PR filed against the product repo (psi-oss/gpd-app). Filenames use a `<gate>-<slug>.patch` convention — e.g., `G5-dialog-select-mcp-data-actions.patch`, `SECURITY-markdown-unsafe-html.patch`. Tests authored against those patches use defensive skips (or the MCP-based selector-fallback) until the upstream change lands.
+Product-side affordances that this harness depends on (e.g., `data-action=*` selectors, security hardenings) live directly in `packages/app/src/` and `packages/desktop/src-tauri/src/` in the main GPD repo. Tests that pre-date an upstream affordance land use defensive skips (or the MCP-based selector-fallback) and carry an `xfail` note pointing at the specific file + component they expect once the change lands.
 
 ## Troubleshooting
 

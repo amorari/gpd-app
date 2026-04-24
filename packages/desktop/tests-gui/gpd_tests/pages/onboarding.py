@@ -1,6 +1,7 @@
 """Welcome-screen page object. Phase 3 onboarding flow uses this."""
 from __future__ import annotations
 
+import json
 import os
 import time
 from pathlib import Path
@@ -66,22 +67,33 @@ class Onboarding:
         """
         from gpd_tests.helpers.selectors import TEXT_WELCOME_API_KEY_PROMPT
 
-        placeholder = TEXT_WELCOME_API_KEY_PROMPT.replace("\\", "\\\\").replace(
-            '"', '\\"'
-        )
-        safe_key = key.replace("\\", "\\\\").replace("'", "\\'")
+        # Serialize via json.dumps so `'`, `"`, `\`, newlines, and unicode
+        # in localized strings (e.g. French "l'étape") all produce valid
+        # JS string literals. json.dumps emits `"..."` JSON, which is a
+        # valid JS expression. The per-char escape this replaced missed
+        # single quotes and would break the injected script on any
+        # locale whose placeholder text contained `'`.
+        placeholder_js = json.dumps(TEXT_WELCOME_API_KEY_PROMPT)
+        key_js = json.dumps(key)
         # Must match packages/app/src/components/tos-content.tsx:24 and :48.
+        # Input lookup uses Array.find over querySelectorAll('input') so we
+        # compare the DOM property directly and bypass CSS-selector escape
+        # rules entirely — safe against any `"`, `'`, `[`, `]`, `\` in the
+        # localized prompt text.
         js = f"""
         (function() {{
           try {{
             localStorage.setItem("gpd.tos.acceptedVersion", "0.0-placeholder");
           }} catch (e) {{}}
-          const inp = document.querySelector('input[placeholder="{placeholder}"]');
+          const placeholder = {placeholder_js};
+          const inp = Array.from(document.querySelectorAll('input')).find(
+            function(el) {{ return el.placeholder === placeholder; }}
+          );
           if (!inp) return ['no-input', ''];
           const nativeSetter = Object.getOwnPropertyDescriptor(
             window.HTMLInputElement.prototype, 'value'
           ).set;
-          nativeSetter.call(inp, '{safe_key}');
+          nativeSetter.call(inp, {key_js});
           inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
           const actualValue = inp.value;
           const form = inp.closest('form');

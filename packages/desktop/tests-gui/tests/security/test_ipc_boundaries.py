@@ -24,8 +24,9 @@ Findings (as of 2026-04-20):
       (``packages/desktop/src-tauri/src/markdown.rs:50``). That flag lets raw
       ``<iframe>``, ``<img onerror=...>`` and ``javascript:`` URLs pass
       through unchanged. Tests below assert sanitization; if they fail, that
-      IS the bug, and the fix direction is staged in
-      ``docs/gpd-app-patches/SECURITY-markdown-unsafe-html.patch``.
+      IS the bug. Fix direction: toggle the unsafe flag off in
+      ``packages/desktop/src-tauri/src/markdown.rs`` and add an allow-list
+      for the HTML tags the product actually needs.
 
 Destructive commands are NEVER actually executed — we construct payloads
 that WOULD delete / leak data if the product were vulnerable, and assert
@@ -172,8 +173,8 @@ def test_tex_command_injection_via_input_brace(mcp, tmp_path):
         f"SECURITY FINDING: marker file {marker} was deleted — the TeX "
         f"compiler executed the \\input{{|rm -rf ...}} payload. The "
         f"compiler is running with shell-escape enabled or with "
-        f"openin_any != p. See docs/gpd-app-patches/"
-        f"SECURITY-tex-shell-escape.patch for the fix direction."
+        f"openin_any != p. Fix direction: disable shell-escape and "
+        f"set openin_any = p in the TeX wrapper."
     )
     # Sanity: its contents are intact.
     assert marker.read_text() == "SURVIVE\n", (
@@ -204,8 +205,9 @@ def test_markdown_iframe_is_escaped(mcp):
     output with ``innerHTML`` (which the product does — the markdown panel
     streams HTML into the DOM) will execute attacker-supplied script.
 
-    Fix direction staged at
-    ``docs/gpd-app-patches/SECURITY-markdown-unsafe-html.patch``.
+    Fix direction: toggle ``render.r#unsafe = false`` in
+    ``packages/desktop/src-tauri/src/markdown.rs``, or sanitize output
+    via a post-render HTML allow-list.
     """
     fixture = (
         "# Heading\n\n"
@@ -223,14 +225,14 @@ def test_markdown_iframe_is_escaped(mcp):
     assert "<iframe" not in lowered, (
         "SECURITY FINDING: raw <iframe> tag survived markdown rendering — "
         "this is a DOM XSS sink (javascript: URL inside iframe executes "
-        "in the webview). See docs/gpd-app-patches/"
-        "SECURITY-markdown-unsafe-html.patch for the fix direction."
+        "in the webview). Fix: toggle render.r#unsafe = false in "
+        "packages/desktop/src-tauri/src/markdown.rs."
     )
     assert "onerror" not in lowered, (
         "SECURITY FINDING: raw onerror handler survived markdown rendering — "
         "this is a DOM XSS sink. <img src=x onerror=alert(1)> triggers on "
-        "every render. See docs/gpd-app-patches/"
-        "SECURITY-markdown-unsafe-html.patch for the fix direction."
+        "every render. Fix: toggle render.r#unsafe = false in "
+        "packages/desktop/src-tauri/src/markdown.rs."
     )
     # The raw ``javascript:`` literal must not appear as an attribute value
     # (it's fine inside escaped text where ``:`` is benign).
@@ -266,8 +268,9 @@ def test_markdown_javascript_url_in_link_is_sanitized(mcp):
     assert 'href="javascript:' not in lowered, (
         "SECURITY FINDING: javascript: URL survived markdown link "
         "rendering — clicking the link executes attacker JS in the "
-        "webview. See docs/gpd-app-patches/"
-        "SECURITY-markdown-unsafe-html.patch for the fix direction."
+        "webview. Fix: remove the r#unsafe short-circuit in "
+        "ExternalLinkFormatter (packages/desktop/src-tauri/src/markdown.rs) "
+        "so dangerous_url is always honored."
     )
     assert "href='javascript:" not in lowered, (
         "SECURITY FINDING: javascript: URL survived (single-quoted href)"
