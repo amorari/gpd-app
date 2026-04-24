@@ -30,7 +30,7 @@
   {
     "name": "repair_gpd_venv",
     "file": "gpd_setup.rs",
-    "line": 153,
+    "line": 154,
     "signature": "pub async fn repair_gpd_venv(app: tauri::AppHandle) -> Result<(), String>",
     "async": true
   },
@@ -121,7 +121,7 @@
   {
     "name": "wsl_path",
     "file": "lib.rs",
-    "line": 418,
+    "line": 443,
     "signature": "fn wsl_path(path: String, mode: Option<WslPathMode>) -> Result<String, String>",
     "async": false
   },

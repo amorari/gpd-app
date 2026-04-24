@@ -33,11 +33,12 @@ def test_menu_item_exists_builds_correct_applescript():
 
 @pytest.mark.unit
 def test_main_window_geometry_parses_delimited():
-    # First call: count-of-windows probe. Subsequent: geometry CSV. Activate
-    # is also an _osascript call — sequence: activate, count, geometry.
+    # Sequence: activate, count-probe, geometry (4 space-separated ints),
+    # title. Geometry and title are now fetched via separate osascript
+    # calls so user-controlled titles never survive a delimiter split.
     with patch(
         "gpd_tests.drivers.ax._osascript",
-        side_effect=["", "1", "88|||32|||1408|||1139|||GPD"],
+        side_effect=["", "1", "88 32 1408 1139", "GPD"],
     ):
         geom = AXClient().main_window()
     assert geom == {"x": 88, "y": 32, "w": 1408, "h": 1139, "title": "GPD"}
@@ -48,7 +49,7 @@ def test_main_window_preserves_title_with_commas():
     """Title containing commas must not break the parser."""
     with patch(
         "gpd_tests.drivers.ax._osascript",
-        side_effect=["", "1", "0|||0|||100|||200|||My, Project"],
+        side_effect=["", "1", "0 0 100 200", "My, Project"],
     ):
         geom = AXClient().main_window()
     assert geom["title"] == "My, Project"

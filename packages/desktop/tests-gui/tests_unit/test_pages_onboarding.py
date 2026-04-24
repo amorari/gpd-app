@@ -217,6 +217,8 @@ def test_enter_api_key_raises_when_actual_value_mismatches() -> None:
 
 @pytest.mark.unit
 def test_enter_api_key_escapes_backslash_and_quote_in_key() -> None:
+    import json as _json
+
     mcp = MagicMock()
     page = Onboarding(mcp)
     page._probe = MagicMock()
@@ -224,9 +226,12 @@ def test_enter_api_key_escapes_backslash_and_quote_in_key() -> None:
     page._probe.eval.return_value = ["form-submitted", key]
     page.enter_api_key(key)
     js = page._probe.eval.call_args.args[0]
-    # The raw backslash and single quote must have been escaped for JS.
-    # Source transformation: \\ -> \\\\ and ' -> \'.
-    assert "sk-\\\\\\'danger\\'" in js
+    # Implementation now uses json.dumps to produce a valid JS string
+    # literal (double-quoted, backslashes doubled, control chars escaped).
+    # The test guarantees: whatever escape strategy the product uses, the
+    # exact key must be recoverable from the emitted JS. json.dumps(key)
+    # is exactly what the source embeds as `key_js`.
+    assert _json.dumps(key) in js
 
 
 # ---------------------------------------------------------------------------
