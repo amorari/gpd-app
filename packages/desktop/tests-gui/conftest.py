@@ -185,7 +185,7 @@ def pytest_sessionstart(session):
 # (packages/app/src/components/tos-content.tsx:24). Keep in sync when
 # the product bumps it; mismatch causes TosUpgradeGate to render a full-
 # viewport block that hides every surface the tests rely on.
-_TOS_VERSION = "0.0-placeholder"
+_TOS_VERSION = "1.0"
 _TOS_STORAGE_KEY = "gpd.tos.acceptedVersion"
 
 

@@ -462,12 +462,16 @@ createMenu((id) => {
 void listenForDeepLinks()
 
 // DEV-ONLY: wire tauri-plugin-mcp guest-js IPC bridge. Rust-side plugin is
-// already gated by `#[cfg(debug_assertions)]` in src-tauri/src/lib.rs, so the
-// plugin is absent from release builds entirely. Here we additionally gate the
-// guest-js listener registration on `import.meta.env.DEV` so Vite dead-code-
-// eliminates this whole branch (and its dynamic import) in production bundles.
+// gated by `#[cfg(debug_assertions)]` in src-tauri/src/lib.rs, so the plugin
+// is absent from release .app bundles entirely. Two JS-side gates fire it:
+//   - `import.meta.env.DEV` covers `tauri dev` (vite dev-server mode).
+//   - `__GPD_TAURI_DEBUG__` covers `tauri build --debug` (vite prod-bundled
+//     into dist/, which the pytest harness loads via a local static server).
+//     Defined in vite.config.ts from `TAURI_ENV_DEBUG` — always false for
+//     release builds, so Vite dead-code-eliminates this branch there.
 // Never ship this to end users — it exposes an arbitrary-JS `execute_js` RPC.
-if (import.meta.env.DEV) {
+declare const __GPD_TAURI_DEBUG__: boolean
+if (import.meta.env.DEV || __GPD_TAURI_DEBUG__) {
   void (async () => {
     try {
       const mcp = await import(/* @vite-ignore */ "../tests-gui/vendor/tauri-plugin-mcp")
