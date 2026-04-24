@@ -1,0 +1,13 @@
+.worktrees/
+artifacts/
+docs/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.uv-cache/
+.DS_Store
+coverage_html/
+coverage.xml
+.coverage*
+!.coveragerc

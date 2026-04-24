@@ -170,6 +170,7 @@ export function ModelSelectorPopover(props: {
                 <Tooltip placement="top" value={language.t("command.provider.connect")}>
                   <IconButton
                     icon="plus-small"
+                    data-action="provider-connect"
                     variant="ghost"
                     iconSize="normal"
                     class="size-6"

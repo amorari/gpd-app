@@ -1,0 +1,84 @@
+"""Fixtures scoped to Phase 3 flow tests."""
+from __future__ import annotations
+
+import shutil
+import uuid
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def scratch_project_dir(tmp_path_factory) -> Path:
+    """A fresh directory for session-scoped work. Not cleaned up between tests.
+
+    Using pytest's tmp_path_factory so pytest handles the top-level lifecycle
+    (auto-cleaned after N test runs). Each test gets its own subdir so the
+    sidecar's `directory` filter scopes `GET /session?directory=...` cleanly.
+    """
+    root = tmp_path_factory.mktemp(f"gpd-flow-{uuid.uuid4().hex[:8]}")
+    return root.resolve()
+
+
+@pytest.fixture
+def auth_json_path() -> Path:
+    """Path to opencode-cli's stored auth file.
+
+    Tests that mutate this file MUST use @pytest.mark.fresh_app so the app is
+    stopped before the write and restarted after.
+    """
+    return Path.home() / ".local/share/opencode/auth.json"
+
+
+@pytest.fixture
+def clean_onboarding_state(auth_json_path):
+    """Back up and remove auth.json + onboarding sentinel; restore on teardown.
+
+    Used by @pytest.mark.fresh_app onboarding tests — the tier-2 reset alone
+    does NOT remove the sentinel (that's tier-3 territory), so this fixture
+    handles it symmetrically with auth.json.
+
+    SAFETY: the teardown NEVER unlinks a post-test auth.json/sentinel that
+    the fixture didn't itself create. Previous versions had an
+    ``elif auth_json_path.exists(): auth_json_path.unlink()`` branch that
+    would silently wipe a real user key if the pre-test backup step was
+    skipped (file absent at start) but the test body or onboarding UI
+    created one. That is destructive and unrecoverable — the key only
+    exists in the installer flow or the user's head. The fixture now
+    leaves post-test artifacts alone unless it itself produced them.
+    """
+    import shutil
+    from pathlib import Path
+
+    sentinel_path = Path.home() / ".config/gpd/.gpd-initialized"
+
+    auth_backup: Path | None = None
+    sentinel_backup: Path | None = None
+
+    # Track whether THIS fixture removed the pre-test file. Only files we
+    # ourselves removed may be re-created/cleaned up in teardown.
+    auth_preexisted = auth_json_path.exists()
+    sentinel_preexisted = sentinel_path.exists()
+
+    if auth_preexisted:
+        auth_backup = auth_json_path.with_suffix(".json.bak-phase3")
+        shutil.copy2(auth_json_path, auth_backup)
+        auth_json_path.unlink()
+    if sentinel_preexisted:
+        sentinel_backup = sentinel_path.with_suffix(
+            sentinel_path.suffix + ".bak-phase3"
+        )
+        shutil.copy2(sentinel_path, sentinel_backup)
+        sentinel_path.unlink()
+
+    try:
+        yield auth_json_path
+    finally:
+        # Restore pre-existing files from backup. Never delete a post-test
+        # file we didn't create — see SAFETY note above.
+        if auth_backup and auth_backup.exists():
+            shutil.copy2(auth_backup, auth_json_path)
+            auth_backup.unlink()
+        if sentinel_backup and sentinel_backup.exists():
+            shutil.copy2(sentinel_backup, sentinel_path)
+            sentinel_backup.unlink()

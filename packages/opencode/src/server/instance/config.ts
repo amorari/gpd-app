@@ -56,7 +56,12 @@ export const ConfigRoutes = lazy(() =>
       validator("json", Config.Info),
       async (c) => {
         const config = c.req.valid("json")
-        await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.update(config)))
+        // Strip `command` and `agent` before writing to the XDG global config:
+        // both fields are sourced from ~/.gpd/opencode.json and their templates
+        // contain {file:…} syntax that the JSONC parser misreads as file refs,
+        // corrupting the global config on round-trip.
+        const { command: _commands, agent: _agents, ...globalFields } = config
+        await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.updateGlobal(globalFields as typeof config)))
         return c.json(config)
       },
     )
