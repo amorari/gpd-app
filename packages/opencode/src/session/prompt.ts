@@ -62,6 +62,17 @@ IMPORTANT:
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
 
+// Cap on how many user-controllable prompt-side operations we'll run in
+// parallel. Prompt bodies can inject markdown that populates three
+// unbounded loops at message-resolution time: shell backticks (!`cmd`),
+// file references (@name.ext), and input.parts array from the client. A
+// malicious or clumsy prompt with 500 shell blocks would otherwise spawn
+// 500 concurrent `bash -c` and hit macOS's 256-FD soft limit before the
+// sidecar finished resolving the first batch. 8 is low enough to leave
+// FDs + memory for the rest of the sidecar and high enough that a
+// legitimate 50-file @include still completes in ~6 rounds.
+export const PROMPT_RESOLUTION_CONCURRENCY = 8
+
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
   const elog = EffectLogger.create({ service: "session.prompt" })
@@ -154,7 +165,7 @@ export namespace SessionPrompt {
               mime: stat.type === "Directory" ? "application/x-directory" : "text/plain",
             })
           }),
-          { concurrency: "unbounded", discard: true },
+          { concurrency: PROMPT_RESOLUTION_CONCURRENCY, discard: true },
         )
         return parts
       })
@@ -1240,9 +1251,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
         })
 
-        const parts = yield* Effect.forEach(input.parts, resolvePart, { concurrency: "unbounded" }).pipe(
-          Effect.map((x) => x.flat().map(assign)),
-        )
+        const parts = yield* Effect.forEach(input.parts, resolvePart, {
+          concurrency: PROMPT_RESOLUTION_CONCURRENCY,
+        }).pipe(Effect.map((x) => x.flat().map(assign)))
 
         yield* plugin.trigger(
           "chat.message",
@@ -1603,10 +1614,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const shellMatches = ConfigMarkdown.shell(template)
         if (shellMatches.length > 0) {
           const sh = Shell.preferred()
-          const results = yield* Effect.promise(() =>
-            Promise.all(
-              shellMatches.map(async ([, cmd]) => (await Process.text([cmd], { shell: sh, nothrow: true })).text),
-            ),
+          // Bounded concurrency — Effect.forEach preserves input order, so
+          // the indexed .replace below still pairs each regex match with
+          // its own command's output. Promise.all let a crafted prompt
+          // (N shell blocks in markdown) spawn N concurrent subprocesses
+          // and blow through macOS's 256-FD soft limit at N~200.
+          const results = yield* Effect.forEach(
+            shellMatches,
+            ([, cmd]) =>
+              Effect.promise(async () => (await Process.text([cmd], { shell: sh, nothrow: true })).text),
+            { concurrency: PROMPT_RESOLUTION_CONCURRENCY },
           )
           let index = 0
           template = template.replace(bashRegex, () => results[index++])
