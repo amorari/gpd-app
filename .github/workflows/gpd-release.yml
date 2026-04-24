@@ -81,8 +81,16 @@ jobs:
           HASHES=$(python3 scripts/check-tos-hashes.py)
           SHIPPED_TOS_SHA=$(echo "$HASHES" | sed -n '1p')
           SHIPPED_PRIV_SHA=$(echo "$HASHES" | sed -n '2p')
-          CONST_TOS_SHA=$(grep -oP 'TOS_TEXT_SHA256 =\s*\n?\s*"\K[0-9a-f]{64}' packages/app/src/components/tos-content.tsx || echo "")
-          CONST_PRIV_SHA=$(grep -oP 'PRIVACY_TEXT_SHA256 =\s*\n?\s*"\K[0-9a-f]{64}' packages/app/src/components/tos-content.tsx || echo "")
+          # Python for the extraction so the regex can span lines. GNU
+          # grep -oP is line-oriented without -z, so the previous
+          # `TOS_TEXT_SHA256 =\s*\n?\s*"..."` pattern never matched once
+          # prettier wrapped the 64-char SHA onto its own source line.
+          # That failure mode was masked locally by ugrep (which handles
+          # cross-line -oP) and only surfaced on GNU grep in Actions,
+          # where both captures came back empty and the guard fired
+          # "constants missing/malformed".
+          CONST_TOS_SHA=$(python3 -c 'import re,sys; m=re.search(r"TOS_TEXT_SHA256\s*=\s*\"([0-9a-f]{64})\"", open(sys.argv[1]).read()); print(m.group(1) if m else "")' packages/app/src/components/tos-content.tsx)
+          CONST_PRIV_SHA=$(python3 -c 'import re,sys; m=re.search(r"PRIVACY_TEXT_SHA256\s*=\s*\"([0-9a-f]{64})\"", open(sys.argv[1]).read()); print(m.group(1) if m else "")' packages/app/src/components/tos-content.tsx)
           if [ -z "$CONST_TOS_SHA" ] || [ -z "$CONST_PRIV_SHA" ]; then
             echo "::error::TOS_TEXT_SHA256 and/or PRIVACY_TEXT_SHA256 constants missing/malformed in tos-content.tsx"
             exit 1
