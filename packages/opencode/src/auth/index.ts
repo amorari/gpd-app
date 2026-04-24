@@ -1,4 +1,5 @@
 import path from "path"
+import lockfile from "proper-lockfile"
 import { Effect, Layer, Record, Result, Schema, Context } from "effect"
 import { zod } from "@/util/effect-zod"
 import { Global } from "../global"
@@ -56,7 +57,43 @@ export namespace Auth {
       const fsys = yield* AppFileSystem.Service
       const decode = Schema.decodeUnknownOption(Info)
 
+      // Shared cross-process advisory lock for every read-modify-write on
+      // auth.json. Without it, two writers that race (desktop + CLI,
+      // desktop + second window, etc.) each call all() before the other's
+      // rename lands, then each overwrite with their stale view → one
+      // writer's provider key silently disappears. proper-lockfile
+      // creates a sibling `.lock` directory with PID + heartbeat so a
+      // kill -9 holder's lock auto-releases within ~10s. Advisory only:
+      // other processes must also call acquireLock to participate, which
+      // is why the Rust side (removeGpdKey in src-tauri/src/lib.rs) and
+      // the uninstall scripts have to take the same lock.
+      //
+      // Locks the TARGET file (not a sibling sentinel) so a missing
+      // file is handled: proper-lockfile auto-creates .<name>.lock
+      // alongside it and creates the target via realpath if needed.
+      const withAuthLock = <A, E, R>(
+        span: string,
+        body: () => Effect.Effect<A, E, R>,
+      ): Effect.Effect<A, E | AuthError, R> =>
+        Effect.acquireUseRelease(
+          Effect.tryPromise({
+            try: () =>
+              lockfile.lock(file, {
+                realpath: false, // file may not exist yet on first-run
+                retries: { retries: 20, minTimeout: 50, maxTimeout: 500 },
+                stale: 10_000,
+              }),
+            catch: (cause) => new AuthError({ message: `Auth.${span}: could not acquire auth.json lock`, cause }),
+          }),
+          () => body(),
+          (release) => Effect.promise(() => release().catch(() => undefined)),
+        )
+
       const all = Effect.fn("Auth.all")(function* () {
+        // Read path intentionally unlocked — atomic rename from a writer
+        // means readers either see the OLD file or the NEW one, never a
+        // torn mix. Locking the read would serialise all auth refreshes
+        // behind writes for no safety benefit.
         const data = (yield* fsys.readJson(file).pipe(Effect.orElseSucceed(() => ({})))) as Record<string, unknown>
         return Record.filterMap(data, (value) => Result.fromOption(decode(value), () => undefined))
       })
@@ -67,20 +104,28 @@ export namespace Auth {
 
       const set = Effect.fn("Auth.set")(function* (key: string, info: Info) {
         const norm = key.replace(/\/+$/, "")
-        const data = yield* all()
-        if (norm !== key) delete data[key]
-        delete data[norm + "/"]
-        yield* fsys
-          .writeJsonAtomic(file, { ...data, [norm]: info }, 0o600)
-          .pipe(Effect.mapError(fail("Failed to write auth data")))
+        yield* withAuthLock("set", () =>
+          Effect.gen(function* () {
+            const data = yield* all()
+            if (norm !== key) delete data[key]
+            delete data[norm + "/"]
+            yield* fsys
+              .writeJsonAtomic(file, { ...data, [norm]: info }, 0o600)
+              .pipe(Effect.mapError(fail("Failed to write auth data")))
+          }),
+        )
       })
 
       const remove = Effect.fn("Auth.remove")(function* (key: string) {
         const norm = key.replace(/\/+$/, "")
-        const data = yield* all()
-        delete data[key]
-        delete data[norm]
-        yield* fsys.writeJsonAtomic(file, data, 0o600).pipe(Effect.mapError(fail("Failed to write auth data")))
+        yield* withAuthLock("remove", () =>
+          Effect.gen(function* () {
+            const data = yield* all()
+            delete data[key]
+            delete data[norm]
+            yield* fsys.writeJsonAtomic(file, data, 0o600).pipe(Effect.mapError(fail("Failed to write auth data")))
+          }),
+        )
       })
 
       return Service.of({ get, all, set, remove })

@@ -382,7 +382,32 @@ fn remove_gpd_key() -> Result<(), String> {
     if let Some(parent) = auth_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
     }
-    std::fs::write(&auth_path, serialized).map_err(|e| format!("write auth.json: {e}"))?;
+
+    // Atomic tmp+rename so a crash between open and write leaves the
+    // PREVIOUS auth.json intact rather than a truncated / 0-byte file.
+    // Same contract the Node side holds via writeJsonAtomic
+    // (packages/opencode/src/filesystem/index.ts). POSIX rename is
+    // atomic; Windows std::fs::rename (fs_rename.rs) uses
+    // MoveFileExW(REPLACE_EXISTING) under the hood.
+    //
+    // KNOWN GAP: this path does NOT coordinate with the Node-side
+    // proper-lockfile around Auth.set/remove. Node uses directory-based
+    // locking (`.auth.json.lock/` mkdir-atomicity) incompatible with
+    // Rust's flock primitives. A sidecar Auth.set racing with this
+    // revoke-triggered remove_gpd_key can still drop the sidecar's
+    // write. Probability: low (revoke is one user click, sidecars don't
+    // auto-write auth.json during steady-state). Tracked as a follow-up
+    // — port the proper-lockfile directory-lock protocol to Rust so
+    // both sides take the same sentinel.
+    let tmp_path = auth_path.with_extension(format!("tmp.{}", std::process::id()));
+    std::fs::write(&tmp_path, &serialized).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("write auth.json.tmp: {e}")
+    })?;
+    std::fs::rename(&tmp_path, &auth_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("rename auth.json.tmp -> auth.json: {e}")
+    })?;
     Ok(())
 }
 
