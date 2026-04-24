@@ -1,28 +1,55 @@
 # GPD's LiteLLM image
 
-Ships stock `ghcr.io/berriai/litellm:<pin>` + two custom routes:
+Ships stock `ghcr.io/berriai/litellm:<pin>` + custom routes and a consent
+gate:
 
 - **`POST /gpd/log`** — session-log ingest to `gs://gpd-desktop-logs`. SA
   key lives only on Railway; desktop clients authenticate with their
   existing LiteLLM virtual key.
 - **`POST /gpd/tos-accept`** — Terms-of-Service acceptance writer. Writes
   one append-only row per (user, version, device) to `gpd_tos_acceptance`
-  in LiteLLM's Postgres DB. Same virtual-key auth.
+  in a dedicated audit Postgres (`GPD_AUDIT_DATABASE_URL`). Same
+  virtual-key auth.
+- **`POST /gpd/tos-revoke`** — marks every acceptance row for the user
+  with `revoked_at = now()`. Does NOT delete — Art. 17(3)(e) retention.
+- **Consent gate (no route)** — `gpd_consent` registers a
+  `CustomLogger` on `litellm.callbacks` that 403s every LLM API call
+  (completions, embeddings, moderation, speech, transcription, pass-through
+  including `/gpd/log`) when the caller's `user_id` has a non-null
+  `revoked_at`. Without this gate, `/gpd/tos-revoke` would be cosmetic
+  (DB row flipped, processing continues). Fails closed on audit-DB
+  outage (HTTP 503).
 
 ## What's in here
 
 | File | What it does |
 |---|---|
-| `Dockerfile` | 3-line layer on top of stock LiteLLM |
+| `Dockerfile` | 4-line layer on top of stock LiteLLM |
 | `gpd_log/hook.py` | `register()` entry point for `LITELLM_WORKER_STARTUP_HOOKS` — wires `/gpd/log` |
 | `gpd_log/middleware.py` | Rejects requests with missing / oversized Content-Length before the body hits memory |
 | `gpd_log/handler.py` | The route: auth → rate-limit → byte-quota → GCS upload |
 | `gpd_log/gcs_writer.py` | `upload_from_string(if_generation_match=0)` idempotent write |
 | `gpd_log/quota.py` | Per-key daily byte counter in Redis, fail-closed |
-| `gpd_tos/hook.py` | `register()` entry — wires `/gpd/tos-accept` |
-| `gpd_tos/handler.py` | Auth → validate version → capture IP/UA → insert row |
-| `gpd_tos/db.py` | Lazy `PrismaClient` singleton + parameterised `INSERT` helper |
-| `scripts/create-tos-table.sql` | One-time DDL for `gpd_tos_acceptance` (apply before deploying) |
+| `gpd_tos/hook.py` | `register()` entry — wires `/gpd/tos-accept` + `/gpd/tos-revoke` + runs migrations |
+| `gpd_tos/handler.py` | Auth → validate version → capture IP/UA → insert row; also the revoke endpoint |
+| `gpd_tos/db.py` | Lazy asyncpg pool + parameterised `INSERT`/`UPDATE` helpers |
+| `gpd_consent/hook.py` | `register()` entry — appends `ConsentGateLogger` to `litellm.callbacks` |
+| `gpd_consent/consent_gate.py` | `CustomLogger.async_pre_call_hook` — 403 on revoked, 503 on DB outage |
+| `gpd_consent/db.py` | Reuses `gpd_tos.db` pool to query newest acceptance row |
+| `gpd_consent/cache.py` | Per-worker TTL dict (300s) + `invalidate(user_id)` called from `/gpd/tos-revoke` |
+| `tests/` | pytest + testcontainers harness for the consent gate, run via `.github/workflows/litellm-server-tests.yml` |
+
+## Consent-gate propagation
+
+The gate's TTL cache is **per worker, per process**. A `/gpd/tos-revoke`
+call invalidates the cache entry on the handling worker immediately, but
+other workers continue serving cached "not revoked" state until the TTL
+(default 300s) expires. Net effect: a revoked user can be served for up
+to 5 minutes by workers other than the one that handled the revoke.
+
+If legal requires immediate global invalidation, swap
+`gpd_consent/cache.py` for a Redis-backed variant where revoke PUBLISHes
+an eviction message and workers SUBSCRIBE on startup.
 
 ## One-time GCP setup
 

@@ -219,4 +219,17 @@ async def gpd_tos_revoke(
         logger.exception("gpd_tos.mark_revoked failed: %s", e)
         raise HTTPException(503, detail="tos revoke failed") from None
 
+    # Evict the consent-gate cache entry on THIS worker so the next LLM
+    # request sees the revocation immediately instead of waiting up to
+    # 300s for the TTL to expire. Other workers still lag by ≤ TTL; swap
+    # the cache for Redis pub/sub if legal requires cross-worker-immediate
+    # propagation. Local import to keep gpd_tos independent of the
+    # consent package at module load.
+    try:
+        from gpd_consent import cache as consent_cache
+
+        await consent_cache.invalidate(user_id)
+    except Exception:
+        logger.exception("gpd_consent cache invalidate failed (non-fatal)")
+
     return {"ok": True, "rows_revoked": count}

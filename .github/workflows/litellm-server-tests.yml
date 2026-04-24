@@ -1,0 +1,69 @@
+name: LiteLLM server tests
+
+# Pytest suite for the server-side hooks under infra/litellm/. Covers the
+# TOS consent gate, audit-DB writer, and XFF last-hop extraction. Uses a
+# GitHub-hosted Postgres service container (not testcontainers) so the
+# runner doesn't need Docker-in-Docker — pytest still picks it up via the
+# GPD_TEST_AUDIT_DATABASE_URL env var consumed by conftest.py.
+#
+# Nightly + PR on infra/litellm/** changes. Independent of the proxy
+# smoke-test workflow, which hits a live Railway preview.
+
+on:
+  pull_request:
+    paths:
+      - "infra/litellm/**"
+      - ".github/workflows/litellm-server-tests.yml"
+  push:
+    branches: [gpd]
+    paths:
+      - "infra/litellm/**"
+      - ".github/workflows/litellm-server-tests.yml"
+  schedule:
+    - cron: "13 7 * * *" # 07:13 UTC daily — catches upstream LiteLLM breakage
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: litellm-server-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: gpd_test
+          POSTGRES_PASSWORD: gpd_test
+          POSTGRES_DB: gpd_audit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U gpd_test"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    env:
+      GPD_TEST_AUDIT_DATABASE_URL: "postgresql://gpd_test:gpd_test@localhost:5432/gpd_audit_test"
+      PYTHONPATH: "${{ github.workspace }}/infra/litellm"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install deps
+        working-directory: infra/litellm/tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        working-directory: infra/litellm/tests
+        run: |
+          pytest -v unit/

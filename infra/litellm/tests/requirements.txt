@@ -1,0 +1,9 @@
+# Test dependencies for infra/litellm/. Mirrors runtime (asyncpg pinned to
+# match Dockerfile) plus pytest harness.
+asyncpg==0.31.0
+litellm==1.83.7
+pytest>=8.0
+pytest-asyncio>=0.23
+testcontainers[postgres]>=4.8
+httpx>=0.27
+fastapi>=0.115

@@ -29,17 +29,24 @@ FROM ghcr.io/berriai/litellm:v1.83.7-stable
 RUN pip install --no-cache-dir asyncpg==0.31.0
 
 # Our hook modules.
-#   gpd_log → POST /gpd/log (session-event ingest to GCS). See
-#             infra/litellm/gpd_log/README.md for architecture.
-#   gpd_tos → POST /gpd/tos-accept + /gpd/tos-revoke (TOS audit writer,
-#             separate Postgres via GPD_AUDIT_DATABASE_URL). See
-#             docs/LOGGING.md + infra/litellm/gpd_tos/migrations/.
+#   gpd_log     → POST /gpd/log (session-event ingest to GCS). See
+#                 infra/litellm/gpd_log/README.md for architecture.
+#   gpd_tos     → POST /gpd/tos-accept + /gpd/tos-revoke (TOS audit
+#                 writer, separate Postgres via GPD_AUDIT_DATABASE_URL).
+#                 See docs/LOGGING.md + infra/litellm/gpd_tos/migrations/.
+#   gpd_consent → CustomLogger on litellm.callbacks that 403s LLM calls
+#                 from users with non-null revoked_at. Reads
+#                 gpd_tos_acceptance via gpd_tos.db's asyncpg pool, so it
+#                 MUST register after gpd_tos (order of the ENV list
+#                 controls hook invocation; LiteLLM iterates left-to-right).
 COPY gpd_log /app/gpd_log
 COPY gpd_tos /app/gpd_tos
+COPY gpd_consent /app/gpd_consent
 
-# Activate both hooks. LiteLLM iterates this comma-separated list during
-# worker startup (proxy_server.py:777-803, PR #22931) and calls each
-# entry as `module:function`. Both hooks run sequentially; failure in
-# one does not halt the others (each register() has a try-local scope).
-ENV LITELLM_WORKER_STARTUP_HOOKS=gpd_log.hook:register,gpd_tos.hook:register
+# Activate hooks in order. LiteLLM iterates this comma-separated list
+# during worker startup (proxy_server.py:777-803, PR #22931) and calls
+# each entry as `module:function`. gpd_consent registers LAST so the
+# audit-DB pool opened by gpd_tos is already alive when consent_gate.db
+# issues its first query.
+ENV LITELLM_WORKER_STARTUP_HOOKS=gpd_log.hook:register,gpd_tos.hook:register,gpd_consent.hook:register
 ENV PYTHONPATH=/app

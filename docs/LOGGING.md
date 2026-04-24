@@ -428,6 +428,8 @@ a redeploy automatically.
 | Symptom | First place to look |
 |---|---|
 | Client showing "logging disabled" or toasts about auth | `Auth.Service.get("gpd")` state. Virtual key may have been revoked. |
+| LLM calls returning 403 `consent_revoked` for a specific user | Audit DB has a non-null `revoked_at` for that user_id. Check `gpd_tos_acceptance` for the newest row. If the user has re-accepted, invalidate the per-worker cache by redeploying or waiting ≤ 300s. |
+| LLM calls returning 503 `consent_check_unavailable` across users | Audit DB unreachable from the LiteLLM pod. Check `GPD_AUDIT_DATABASE_URL` resolves + the `gpd_audit` service health. Gate is fail-closed by design — every worker serves 503 until the DB comes back. |
 | Spill dir filling up | Network or LiteLLM down. `ls ~/.local/share/opencode/gpd-log-spill/`. Fixes itself when connectivity returns; replay loop ticks every 30 s while spill is non-empty. |
 | No objects in GCS | `railway logs --service litellm -d <deployment-id>` — look for Python exceptions in `gpd_log.*`. |
 | BigQuery rows not appearing | Check scheduled transfer run history: `bq show --transfer_config projects/.../transferConfigs/<ID>`. |
