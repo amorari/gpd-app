@@ -1,0 +1,40 @@
+language: en-US
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+  # Exclude non-source paths from review to stay under the 150-file CodeRabbit
+  # review cap and keep attention on code that actually benefits from review.
+  # Keep this list minimal and justified — every entry below is deliberately
+  # not source code (docs, vendored deps, lockfiles, fixtures, generated
+  # baselines, self-verifying unit tests, broad/harness-selftest scaffolding).
+  path_filters:
+    - "!packages/desktop/tests-gui/docs/**"
+    - "!packages/desktop/tests-gui/vendor/**"
+    - "!packages/desktop/tests-gui/uv.lock"
+    - "!packages/desktop/tests-gui/.coveragerc"
+    - "!packages/desktop/tests-gui/.gitignore"
+    - "!packages/desktop/tests-gui/.claude/**"
+    - "!packages/desktop/tests-gui/gpd_tests/fixtures/**"
+    - "!packages/desktop/tests-gui/tests_unit/**"
+    - "!packages/desktop/tests-gui/tests/broad/**"
+    - "!packages/desktop/tests-gui/tests/harness_selftest/**"
+    # Repo-wide generated / vendored exclusions
+    - "!**/*.lock"
+    - "!**/bun.lock"
+    - "!**/bun.lockb"
+    - "!**/package-lock.json"
+    - "!**/yarn.lock"
+    - "!**/Cargo.lock"
+    - "!THIRD_PARTY_NOTICES.md"
+    - "!THIRD_PARTY_SUMMARIES.md"
+
+chat:
+  auto_reply: true
