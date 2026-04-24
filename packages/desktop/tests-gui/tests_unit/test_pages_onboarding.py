@@ -216,22 +216,42 @@ def test_enter_api_key_raises_when_actual_value_mismatches() -> None:
 
 
 @pytest.mark.unit
-def test_enter_api_key_escapes_backslash_and_quote_in_key() -> None:
+@pytest.mark.parametrize(
+    "key",
+    [
+        "sk-\\'danger'",       # backslash + single-quote
+        'sk-"double"quote',    # double-quote (the highest-risk injection char)
+        "sk-</script>inject",  # HTML script-context char
+        "sk-\nmulti\nline",    # newline
+    ],
+)
+def test_enter_api_key_emits_js_literal_that_round_trips_to_key(key: str) -> None:
+    """Behavioral guarantee: whatever escape strategy the product uses, the
+    key literal embedded in the emitted JS must parse back to `key`.
+
+    Extracts the JS string literal at the `nativeSetter.call(inp, ...)`
+    call site (the only place the raw key is injected into JS) and
+    round-trips it through a JSON parser — JSON string syntax is a subset
+    of JS string syntax, so a value that json.loads accepts is also what a
+    JS engine would see. Any escape regression (dropped quote, missed
+    backslash, unescaped control char) breaks the round-trip.
+    """
     import json as _json
 
     mcp = MagicMock()
     page = Onboarding(mcp)
     page._probe = MagicMock()
-    key = "sk-\\'danger'"
     page._probe.eval.return_value = ["form-submitted", key]
     page.enter_api_key(key)
     js = page._probe.eval.call_args.args[0]
-    # Implementation now uses json.dumps to produce a valid JS string
-    # literal (double-quoted, backslashes doubled, control chars escaped).
-    # The test guarantees: whatever escape strategy the product uses, the
-    # exact key must be recoverable from the emitted JS. json.dumps(key)
-    # is exactly what the source embeds as `key_js`.
-    assert _json.dumps(key) in js
+
+    anchor = "nativeSetter.call(inp, "
+    idx = js.find(anchor)
+    assert idx != -1, f"emitted JS missing {anchor!r} call site; got {js!r}"
+    parsed, _offset = _json.JSONDecoder().raw_decode(js[idx + len(anchor):])
+    assert parsed == key, (
+        f"round-trip failed: emitted literal parsed to {parsed!r}, expected {key!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

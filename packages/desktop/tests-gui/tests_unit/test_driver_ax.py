@@ -45,14 +45,14 @@ def test_main_window_geometry_parses_delimited():
 
 
 @pytest.mark.unit
-def test_main_window_preserves_title_with_commas():
-    """Title containing commas must not break the parser."""
+def test_main_window_raises_when_geometry_has_wrong_part_count():
+    """Geometry with fewer or more than 4 space-separated ints must raise."""
     with patch(
         "gpd_tests.drivers.ax._osascript",
-        side_effect=["", "1", "0 0 100 200", "My, Project"],
+        side_effect=["", "1", "88 32 1408"],  # 3 parts
     ):
-        geom = AXClient().main_window()
-    assert geom["title"] == "My, Project"
+        with pytest.raises(RuntimeError, match="expected 4 geometry parts"):
+            AXClient().main_window()
 
 
 @pytest.mark.unit
