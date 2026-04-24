@@ -41,7 +41,12 @@ def extract(rs_file: Path) -> list[dict]:
 def main() -> int:
     src_dir = Path(__file__).resolve().parents[2] / "src-tauri" / "src"
     all_commands = []
-    for rs in sorted(src_dir.glob("*.rs")):
+    # rglob so nested modules (os/mod.rs, project_fs/*.rs, feature
+    # subfolders) are scanned. The non-recursive glob missed 18 of the
+    # 34 #[tauri::command] attributes at the time of writing, producing
+    # a stale catalog that tests would then validate against stale
+    # expectations.
+    for rs in sorted(src_dir.rglob("*.rs")):
         all_commands.extend(extract(rs))
     json.dump(all_commands, sys.stdout, indent=2)
     return 0

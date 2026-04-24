@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Continue the sweep from ipc onward (unit/smoke/surfaces already done).
+#
+# -u + -o pipefail: see run_full_sweep.sh for rationale. Without
+# pipefail, the `rc=$?` below captures tail's exit code (always 0)
+# instead of pytest's.
 set -u
+set -o pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 : "${GPD_APP_PATH:=$REPO_ROOT/packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app}"

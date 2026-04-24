@@ -312,7 +312,13 @@ def seed_onboarding_state(request):
     _sentinel_path.parent.mkdir(parents=True, exist_ok=True)
 
     auth_backup: Path | None = None
+    created_auth = not auth_path.exists()
     created_sentinel = False
+    # Hash of the content this fixture writes below. We use it on teardown
+    # to confirm the file still contains exactly what we seeded before
+    # deleting it — so if the user somehow edited auth.json during the
+    # test, we leave their edits alone rather than clobbering them.
+    seeded_blob = json.dumps({"gpd": {"type": "api", "key": key}}) + "\n"
 
     if auth_path.exists():
         auth_backup = auth_path.with_suffix(".json.bak-test-session")
@@ -324,24 +330,33 @@ def seed_onboarding_state(request):
         shutil.copy2(auth_path, auth_backup)
 
     def restore():
-        # SAFETY: only delete post-test artifacts this fixture itself
-        # created. A previous version had an ``elif auth_path.exists():
-        # auth_path.unlink()`` branch that would wipe a real user key if
-        # the seed fixture wrote one while no prior file existed. That
-        # delete-on-teardown is destructive and unrecoverable; callers
-        # can always clean their own writes explicitly.
+        # SAFETY rules:
+        #   1. If we BACKED UP a pre-existing file, restore from backup.
+        #      Never unlink unconditionally — a previous version had an
+        #      `elif auth_path.exists(): auth_path.unlink()` branch that
+        #      could wipe a real user key.
+        #   2. If we CREATED the file (no pre-existing version), delete
+        #      only if it still matches the seed we wrote. If the user
+        #      or the product overwrote it during the test (unlikely but
+        #      possible), leave their content.
         if auth_backup and auth_backup.exists():
             shutil.copy2(auth_backup, auth_path)
             auth_backup.unlink()
+        elif created_auth and auth_path.exists():
+            try:
+                if auth_path.read_text() == seeded_blob:
+                    auth_path.unlink()
+            except OSError:
+                # Read failed — leave file untouched rather than
+                # guessing at its state.
+                pass
         if created_sentinel and _sentinel_path.exists():
             _sentinel_path.unlink()
 
     # Register finalizer BEFORE writing, so teardown runs even if setup fails.
     request.addfinalizer(restore)
 
-    auth_path.write_text(
-        json.dumps({"gpd": {"type": "api", "key": key}}) + "\n"
-    )
+    auth_path.write_text(seeded_blob)
     auth_path.chmod(0o600)
 
     if not _sentinel_path.exists():
@@ -668,6 +683,19 @@ def git_project_dir(tmp_path):
     """
     import subprocess
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    # Set a repo-local identity so `git commit` works even on clean
+    # machines and CI runners where global user.name / user.email aren't
+    # configured. Without this, `git commit --allow-empty` below fails
+    # with "Author identity unknown" and every test using this fixture
+    # dies before reaching the app.
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "tests-gui@gpd.local"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "tests-gui"],
+        check=True, capture_output=True,
+    )
     subprocess.run(
         ["git", "-C", str(tmp_path), "commit", "--allow-empty", "-m", "init"],
         check=True, capture_output=True,

@@ -187,25 +187,36 @@ class AXClient:
             if probe.strip().isdigit() and int(probe) >= 1:
                 break
             time.sleep(0.1)
-        # Use a delimiter that cannot appear in a window title.
-        delim = "|||"
-        script = f'''
+        # Split the query into geometry (4 integers) and title (1 string)
+        # so the title — which is fully user-controlled (project / session
+        # name) — never has to survive a delimiter split. A naive "|||"
+        # delimiter would corrupt `parts[0:4]` if a user ever named a
+        # project / session to contain three consecutive pipes.
+        geom_script = f'''
         tell application "System Events"
           tell process "{app}"
             set _w to first window
             set _pos to position of _w
             set _sz to size of _w
-            set _t to name of _w
-            return (item 1 of _pos as string) & "{delim}" & (item 2 of _pos as string) & "{delim}" & (item 1 of _sz as string) & "{delim}" & (item 2 of _sz as string) & "{delim}" & _t
+            return (item 1 of _pos as string) & " " & (item 2 of _pos as string) & " " & (item 1 of _sz as string) & " " & (item 2 of _sz as string)
           end tell
         end tell
         '''
-        raw = _osascript(script)
-        parts = raw.split(delim)
+        title_script = f'''
+        tell application "System Events"
+          tell process "{app}"
+            return name of first window
+          end tell
+        end tell
+        '''
+        geom_parts = _osascript(geom_script).split()
+        if len(geom_parts) != 4:
+            raise RuntimeError(f"expected 4 geometry parts, got {geom_parts!r}")
+        title = _osascript(title_script).strip()
         return {
-            "x": int(parts[0]),
-            "y": int(parts[1]),
-            "w": int(parts[2]),
-            "h": int(parts[3]),
-            "title": delim.join(parts[4:]).strip(),
+            "x": int(geom_parts[0]),
+            "y": int(geom_parts[1]),
+            "w": int(geom_parts[2]),
+            "h": int(geom_parts[3]),
+            "title": title,
         }

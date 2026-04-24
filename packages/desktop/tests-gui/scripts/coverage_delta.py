@@ -13,20 +13,28 @@ from pathlib import Path
 
 
 def _parse(path: Path) -> dict[str, dict[int, bool]]:
-    """Returns {filename: {line_number: hit_bool}}."""
+    """Returns {filename: {line_number: hit_bool}}.
+
+    Coverage XML can contain multiple <class> elements with the same
+    filename (coverage.py emits one per source file per coverage
+    session, and merged reports preserve them). Previously we did
+    ``out[fname] = hits`` per <class>, which silently dropped all but
+    the last group's line data. Now we merge across duplicates and
+    OR the hit bits so a line covered in any subreport counts as
+    covered in the merged view.
+    """
     tree = ET.parse(path)
     out: dict[str, dict[int, bool]] = {}
     for cls in tree.iter("class"):
         fname = cls.get("filename") or cls.get("name") or "?"
-        hits: dict[int, bool] = {}
+        hits = out.setdefault(fname, {})
         for ln in cls.iter("line"):
             try:
                 n = int(ln.get("number") or "0")
                 h = int(ln.get("hits") or "0") > 0
             except (TypeError, ValueError):
                 continue
-            hits[n] = h
-        out[fname] = hits
+            hits[n] = hits.get(n, False) or h
     return out
 
 

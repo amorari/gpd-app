@@ -723,7 +723,14 @@ class HTTPClient:
         # Use a longer per-request read timeout for streaming. Connect
         # timeout still obeys the client-wide default. Auth is applied
         # automatically from the Client's bound auth.
-        req = self._client.build_request("GET", "/global/event")
+        #
+        # httpx.Timeout: None for read so SSE can block indefinitely
+        # between frames up to ``timeout_s``; connect + write + pool
+        # inherit the client-wide default. Without this the request
+        # would use the Client's default 30s read timeout and drop
+        # long-lived SSE subscriptions regardless of ``timeout_s``.
+        stream_timeout = httpx.Timeout(timeout_s, read=timeout_s)
+        req = self._client.build_request("GET", "/global/event", timeout=stream_timeout)
         r = self._client.send(req, stream=True)
         r.raise_for_status()
         try:

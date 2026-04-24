@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 # Runs the full test suite N times per marker group, collects JUnit XML.
 # Assumes GPD Dev is already running.
-set -u  # no -e: we want failures, not aborts
+#
+# -u: unset variables abort (catches typos in env-driven paths).
+# -o pipefail: propagate pytest's exit status through `| tail -N` so
+#   PIPESTATUS[0] reflects the actual test run rather than tail's 0.
+#   Sweep aggregation relies on JUnit XMLs, but the `|| true` / visible
+#   rc in the loop below now reports correctly when pytest fails.
+# No -e: we intentionally keep going across iterations to collect full
+# flakiness data even after a failing run.
+set -u
+set -o pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 : "${GPD_APP_PATH:=$REPO_ROOT/packages/desktop/src-tauri/target/debug/bundle/macos/GPD Dev.app}"
@@ -23,6 +32,11 @@ run_group() {
       uv run pytest "$shift_path" -m "$marker" --junitxml="$xml" 2>&1 | tail -5
     else
       uv run pytest -m "$marker" --junitxml="$xml" 2>&1 | tail -5
+    fi
+    # With pipefail set above, $? is pytest's exit code, not tail's.
+    local rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "--- $label iter $i exited rc=$rc ---"
     fi
   done
 }

@@ -10,7 +10,12 @@ _DICT_PATH = Path(__file__).parent.parent / "fixtures" / "en.json"
 
 @lru_cache(maxsize=1)
 def _load() -> dict[str, str]:
-    with _DICT_PATH.open() as f:
+    # Explicit UTF-8: en.json is written as UTF-8 and may gain non-ASCII
+    # strings over time (apostrophes, smart quotes, accented characters
+    # in product copy). The default encoding would be the process locale,
+    # which is UTF-8 on modern macOS/Linux but not guaranteed on Windows
+    # CI runners or containers with the C locale.
+    with _DICT_PATH.open(encoding="utf-8") as f:
         return json.load(f)
 
 

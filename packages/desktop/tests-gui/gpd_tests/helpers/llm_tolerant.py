@@ -4,6 +4,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import httpx
+
 _MAX_REPR = 500
 
 
@@ -50,7 +52,11 @@ def wait_for_assistant_text(
     while time.monotonic() < deadline:
         try:
             msgs = http.messages(session_id)
-        except Exception:
+        except (httpx.TransportError, httpx.HTTPStatusError, httpx.TimeoutException):
+            # Only swallow transient transport/HTTP errors here. Assertion
+            # failures, KeyError from malformed responses, and other
+            # programming errors should surface so we don't mask
+            # harness/product bugs as "real-backend returned no text".
             time.sleep(poll_s)
             continue
         assistant_msgs = [
